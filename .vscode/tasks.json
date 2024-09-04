@@ -1,0 +1,41 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Debug",
+            "type": "shell",
+            "command": "make",
+            "args": ["$(DEBUG_TARGET)"],  // Build Debug binary
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Build debug version using Makefile"
+        },
+        {
+            "label": "Build Release",
+            "type": "shell",
+            "command": "make",
+            "args": ["$(RELEASE_TARGET)"],  // Build Release binary
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Build release version using Makefile"
+        },
+        {
+            "label": "Clean Project",
+            "type": "shell",
+            "command": "make",
+            "args": ["clean"],  // Call 'make clean' to clean the build files
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Clean build files using Makefile"
+        }
+    ]
+}

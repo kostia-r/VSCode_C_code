@@ -1,0 +1,3 @@
+# Ignore Debug and Release build folders
+Debug/
+Release/
