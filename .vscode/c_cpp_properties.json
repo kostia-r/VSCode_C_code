@@ -1,0 +1,19 @@
+{
+  "configurations": [
+      {
+          "name": "Linux",
+          "includePath": [
+              "${workspaceFolder}/Inc"                // Include path for headers
+          ],
+          "defines": [
+              "DEBUG",                                // Defines to match Makefile
+              "VERSION=\"2.1\""
+          ],
+          "compilerPath": "/usr/bin/gcc",             // GCC compiler
+          "cStandard": "c11",
+          "cppStandard": "c++17",
+          "intelliSenseMode": "gcc-x64"
+      }
+  ],
+  "version": 4
+}
