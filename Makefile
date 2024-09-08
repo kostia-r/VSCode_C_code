@@ -5,25 +5,28 @@ TARGET_NAME := $(notdir $(CURDIR))
 SRC_DIRS += Src
 # List of include paths
 INC_DIRS += Inc
-# Compilation flags: DEBUG, VERSION="2.1" (as string)
+# Debug Compilation flags: DEBUG, VERSION="2.1" (as string)
 DEFINES_DEBUG := -DDEBUG -DVERSION=\"2.1\"
+# Release Compilation flags: RELEASE
 DEFINES_RELEASE := -DRELEASE
 #####################################################################
 
 # Detect the OS
 ifeq ($(OS),Windows_NT)
     # Windows settings
-    RM = del /Q
-    MKDIR = if not exist $(OBJ_PATH) mkdir $(OBJ_PATH)
+    RM = rmdir /S /Q
+    MKDIR = if not exist "$(OBJ_PATH)" mkdir "$(OBJ_PATH)"
+    MKDIR_SUBDIR = if not exist "$(subst /,\,$(dir $@))" mkdir "$(subst /,\,$(dir $@))"
     TARGET_NAME := $(addsuffix .exe,$(TARGET_NAME))
     RUN_CMD_DEBUG = $(DEBUG_TARGET)
-	RUN_CMD_RELEASE = $(RELEASE_TARGET)
+    RUN_CMD_RELEASE = $(RELEASE_TARGET)
 else
     # Linux settings
     RM = rm -rf
     MKDIR = mkdir -p $(OBJ_PATH)
+    MKDIR_SUBDIR = mkdir -p $(dir $@)
     RUN_CMD_DEBUG = ./$(DEBUG_TARGET)
-	RUN_CMD_RELEASE = ./$(RELEASE_TARGET)
+    RUN_CMD_RELEASE = ./$(RELEASE_TARGET)
 endif
 
 # tool macros
@@ -67,26 +70,26 @@ default: makedir all
 
 # linking debug mode
 $(DEBUG_TARGET): $(OBJ)
-	@echo "Linking debug target $(DEBUG_TARGET) ..."
-	@echo "Object files: $(OBJ)"
+#	@echo "Linking debug target $(DEBUG_TARGET) ..."
+#	@echo "Object files: $(OBJ)"
 	$(CC) $(CCFLAGS_DEBUG) -o $@ $(OBJ)
 
 # linking release mode
 $(RELEASE_TARGET): $(REL_OBJ)
-	@echo "Linking release target $(RELEASE_TARGET) ..."
-	@echo "Object files: $(REL_OBJ)"
-	$(CC) $(CCFLAGS_DEBUG) $(RELFLAGS) -o $@ $(REL_OBJ)
+#	@echo "Linking release target $(RELEASE_TARGET) ..."
+#	@echo "Object files: $(REL_OBJ)"
+	$(CC) $(CCFLAGS_RELEASE) $(RELFLAGS) -o $@ $(REL_OBJ)
 
 # Rule for compiling .c files into .o object files
-# We need to take care of full paths
 $(OBJ_PATH)/%.o: %.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $< into $@ ..."
+#	@echo "Creating directory: $(dir $@)"
+	@$(MKDIR_SUBDIR)
+#	@echo "Compiling $< into $@ ..."
 	$(CC) $(CCOBJFLAGS_DEBUG) $(DBGFLAGS) $(INCLUDES) -o $@ $<
 
 $(REL_OBJ_PATH)/%.o: %.c
-	@mkdir -p $(dir $@)
-	@echo "Compiling $< into $@ ..."
+	@$(MKDIR_SUBDIR)
+#	@echo "Compiling $< into $@ ..."
 	$(CC) $(CCOBJFLAGS_RELEASE) $(RELFLAGS) $(INCLUDES) -o $@ $<
 
 # phony rules
@@ -98,12 +101,13 @@ makedir:
 all: $(DEBUG_TARGET) $(RELEASE_TARGET)
 
 .PHONY: debug
-debug: makedir all $(DEBUG_TARGET)
+debug: $(DEBUG_TARGET)
+
+.PHONY: release
+release: $(RELEASE_TARGET)
 
 .PHONY: run
 run: makedir all
-#	@echo "Running the program..."
-#	$(RUN_CMD_DEBUG)
 	$(RUN_CMD_RELEASE)
 
 .PHONY: clean
