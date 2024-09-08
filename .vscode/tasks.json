@@ -5,7 +5,7 @@
             "label": "Build Debug",
             "type": "shell",
             "command": "make",
-            "args": ["$(DEBUG_TARGET)"],  // Build Debug binary
+            "args": ["debug"],
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -17,7 +17,7 @@
             "label": "Build Release",
             "type": "shell",
             "command": "make",
-            "args": ["$(RELEASE_TARGET)"],  // Build Release binary
+            "args": ["release"],
             "group": {
                 "kind": "build",
                 "isDefault": false
@@ -29,7 +29,7 @@
             "label": "Clean Project",
             "type": "shell",
             "command": "make",
-            "args": ["clean"],  // Call 'make clean' to clean the build files
+            "args": ["clean"],
             "group": {
                 "kind": "build",
                 "isDefault": false

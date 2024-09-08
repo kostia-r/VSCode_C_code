@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Project (No Debug)",
+      "name": "Run (Linux)",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/Release/${workspaceFolderBasename}",
@@ -15,7 +15,20 @@
       "preLaunchTask": "Build Release"
     },
     {
-      "name": "C/C++ Runner: Debug Session",
+      "name": "Run (Windows)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\Release\\${workspaceFolderBasename}.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "Build Release"
+    },
+    {
+      "name": "Debug (Linux)",
       "type": "cppdbg",
       "request": "launch",
       "args": [],
@@ -26,6 +39,45 @@
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "preLaunchTask": "Build Debug",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "Debug (Windows)",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": true,
+      "externalConsole": false,
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}\\Debug\\${workspaceFolderBasename}.exe",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "preLaunchTask": "Build Debug",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "cwd": "/home/kos/Desktop/VSCode_C_code",
+      "program": "/home/kos/Desktop/VSCode_C_code/build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
       "setupCommands": [
         {
           "description": "Enable pretty-printing for gdb",
