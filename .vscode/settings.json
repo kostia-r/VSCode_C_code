@@ -57,6 +57,8 @@
   "C_Cpp_Runner.useLinkTimeOptimization": false,
   "C_Cpp_Runner.msvcSecureNoWarnings": false,
   "files.associations": {
-    "module.h": "c"
+    ".static": "Makefile",
+    "module.h": "c",
+    "stdio.h": "c"
   }
 }
