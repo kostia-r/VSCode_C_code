@@ -63,6 +63,7 @@
     "stdint.h": "c",
     "stack_arr.h": "c",
     "stack_ll.h": "c",
-    "linkedlist.h": "c"
+    "linkedlist.h": "c",
+    "cstdint": "c"
   }
 }
