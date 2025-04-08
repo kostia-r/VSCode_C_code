@@ -4,6 +4,7 @@
 int main(void)
 {
     print_hello();
+    Host_Info();
 
     return 0;
 }
