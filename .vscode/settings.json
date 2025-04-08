@@ -60,6 +60,9 @@
     ".static": "Makefile",
     "module.h": "c",
     "stdio.h": "c",
-    "stdint.h": "c"
+    "stdint.h": "c",
+    "stack_arr.h": "c",
+    "stack_ll.h": "c",
+    "linkedlist.h": "c"
   }
 }
