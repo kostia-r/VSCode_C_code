@@ -17,17 +17,13 @@ if errorlevel 1 (
     exit /b %STATUS%
 )
 
-for %%I in ("%CD%") do set "APP_NAME=%%~nxI"
-set "EXE=%CD%\%APP_NAME%.exe"
-
-if not exist "%EXE%" (
-    echo Executable not found: %EXE%
-    popd
-    exit /b 1
-)
-
-"%EXE%"
+"%~dp0run.bat" %*
 set "STATUS=%ERRORLEVEL%"
+
+if not "%STATUS%"=="0" (
+    popd
+    exit /b %STATUS%
+)
 
 popd
 exit /b %STATUS%

@@ -11,7 +11,7 @@ SRC_DIRS := Src
 INC_DIRS := Inc
 
 # Build flags
-DEFINES := -DDEBUG -DVERSION=\"2.1\"
+DEFINES := -DDEBUG
 CFLAGS := -Wall -g3 $(DEFINES)
 LDFLAGS :=
 
