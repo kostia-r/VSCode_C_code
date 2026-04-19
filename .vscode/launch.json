@@ -2,63 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run (Linux)",
+      "name": "Debug",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/Release/${workspaceFolderBasename}",
+      "program": "${workspaceFolder}\\${workspaceFolderBasename}.exe",
       "args": [],
-      "stopAtEntry": false,
+      "stopAtEntry": true,
       "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false,
       "MIMode": "gdb",
-      "preLaunchTask": "Build Release"
-    },
-    {
-      "name": "Run (Windows)",
-      "type": "cppdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}\\Release\\${workspaceFolderBasename}.exe",
-      "args": [],
-      "stopAtEntry": false,
-      "cwd": "${workspaceFolder}",
-      "environment": [],
-      "externalConsole": false,
-      "MIMode": "gdb",
-      "preLaunchTask": "Build Release"
-    },
-    {
-      "name": "Debug (Linux)",
-      "type": "cppdbg",
-      "request": "launch",
-      "args": [],
-      "stopAtEntry": true,
-      "externalConsole": false,
-      "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}/Debug/${workspaceFolderBasename}",
-      "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
-      "preLaunchTask": "Build Debug",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        }
-      ]
-    },
-    {
-      "name": "Debug (Windows)",
-      "type": "cppdbg",
-      "request": "launch",
-      "args": [],
-      "stopAtEntry": true,
-      "externalConsole": false,
-      "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}\\Debug\\${workspaceFolderBasename}.exe",
-      "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
-      "preLaunchTask": "Build Debug",
+      "miDebuggerPath": "C:\\mingw64\\bin\\gdb.exe",
+      "preLaunchTask": "Build",
       "setupCommands": [
         {
           "description": "Enable pretty-printing for gdb",
@@ -73,11 +28,11 @@
       "request": "launch",
       "args": [],
       "stopAtEntry": false,
-      "externalConsole": false,
-      "cwd": "/home/kos/Desktop/VSCode_C_code",
-      "program": "/home/kos/Desktop/VSCode_C_code/build/Debug/outDebug",
+      "externalConsole": true,
+      "cwd": "c:/Users/krudenko/Desktop/Mophun/Src",
+      "program": "c:/Users/krudenko/Desktop/Mophun/Src/build/Debug/outDebug",
       "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
+      "miDebuggerPath": "C:/mingw64/bin/gdb.exe",
       "setupCommands": [
         {
           "description": "Enable pretty-printing for gdb",

@@ -5,18 +5,14 @@
 
 void print_hello(void)
 {
-#ifdef DEBUG
-    printf("Hello, World in debug!\n");
-#elif RELEASE
-    printf("Hello, World in Release!\n");
-#endif
+  printf("Hello, World in debug!\n");
 }
 
 void Host_Info(void)
 {
 	uint32_t word = 0x12345678;
 	uint8_t *word_ptr = (uint8_t*) (&word);
-	printf("TARGET: %ld-BIT ", sizeof(void*) * 8);
+	printf("TARGET: %llu-BIT ", (unsigned long long)(sizeof(void*) * 8));
 
 	if ((*(word_ptr) & 0xF) == 0x8)
 	{

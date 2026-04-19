@@ -3,8 +3,8 @@
 
 int main(void)
 {
-    print_hello();
-    Host_Info();
+  print_hello();
+  Host_Info();
 
-    return 0;
+  return 0;
 }

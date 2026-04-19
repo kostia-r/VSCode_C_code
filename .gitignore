@@ -1,3 +1,20 @@
-# Ignore Debug and Release build folders
+# Build output
+Build/
 Debug/
 Release/
+
+# Compiled binaries and object files
+*.exe
+*.o
+*.obj
+
+# Debug symbols and crash dumps
+*.pdb
+*.ilk
+*.dmp
+
+# Editor and OS noise
+*.swp
+*.tmp
+Thumbs.db
+Desktop.ini
