@@ -6,7 +6,9 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}\\${workspaceFolderBasename}.exe",
-            "args": [],
+            "args": [
+                "${workspaceFolder}\\mpn\\45596_decrypted.mpn"
+            ],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
             "environment": [],
