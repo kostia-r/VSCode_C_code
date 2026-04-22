@@ -17,21 +17,44 @@ enum
   OP_OR = 0x07,
   OP_XOR = 0x08,
   OP_SUB = 0x09,
+  OP_NOT = 0x0D,
   OP_NEG = 0x0E,
+  OP_EXSB = 0x0F,
   OP_EXSH = 0x10,
   OP_MOV = 0x11,
+  OP_ADDB = 0x12,
+  OP_SUBB = 0x13,
+  OP_ANDB = 0x14,
+  OP_ORB = 0x15,
+  OP_MOVB = 0x16,
+  OP_ADDH = 0x17,
+  OP_SUBH = 0x18,
+  OP_ANDH = 0x19,
+  OP_ORH = 0x1A,
   OP_MOVH = 0x1B,
   OP_SLLI = 0x1C,
   OP_SRAI = 0x1D,
   OP_SRLI = 0x1E,
   OP_ADDQ = 0x1F,
   OP_MULQ = 0x20,
-  OP_ADDH = 0x27,
+  OP_ADDBI = 0x21,
+  OP_ANDBI = 0x22,
+  OP_ORBI = 0x23,
+  OP_SLLB = 0x24,
+  OP_SRLB = 0x25,
+  OP_SRAB = 0x26,
+  OP_ADDHI = 0x27,
+  OP_ANDHI = 0x28,
+  OP_SLLH = 0x29,
+  OP_SRLH = 0x2A,
+  OP_SRAH = 0x2B,
   OP_BEQI = 0x2C,
   OP_BNEI = 0x2D,
   OP_BGEI = 0x2E,
   OP_BGTI = 0x30,
+  OP_BGTUI = 0x31,
   OP_BLEI = 0x32,
+  OP_BLEUI = 0x33,
   OP_BLTI = 0x34,
   OP_BEQIB = 0x36,
   OP_BNEIB = 0x37,
@@ -56,6 +79,7 @@ enum
   OP_ANDI = 0x4B,
   OP_MULI = 0x4C,
   OP_DIVI = 0x4D,
+  OP_DIVUI = 0x4E,
   OP_ORI = 0x4F,
   OP_STBD = 0x52,
   OP_STHD = 0x53,
@@ -169,12 +193,34 @@ static const char *opcode_name(uint8_t op)
     return "XOR";
   case OP_SUB:
     return "SUB";
+  case OP_NOT:
+    return "NOT";
   case OP_NEG:
     return "NEG";
+  case OP_EXSB:
+    return "EXSB";
   case OP_EXSH:
     return "EXSH";
   case OP_MOV:
     return "MOV";
+  case OP_ADDB:
+    return "ADDB";
+  case OP_SUBB:
+    return "SUBB";
+  case OP_ANDB:
+    return "ANDB";
+  case OP_ORB:
+    return "ORB";
+  case OP_MOVB:
+    return "MOVB";
+  case OP_ADDH:
+    return "ADDH";
+  case OP_SUBH:
+    return "SUBH";
+  case OP_ANDH:
+    return "ANDH";
+  case OP_ORH:
+    return "ORH";
   case OP_MOVH:
     return "MOVH";
   case OP_SLLI:
@@ -187,8 +233,28 @@ static const char *opcode_name(uint8_t op)
     return "ADDQ";
   case OP_MULQ:
     return "MULQ";
-  case OP_ADDH:
-    return "ADDH";
+  case OP_ADDBI:
+    return "ADDBi";
+  case OP_ANDBI:
+    return "ANDBi";
+  case OP_ORBI:
+    return "ORBi";
+  case OP_SLLB:
+    return "SLLB";
+  case OP_SRLB:
+    return "SRLB";
+  case OP_SRAB:
+    return "SRAB";
+  case OP_ADDHI:
+    return "ADDHi";
+  case OP_ANDHI:
+    return "ANDHi";
+  case OP_SLLH:
+    return "SLLH";
+  case OP_SRLH:
+    return "SRLH";
+  case OP_SRAH:
+    return "SRAH";
   case OP_BEQI:
     return "BEQI";
   case OP_BNEI:
@@ -197,8 +263,12 @@ static const char *opcode_name(uint8_t op)
     return "BGEI";
   case OP_BGTI:
     return "BGTI";
+  case OP_BGTUI:
+    return "BGTUI";
   case OP_BLEI:
     return "BLEI";
+  case OP_BLEUI:
+    return "BLEUI";
   case OP_BLTI:
     return "BLTI";
   case OP_BEQIB:
@@ -247,6 +317,8 @@ static const char *opcode_name(uint8_t op)
     return "MULi";
   case OP_DIVI:
     return "DIVi";
+  case OP_DIVUI:
+    return "DIVUi";
   case OP_ORI:
     return "ORi";
   case OP_STBD:
@@ -505,6 +577,7 @@ bool vmgp_init(VMGPContext *ctx, const uint8_t *data, size_t size)
   ctx->data = data;
   ctx->size = size;
   ctx->next_stream_handle = 0x30u;
+  ctx->random_state = 1u;
   return true;
 }
 
@@ -725,7 +798,7 @@ static VMGPStream *alloc_stream(VMGPContext *ctx)
     {
       memset(&ctx->streams[i], 0, sizeof(ctx->streams[i]));
       ctx->streams[i].used = true;
-      ctx->streams[i].handle = ctx->next_stream_handle++;
+      ctx->streams[i].handle = i;
       return &ctx->streams[i];
     }
   }
@@ -742,25 +815,138 @@ static uint32_t vm_strlen(const uint8_t *s, size_t max_len)
   return n;
 }
 
-static uint32_t lz_header_size(const uint8_t *p, size_t remain)
+static bool lz_read_header(const uint8_t *p,
+                           size_t remain,
+                           uint8_t *extended_offset_bits,
+                           uint8_t *max_offset_bits,
+                           uint32_t *uncompressed_size,
+                           uint32_t *compressed_size)
 {
   uint32_t raw_size;
   uint32_t packed_size;
 
-  if (!p || remain < 12 || p[0] != 'L' || p[1] != 'Z')
+  if (!p || remain < 22 || p[0] != 'L' || p[1] != 'Z')
   {
-    return 0;
+    return false;
   }
 
   raw_size = read_u32_le(p + 4);
   packed_size = read_u32_le(p + 8);
 
+  if (extended_offset_bits)
+    *extended_offset_bits = p[3];
+  if (max_offset_bits)
+    *max_offset_bits = p[2];
+  if (compressed_size)
+    *compressed_size = packed_size;
+
+  /* Observed on this T310 game: these entries allocate packed_size - 1. */
   if (raw_size == 0x200u && packed_size > 1u && packed_size < raw_size)
   {
-    return packed_size - 1u;
+    raw_size = packed_size - 1u;
   }
 
-  return raw_size;
+  if (uncompressed_size)
+  {
+    *uncompressed_size = raw_size;
+  }
+
+  return true;
+}
+
+typedef struct LZBitStream
+{
+  const uint8_t *data;
+  uint32_t size;
+  uint32_t bit_pos;
+} LZBitStream;
+
+static bool lz_bits_valid(const LZBitStream *bs)
+{
+  return bs && bs->bit_pos < bs->size * 8u;
+}
+
+static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count)
+{
+  uint32_t result = 0;
+  uint32_t i;
+
+  for (i = 0; i < count; ++i)
+  {
+    result <<= 1;
+    if (lz_bits_valid(bs))
+    {
+      uint32_t byte_index = bs->bit_pos >> 3;
+      uint32_t bit_index = 7u - (bs->bit_pos & 7u);
+      result |= (uint32_t)((bs->data[byte_index] >> bit_index) & 1u);
+      bs->bit_pos++;
+    }
+  }
+
+  return result;
+}
+
+static uint32_t lz_decompress_content(const uint8_t *src,
+                                      uint32_t src_size,
+                                      uint8_t *dst,
+                                      uint32_t dst_size,
+                                      uint8_t extended_offset_bits,
+                                      uint8_t max_offset_bits)
+{
+  LZBitStream bs;
+  uint32_t dst_pos = 0;
+
+  bs.data = src;
+  bs.size = src_size;
+  bs.bit_pos = 0;
+
+  while (dst_pos < dst_size && lz_bits_valid(&bs))
+  {
+    if (lz_read_bits(&bs, 1) == 1)
+    {
+      uint32_t v2 = 0;
+      uint32_t copy_len = 2;
+      uint32_t back_offset;
+      uint32_t i;
+
+      while (v2 < max_offset_bits && lz_read_bits(&bs, 1) == 1)
+      {
+        v2++;
+      }
+
+      if (v2 != 0)
+      {
+        copy_len = (lz_read_bits(&bs, v2) | (1u << v2)) + 1u;
+      }
+
+      if (copy_len == 2)
+      {
+        back_offset = lz_read_bits(&bs, 8) + 2u;
+      }
+      else
+      {
+        back_offset = lz_read_bits(&bs, extended_offset_bits) + copy_len;
+      }
+
+      for (i = 0; i < copy_len && dst_pos < dst_size; ++i)
+      {
+        uint32_t from = (back_offset <= dst_pos) ? (dst_pos - back_offset) : 0u;
+        dst[dst_pos] = dst[from];
+        dst_pos++;
+      }
+    }
+    else
+    {
+      dst[dst_pos++] = (uint8_t)(lz_read_bits(&bs, 8) & 0xFFu);
+    }
+  }
+
+  return dst_pos;
+}
+
+static bool mem_range_ok(const VMGPContext *ctx, uint32_t addr, uint32_t size)
+{
+  return ctx && addr <= ctx->mem_size && size <= ctx->mem_size - addr;
 }
 
 static void write_watch_if_code(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag)
@@ -868,46 +1054,189 @@ static bool handle_import_call(VMGPContext *ctx, uint32_t pool_index)
     return true;
   }
 
+  if (strcmp(name, "vGetCaps") == 0)
+  {
+    uint32_t query = ctx->regs[VM_REG_P0];
+    uint32_t out = ctx->regs[VM_REG_P1];
+
+    if (query == 0 && mem_range_ok(ctx, out, 8))
+    {
+      write_u16_le(ctx->mem + out + 0, 8);      /* sizeof(VideoCaps) */
+      write_u16_le(ctx->mem + out + 2, 8);      /* T310-style color depth/mode */
+      write_u16_le(ctx->mem + out + 4, 101);
+      write_u16_le(ctx->mem + out + 6, 80);
+      ctx->regs[VM_REG_R0] = 1;
+      return true;
+    }
+
+    if (query == 2 && mem_range_ok(ctx, out, 4))
+    {
+      write_u16_le(ctx->mem + out + 0, 4);    /* legacy SoundCaps */
+      write_u16_le(ctx->mem + out + 2, 0x000F);
+      ctx->regs[VM_REG_R0] = 1;
+      return true;
+    }
+
+    if (query == 3 && mem_range_ok(ctx, out, 4))
+    {
+      write_u16_le(ctx->mem + out + 0, 4);      /* sizeof(CommCaps) */
+      write_u16_le(ctx->mem + out + 2, 0x00A7); /* file/tcp/udp/sms/http */
+      ctx->regs[VM_REG_R0] = 1;
+      return true;
+    }
+
+    if (query == 4 && mem_range_ok(ctx, out, 12))
+    {
+      write_u16_le(ctx->mem + out + 0, 12);   /* sizeof(SystemCaps) */
+      write_u16_le(ctx->mem + out + 2, 0x25); /* unicode + vibrate + openurl */
+      write_u32_le(ctx->mem + out + 4, (1u << 16) | 3u); /* T310, SonyEricsson */
+      write_u32_le(ctx->mem + out + 8, 0);
+      ctx->regs[VM_REG_R0] = 1;
+      return true;
+    }
+
+    ctx->regs[VM_REG_R0] = 0;
+    return true;
+  }
+
   if (strcmp(name, "vDecompHdr") == 0)
   {
+    uint32_t info = ctx->regs[VM_REG_P0];
     uint32_t hdr = ctx->regs[VM_REG_P1];
-    ctx->regs[VM_REG_R0] = (hdr < ctx->mem_size) ? lz_header_size(ctx->mem + hdr, ctx->mem_size - hdr) : 0u;
+    uint8_t extended_offset_bits = 0;
+    uint8_t max_offset_bits = 0;
+    uint32_t uncompressed_size = 0;
+    uint32_t compressed_size = 0;
+
+    if (!mem_range_ok(ctx, hdr, 22) ||
+        !lz_read_header(ctx->mem + hdr,
+                        ctx->mem_size - hdr,
+                        &extended_offset_bits,
+                        &max_offset_bits,
+                        &uncompressed_size,
+                        &compressed_size))
+    {
+      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+      return true;
+    }
+
+    if (info != 0 && mem_range_ok(ctx, info, 20))
+    {
+      ctx->mem[info + 0] = 0;
+      ctx->mem[info + 1] = 0;
+      write_u16_le(ctx->mem + info + 2, 0x1234);
+      write_u16_le(ctx->mem + info + 4, 0);
+      write_u16_le(ctx->mem + info + 6, 0);
+      write_u32_le(ctx->mem + info + 8, compressed_size);
+      write_u32_le(ctx->mem + info + 12, uncompressed_size);
+      write_u32_le(ctx->mem + info + 16, 0);
+    }
+
+    ctx->regs[VM_REG_R0] = uncompressed_size;
     return true;
   }
 
   if (strcmp(name, "vDecompress") == 0)
   {
+    uint32_t src = ctx->regs[VM_REG_P0];
     uint32_t dst = ctx->regs[VM_REG_P1];
-    VMGPStream *s = find_stream(ctx, ctx->regs[VM_REG_P2]);
+    uint32_t stream_handle = ctx->regs[VM_REG_P2];
+    VMGPStream *s = NULL;
+    const uint8_t *base = NULL;
+    uint32_t available = 0;
+    uint32_t stream_base_pos = 0;
+    uint8_t extended_offset_bits = 0;
+    uint8_t max_offset_bits = 0;
     uint32_t out_size = 0;
-    uint32_t copy_size = 0;
+    uint32_t packed_size = 0;
+    uint32_t produced = 0;
 
-    if (s && s->base < ctx->mem_size)
+    if (src != 0)
     {
-      uint32_t remain = (s->base + s->size <= ctx->mem_size) ? s->size : (uint32_t)(ctx->mem_size - s->base);
-      out_size = lz_header_size(ctx->mem + s->base, remain);
-      if (out_size == 0)
+      if (!mem_range_ok(ctx, src, 22))
       {
-        out_size = remain;
+        ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+        return true;
       }
-      copy_size = (remain > 22u) ? remain - 22u : 0u;
-      if (copy_size > out_size)
+      base = ctx->mem + src;
+      available = (uint32_t)(ctx->mem_size - src);
+    }
+    else
+    {
+      s = find_stream(ctx, stream_handle);
+      if (!s || !mem_range_ok(ctx, s->base + s->pos, 22))
       {
-        copy_size = out_size;
+        ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+        return true;
       }
+      stream_base_pos = s->pos;
+      base = ctx->mem + s->base + s->pos;
+      available = s->size - s->pos;
     }
 
-    if (dst < ctx->mem_size && out_size > 0)
+    if (!lz_read_header(base, available, &extended_offset_bits, &max_offset_bits, &out_size, &packed_size))
     {
-      uint32_t writable = (dst + out_size <= ctx->mem_size) ? out_size : (uint32_t)(ctx->mem_size - dst);
-      memset(ctx->mem + dst, 0, writable);
-      if (s && copy_size > 0 && copy_size <= writable)
+      uint32_t copy_size = available;
+      uint32_t dst_limit;
+
+      if (dst >= ctx->mem_size)
       {
-        memcpy(ctx->mem + dst, ctx->mem + s->base + 22u, copy_size);
+        ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+        return true;
       }
+
+      dst_limit = ctx->mem_size - dst;
+      if (dst < ctx->heap_cur)
+      {
+        uint32_t heap_limit = ctx->heap_cur - dst;
+        if (heap_limit < dst_limit)
+          dst_limit = heap_limit;
+      }
+
+      if (copy_size > dst_limit)
+        copy_size = dst_limit;
+
+      if (copy_size > 0)
+        memcpy(ctx->mem + dst, base, copy_size);
+
+      if (s)
+      {
+        s->pos = stream_base_pos + copy_size;
+        if (s->pos > s->size)
+          s->pos = s->size;
+      }
+
+      ctx->regs[VM_REG_R0] = copy_size;
+      return true;
     }
 
-    ctx->regs[VM_REG_R0] = out_size;
+    if (!mem_range_ok(ctx, dst, out_size))
+    {
+      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+      return true;
+    }
+
+    if (packed_size > available - 22u)
+    {
+      packed_size = available - 22u;
+    }
+
+    produced = lz_decompress_content(base + 22u,
+                                     packed_size,
+                                     ctx->mem + dst,
+                                     out_size,
+                                     extended_offset_bits,
+                                     max_offset_bits);
+
+    if (s)
+    {
+      uint32_t consumed = 22u + packed_size;
+      s->pos = stream_base_pos + consumed;
+      if (s->pos > s->size)
+        s->pos = s->size;
+    }
+
+    ctx->regs[VM_REG_R0] = produced;
     return true;
   }
 
@@ -930,6 +1259,27 @@ static bool handle_import_call(VMGPContext *ctx, uint32_t pool_index)
   if (strcmp(name, "vDisposePtr") == 0 || strcmp(name, "vMemFree") == 0)
   {
     ctx->regs[VM_REG_R0] = 0;
+    return true;
+  }
+
+  if (strcmp(name, "vGetTickCount") == 0)
+  {
+    ctx->tick_count += 16u;
+    ctx->regs[VM_REG_R0] = ctx->tick_count;
+    return true;
+  }
+
+  if (strcmp(name, "vSetRandom") == 0)
+  {
+    ctx->random_state = ctx->regs[VM_REG_P0] ? ctx->regs[VM_REG_P0] : 1u;
+    ctx->regs[VM_REG_R0] = 0;
+    return true;
+  }
+
+  if (strcmp(name, "vGetRandom") == 0)
+  {
+    ctx->random_state = ctx->random_state * 1103515245u + 12345u;
+    ctx->regs[VM_REG_R0] = (ctx->random_state >> 16) & 0xFFFFu;
     return true;
   }
 
@@ -1039,8 +1389,16 @@ static bool vmgp_step(VMGPContext *ctx)
     ctx->regs[rd] = ctx->regs[rs] - ctx->regs[rt];
     ctx->pc += 4;
     break;
+  case OP_NOT:
+    ctx->regs[rd] = ~ctx->regs[rs];
+    ctx->pc += 4;
+    break;
   case OP_NEG:
     ctx->regs[rd] = (uint32_t)(-reg_s32(ctx->regs[rs]));
+    ctx->pc += 4;
+    break;
+  case OP_EXSB:
+    ctx->regs[rd] = (uint32_t)(int32_t)(int8_t)(ctx->regs[rs] & 0xFFu);
     ctx->pc += 4;
     break;
   case OP_EXSH:
@@ -1049,6 +1407,42 @@ static bool vmgp_step(VMGPContext *ctx)
     break;
   case OP_MOV:
     ctx->regs[rd] = ctx->regs[rs];
+    ctx->pc += 4;
+    break;
+  case OP_ADDB:
+    ctx->regs[rd] = ((ctx->regs[rs] & 0xFFu) + (ctx->regs[rt] & 0xFFu)) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_SUBB:
+    ctx->regs[rd] = ((ctx->regs[rs] & 0xFFu) - (ctx->regs[rt] & 0xFFu)) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ANDB:
+    ctx->regs[rd] = (ctx->regs[rs] & ctx->regs[rt]) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ORB:
+    ctx->regs[rd] = (ctx->regs[rs] | ctx->regs[rt]) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_MOVB:
+    ctx->regs[rd] = ctx->regs[rs] & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ADDH:
+    ctx->regs[rd] = ((ctx->regs[rs] & 0xFFFFu) + (ctx->regs[rt] & 0xFFFFu)) & 0xFFFFu;
+    ctx->pc += 4;
+    break;
+  case OP_SUBH:
+    ctx->regs[rd] = ((ctx->regs[rs] & 0xFFFFu) - (ctx->regs[rt] & 0xFFFFu)) & 0xFFFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ANDH:
+    ctx->regs[rd] = (ctx->regs[rs] & ctx->regs[rt]) & 0xFFFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ORH:
+    ctx->regs[rd] = (ctx->regs[rs] | ctx->regs[rt]) & 0xFFFFu;
     ctx->pc += 4;
     break;
   case OP_MOVH:
@@ -1075,8 +1469,48 @@ static bool vmgp_step(VMGPContext *ctx)
     ctx->regs[rd] = ctx->regs[rs] * (uint32_t)((uint8_t)b3);
     ctx->pc += 4;
     break;
-  case OP_ADDH:
+  case OP_ADDBI:
+    ctx->regs[rd] = ((ctx->regs[rs] & 0xFFu) + b3) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ANDBI:
+    ctx->regs[rd] = ctx->regs[rs] & (uint32_t)b3;
+    ctx->pc += 4;
+    break;
+  case OP_ORBI:
+    ctx->regs[rd] = (ctx->regs[rs] | (uint32_t)b3) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_SLLB:
+    ctx->regs[rd] = ((ctx->regs[rs] & 0xFFu) << b3) & 0xFFu;
+    ctx->pc += 4;
+    break;
+  case OP_SRLB:
+    ctx->regs[rd] = (ctx->regs[rs] & 0xFFu) >> b3;
+    ctx->pc += 4;
+    break;
+  case OP_SRAB:
+    ctx->regs[rd] = (uint32_t)((uint8_t)((int8_t)(ctx->regs[rs] & 0xFFu) >> b3));
+    ctx->pc += 4;
+    break;
+  case OP_ADDHI:
     ctx->regs[rd] = (ctx->regs[rs] + (uint32_t)(int8_t)b3) & 0xFFFFu;
+    ctx->pc += 4;
+    break;
+  case OP_ANDHI:
+    ctx->regs[rd] = ctx->regs[rs] & (uint32_t)b3;
+    ctx->pc += 4;
+    break;
+  case OP_SLLH:
+    ctx->regs[rd] = (ctx->regs[rs] << b3) & 0xFFFFu;
+    ctx->pc += 4;
+    break;
+  case OP_SRLH:
+    ctx->regs[rd] = (ctx->regs[rs] & 0xFFFFu) >> b3;
+    ctx->pc += 4;
+    break;
+  case OP_SRAH:
+    ctx->regs[rd] = (uint32_t)((uint16_t)((int16_t)(ctx->regs[rs] & 0xFFFFu) >> b3));
     ctx->pc += 4;
     break;
   case OP_LDQ:
@@ -1087,6 +1521,7 @@ static bool vmgp_step(VMGPContext *ctx)
   case OP_ANDI:
   case OP_MULI:
   case OP_DIVI:
+  case OP_DIVUI:
   case OP_ORI:
     if (!fetch_code_u32(ctx, ctx->pc + 4, &ext))
       return false;
@@ -1098,6 +1533,11 @@ static bool vmgp_step(VMGPContext *ctx)
       ctx->regs[rd] = ctx->regs[rs] * (uint32_t)sext24(ext);
     else if (op == OP_ORI)
       ctx->regs[rd] = ctx->regs[rs] | (uint32_t)sext24(ext);
+    else if (op == OP_DIVUI)
+    {
+      uint32_t immu = (uint32_t)sext24(ext);
+      ctx->regs[rd] = (immu == 0) ? 0u : (ctx->regs[rs] / immu);
+    }
     else
     {
       int32_t imm = sext24(ext);
@@ -1129,17 +1569,9 @@ static bool vmgp_step(VMGPContext *ctx)
     }
     ctx->pc += 8;
     break;
-  case OP_LDBU:
-    if (ctx->regs[rs] >= ctx->mem_size)
-    {
-      fprintf(stderr, "LDBU addr OOB: 0x%X\n", ctx->regs[rs]);
-      return false;
-    }
-    ctx->regs[rd] = ctx->mem[ctx->regs[rs]];
-    ctx->pc += 4;
-    break;
   case OP_LDWD:
   case OP_LDBD:
+  case OP_LDBU:
   case OP_LDHU:
   case OP_STWD:
   case OP_STHD:
@@ -1174,6 +1606,15 @@ static bool vmgp_step(VMGPContext *ctx)
           return false;
         }
         ctx->regs[rd] = (uint32_t)(int32_t)(int8_t)ctx->mem[addr];
+      }
+      else if (op == OP_LDBU)
+      {
+        if (addr >= ctx->mem_size)
+        {
+          fprintf(stderr, "LDBU addr OOB: 0x%X\n", addr);
+          return false;
+        }
+        ctx->regs[rd] = ctx->mem[addr];
       }
       else if (op == OP_LDHU)
       {
@@ -1319,10 +1760,13 @@ static bool vmgp_step(VMGPContext *ctx)
   case OP_BNEI:
   case OP_BGEI:
   case OP_BGTI:
+  case OP_BGTUI:
   case OP_BLEI:
+  case OP_BLEUI:
   case OP_BLTI:
   {
     int8_t immq = (int8_t)b2;
+    uint32_t immu = b2;
     int8_t rel = (int8_t)b3;
     bool take = false;
     if (op == OP_BEQI)
@@ -1333,8 +1777,12 @@ static bool vmgp_step(VMGPContext *ctx)
       take = (reg_s32(ctx->regs[rd]) >= immq);
     if (op == OP_BGTI)
       take = (reg_s32(ctx->regs[rd]) > immq);
+    if (op == OP_BGTUI)
+      take = (ctx->regs[rd] > immu);
     if (op == OP_BLEI)
       take = (reg_s32(ctx->regs[rd]) <= immq);
+    if (op == OP_BLEUI)
+      take = (ctx->regs[rd] <= immu);
     if (op == OP_BLTI)
       take = (reg_s32(ctx->regs[rd]) < immq);
     ctx->pc += take ? (uint32_t)(rel * 4) : 4u;

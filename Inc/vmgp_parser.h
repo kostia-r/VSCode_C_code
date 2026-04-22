@@ -103,6 +103,8 @@ typedef struct VMGPContext
   uint32_t pc;
   uint32_t steps;
   uint32_t logged_calls;
+  uint32_t tick_count;
+  uint32_t random_state;
   bool halted;
 } VMGPContext;
 
