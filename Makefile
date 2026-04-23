@@ -6,7 +6,7 @@ TARGET_NAME := $(notdir $(CURDIR)).exe
 MINGW_BIN := C:/mingw64/bin
 CC := $(MINGW_BIN)/gcc.exe
 
-include VM/vm.mk
+include MVM/vm.mk
 
 # Source and include paths
 APP_SRC_DIRS := Src
@@ -23,9 +23,9 @@ TARGET := $(TARGET_NAME)
 
 # Find all .c files in the source directories
 APP_SRC := $(foreach dir,$(APP_SRC_DIRS),$(wildcard $(dir)/*.c))
-SRC := $(APP_SRC) $(MOPHUN_VM_SRC)
+SRC := $(APP_SRC) $(MVM_SRC)
 OBJ := $(patsubst %.c,$(BUILD_PATH)/%.o,$(SRC))
-INCLUDES := $(addprefix -I,$(APP_INC_DIRS) $(MOPHUN_VM_INC))
+INCLUDES := $(addprefix -I,$(APP_INC_DIRS) $(MVM_INC))
 
 # Windows shell commands
 MKDIR_BUILD = if not exist "$(subst /,\,$(BUILD_PATH))" mkdir "$(subst /,\,$(BUILD_PATH))"

@@ -1,6 +1,6 @@
-#include "mophun_vm.h"
-#include "mophun_trace.h"
-#include "mophun_vmgp_debug.h"
+#include "MVM_Vm.h"
+#include "MVM_Trace.h"
+#include "MVM_VmgpDebug.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,8 +102,8 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  vm_storage = malloc(mophun_vm_storage_size());
-  vm = mophun_vm_from_storage(vm_storage, mophun_vm_storage_size());
+  vm_storage = malloc(MVM_udtGetStorageSize());
+  vm = MVM_pudtGetVmFromStorage(vm_storage, MVM_udtGetStorageSize());
   if (!vm)
   {
     fprintf(stderr, "Could not allocate VM storage.\n");
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
   platform.free = host_free;
   platform.log = host_log;
 
-  if (!mophun_vm_init_with_platform(vm, file_data, file_size, &platform))
+  if (!MVM_bInitWithPlatform(vm, file_data, file_size, &platform))
   {
     fprintf(stderr, "Failed to initialize VMGP context.\n");
     free(file_data);
@@ -124,11 +124,11 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  vmgp_dump_summary(vm);
-  vmgp_dump_imports(vm, 64);
-  mophun_vm_run_trace(vm, max_steps, max_logged_calls);
+  MVM_vidVmgpDumpSummary(vm);
+  MVM_vidVmgpDumpImports(vm, 64);
+  MVM_bRunTrace(vm, max_steps, max_logged_calls);
 
-  mophun_vm_free(vm);
+  MVM_vidFree(vm);
   free(vm_storage);
   free(file_data);
   return 0;
