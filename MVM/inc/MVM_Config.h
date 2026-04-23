@@ -5,8 +5,7 @@
  *             File:  MVM_Config.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Build-time configuration switches for the Mophun VM component.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************

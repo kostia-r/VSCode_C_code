@@ -5,8 +5,7 @@
  *             File:  MVM_Internal.h
  *           Module:  MVM_Core
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Internal VM context, shared constants, and cross-module helper declarations.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -40,7 +39,9 @@
  *  GLOBAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
 
-/* PIP2 register ABI */
+/**
+ * @brief Defines the PIP2 register ABI indices.
+ */
 enum
 {
   VM_REG_ZERO = 0,
@@ -55,63 +56,72 @@ enum
   VM_REG_R1 = 31,
 };
 
+/**
+ * @brief Tracks one open VM resource stream.
+ */
 typedef struct VMGPStream
 {
-  bool used;
-  uint32_t handle;
-  uint32_t base;
-  uint32_t size;
-  uint32_t pos;
-  uint32_t resource_id;
+  bool used;                /**< Indicates whether the slot is active. */
+  uint32_t handle;          /**< External stream handle. */
+  uint32_t base;            /**< VM memory base address of the stream data. */
+  uint32_t size;            /**< Stream size in bytes. */
+  uint32_t pos;             /**< Current read position in bytes. */
+  uint32_t resource_id;     /**< Backing resource identifier. */
 } VMGPStream;
 
+/**
+ * @brief Stores the complete mutable VM execution context.
+ */
 struct MophunVM
 {
-  MophunPlatform platform;
+  MophunPlatform platform;           /**< Host integration callbacks. */
 
-  const uint8_t *data;
-  size_t size;
+  const uint8_t *data;              /**< Pointer to the loaded VM image. */
+  size_t size;                      /**< Loaded VM image size in bytes. */
 
-  VMGPHeader header;
-  bool header_valid;
+  VMGPHeader header;                /**< Parsed VMGP file header. */
+  bool header_valid;                /**< Indicates whether the header parsed successfully. */
 
-  uint32_t code_offset;
-  uint32_t code_file_offset;
-  uint32_t data_offset;
-  uint32_t data_file_offset;
-  uint32_t bss_offset;
-  uint32_t res_offset;
-  uint32_t res_file_offset;
-  uint32_t pool_offset;
-  uint32_t strtab_offset;
-  uint32_t vm_end;
+  uint32_t code_offset;             /**< VM memory offset of the code section. */
+  uint32_t code_file_offset;        /**< File offset of the code section. */
+  uint32_t data_offset;             /**< VM memory offset of the data section. */
+  uint32_t data_file_offset;        /**< File offset of the data section. */
+  uint32_t bss_offset;              /**< VM memory offset of the BSS section. */
+  uint32_t res_offset;              /**< VM memory offset of the resource section. */
+  uint32_t res_file_offset;         /**< File offset of the resource section. */
+  uint32_t pool_offset;             /**< File offset of the constant-pool section. */
+  uint32_t strtab_offset;           /**< File offset of the string table. */
+  uint32_t vm_end;                  /**< End offset of initialized VM memory. */
 
-  VMGPPoolEntry *pool;
-  VMGPResource *resources;
-  uint32_t resource_count;
+  VMGPPoolEntry *pool;              /**< Loaded constant-pool entries. */
+  VMGPResource *resources;          /**< Loaded resource metadata table. */
+  uint32_t resource_count;          /**< Number of loaded resources. */
 
-  uint8_t *mem;
-  size_t mem_size;
-  uint32_t heap_base;
-  uint32_t heap_cur;
-  uint32_t heap_limit;
-  uint32_t stack_top;
+  uint8_t *mem;                     /**< Backing VM memory buffer. */
+  size_t mem_size;                  /**< Total VM memory size in bytes. */
+  uint32_t heap_base;               /**< Start offset of the VM heap. */
+  uint32_t heap_cur;                /**< Current heap allocation cursor. */
+  uint32_t heap_limit;              /**< End offset of the VM heap. */
+  uint32_t stack_top;               /**< Initial stack top offset. */
 
-  VMGPStream streams[VMGP_MAX_STREAMS];
-  uint32_t next_stream_handle;
+  VMGPStream streams[VMGP_MAX_STREAMS]; /**< Open stream table. */
+  uint32_t next_stream_handle;      /**< Next stream handle to allocate. */
 
-  uint32_t regs[VMGP_MAX_REGS];
-  uint32_t pc;
-  uint32_t steps;
-  uint32_t logged_calls;
-  uint32_t tick_count;
-  uint32_t random_state;
-  bool halted;
+  uint32_t regs[VMGP_MAX_REGS];     /**< Architectural register file. */
+  uint32_t pc;                      /**< Program counter. */
+  uint32_t steps;                   /**< Executed instruction count. */
+  uint32_t logged_calls;            /**< Number of traced calls already logged. */
+  uint32_t tick_count;              /**< Cached tick counter value. */
+  uint32_t random_state;            /**< Internal pseudo-random state. */
+  bool halted;                      /**< Indicates that execution has stopped. */
 
-  const MophunSyscall *syscalls;
-  uint32_t syscall_count;
+  const MophunSyscall *syscalls;    /**< Registered host syscall table. */
+  uint32_t syscall_count;           /**< Number of registered host syscalls. */
 };
 
+/**
+ * @brief Aliases the public VM type as the internal runtime context.
+ */
 typedef MophunVM VMGPContext;
 
 /**********************************************************************************************************************

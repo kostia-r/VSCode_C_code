@@ -5,8 +5,7 @@
  *             File:  MVM_Device.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Public device profile definitions exposed to VM-facing code.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -26,14 +25,17 @@
  *  GLOBAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
 
+/**
+ * @brief Describes the target device capabilities exposed to VM code.
+ */
 typedef struct MophunDeviceProfile
 {
-  uint16_t screen_width;
-  uint16_t screen_height;
-  uint16_t color_mode;
-  uint16_t sound_flags;
-  uint16_t system_flags;
-  uint32_t device_id;
+  uint16_t screen_width;  /**< Display width in pixels. */
+  uint16_t screen_height; /**< Display height in pixels. */
+  uint16_t color_mode;    /**< Encoded display color mode. */
+  uint16_t sound_flags;   /**< Encoded audio capability flags. */
+  uint16_t system_flags;  /**< Encoded system capability flags. */
+  uint32_t device_id;     /**< Device identifier reported to the VM. */
 } MophunDeviceProfile;
 
 /**********************************************************************************************************************

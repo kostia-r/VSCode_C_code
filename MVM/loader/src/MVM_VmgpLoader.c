@@ -5,8 +5,7 @@
  *             File:  MVM_VmgpLoader.c
  *           Module:  MVM_Loader
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  VMGP image parsing, pool loading, resource indexing, and initial memory construction.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -52,75 +51,90 @@ static const char *vm_file_str(const VMGPContext *ctx, uint32_t off);
  *********************************************************************************************************************/
 const char *MVM_pudtVmgpPoolTypeName(uint8_t type)
 {
+  const char *pudtName = "unknown";
+
   switch (type)
   {
     case 0x00:
     {
-      return "null";
+      pudtName = "null";
+      break;
     } /* End of case 0x00 */
 
     case 0x02:
     {
-      return "import";
+      pudtName = "import";
+      break;
     } /* End of case 0x02 */
 
     case 0x11:
     {
-      return "code";
+      pudtName = "code";
+      break;
     } /* End of case 0x11 */
 
     case 0x13:
     {
-      return "export";
+      pudtName = "export";
+      break;
     } /* End of case 0x13 */
 
     case 0x18:
     {
-      return "bytes";
+      pudtName = "bytes";
+      break;
     } /* End of case 0x18 */
 
     case 0x21:
     {
-      return "u32";
+      pudtName = "u32";
+      break;
     } /* End of case 0x21 */
 
     case 0x23:
     {
-      return "const?";
+      pudtName = "const?";
+      break;
     } /* End of case 0x23 */
 
     case 0x24:
     {
-      return "str?";
+      pudtName = "str?";
+      break;
     } /* End of case 0x24 */
 
     case 0x25:
     {
-      return "res?";
+      pudtName = "res?";
+      break;
     } /* End of case 0x25 */
 
     case 0x26:
     {
-      return "ptr?";
+      pudtName = "ptr?";
+      break;
     } /* End of case 0x26 */
 
     case 0x41:
     {
-      return "addr?";
+      pudtName = "addr?";
+      break;
     } /* End of case 0x41 */
 
     case 0x67:
     {
-      return "sys?";
+      pudtName = "sys?";
+      break;
     } /* End of case 0x67 */
 
     default:
     {
-      return "unknown";
+      break;
     } /* End of default */
 
   } /* End of switch */
 
+  return pudtName;
 } /* End of MVM_pudtVmgpPoolTypeName */
 
 /**********************************************************************************************************************
@@ -134,7 +148,11 @@ const char *MVM_pudtVmgpPoolTypeName(uint8_t type)
  *********************************************************************************************************************/
 size_t MVM_udtVmgpPoolSizeBytes(const VMGPHeader *header)
 {
-  return header ? (size_t)header->pool_slots * VMGP_POOL_SLOT_SIZE : 0u;
+  size_t udtSize = 0;
+
+  udtSize = header ? (size_t)header->pool_slots * VMGP_POOL_SLOT_SIZE : 0u;
+
+  return udtSize;
 } /* End of MVM_udtVmgpPoolSizeBytes */
 
 /**********************************************************************************************************************
@@ -148,12 +166,16 @@ size_t MVM_udtVmgpPoolSizeBytes(const VMGPHeader *header)
  *********************************************************************************************************************/
 const VMGPPoolEntry *MVM_pudtVmgpGetPoolEntry(const VMGPContext *ctx, uint32_t pool_index_1based)
 {
+  const VMGPPoolEntry *pudtEntry = NULL;
+
   if (!ctx || !ctx->pool || pool_index_1based == 0 || pool_index_1based > ctx->header.pool_slots)
   {
     return NULL;
   }
 
-  return &ctx->pool[pool_index_1based - 1u];
+  pudtEntry = &ctx->pool[pool_index_1based - 1u];
+
+  return pudtEntry;
 } /* End of MVM_pudtVmgpGetPoolEntry */
 
 /**********************************************************************************************************************
@@ -167,6 +189,8 @@ const VMGPPoolEntry *MVM_pudtVmgpGetPoolEntry(const VMGPContext *ctx, uint32_t p
  *********************************************************************************************************************/
 uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry *entry)
 {
+  uint32_t u32Value = 0;
+
   if (!ctx || !entry)
   {
     return 0;
@@ -178,12 +202,14 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
 
     case 0x23: /* global .data */
     {
-      return ctx->data_offset + entry->value;
+      u32Value = ctx->data_offset + entry->value;
+      break;
     } /* End of case 0x23 */
 
     case 0x41: /* .bss */
     {
-      return ctx->bss_offset + entry->value;
+      u32Value = ctx->bss_offset + entry->value;
+      break;
     } /* End of case 0x41 */
 
     case 0x11: /* .text */
@@ -194,11 +220,13 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
 
     default:
     {
-      return entry->value;
+      u32Value = entry->value;
+      break;
     } /* End of default */
 
   } /* End of switch */
 
+  return u32Value;
 } /* End of MVM_u32VmgpResolvePoolValue */
 
 /**********************************************************************************************************************
@@ -213,23 +241,30 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
 const char *MVM_pudtVmgpGetImportName(const VMGPContext *ctx, uint32_t pool_index_1based)
 {
   static char bad[32];
-  const VMGPPoolEntry *entry = MVM_pudtVmgpGetPoolEntry(ctx, pool_index_1based);
-  const char *name;
+  const VMGPPoolEntry *entry = NULL;
+  const char *name = NULL;
+  const char *pudtImportName = NULL;
+
+  entry = MVM_pudtVmgpGetPoolEntry(ctx, pool_index_1based);
 
   if (!entry)
   {
     snprintf(bad, sizeof(bad), "<bad:%u>", pool_index_1based);
+
     return bad;
   }
 
   if (entry->type != 0x02)
   {
     snprintf(bad, sizeof(bad), "<type:%02X>", entry->type);
+
     return bad;
   }
 
   name = vm_file_str(ctx, entry->aux24);
-  return name ? name : "<str-oob>";
+  pudtImportName = name ? name : "<str-oob>";
+
+  return pudtImportName;
 } /* End of MVM_pudtVmgpGetImportName */
 
 /**********************************************************************************************************************
@@ -244,6 +279,7 @@ const char *MVM_pudtVmgpGetImportName(const VMGPContext *ctx, uint32_t pool_inde
 const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t resource_id)
 {
   uint32_t i;
+  const VMGPResource *pudtResource = NULL;
 
   if (!ctx || !ctx->resources || resource_id == 0)
   {
@@ -252,14 +288,14 @@ const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t res
 
   for (i = 0; i < ctx->resource_count; ++i)
   {
-
     if (ctx->resources[i].id == resource_id)
     {
-      return &ctx->resources[i];
+      pudtResource = &ctx->resources[i];
+      break;
     }
   } /* End of loop */
 
-  return NULL;
+  return pudtResource;
 } /* End of MVM_pudtVmgpGetResource */
 
 /**********************************************************************************************************************
@@ -273,7 +309,6 @@ const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t res
  *********************************************************************************************************************/
 bool MVM_bVmgpParseHeader(VMGPContext *ctx)
 {
-
   if (!ctx || !ctx->data || ctx->size < sizeof(VMGPHeader))
   {
     return false;
@@ -330,6 +365,7 @@ bool MVM_bVmgpParseHeader(VMGPContext *ctx)
 bool MVM_bVmgpLoadPool(VMGPContext *ctx)
 {
   uint32_t i;
+  uint32_t off = 0;
 
   if (!ctx || !ctx->header_valid)
   {
@@ -345,7 +381,7 @@ bool MVM_bVmgpLoadPool(VMGPContext *ctx)
 
   for (i = 0; i < ctx->header.pool_slots; ++i)
   {
-    uint32_t off = ctx->pool_offset + i * VMGP_POOL_SLOT_SIZE;
+    off = ctx->pool_offset + i * VMGP_POOL_SLOT_SIZE;
     ctx->pool[i].type = ctx->data[off + 0];
     ctx->pool[i].aux24 = (uint32_t)ctx->data[off + 1] |
     ((uint32_t)ctx->data[off + 2] << 8) |
@@ -384,6 +420,8 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
   uint32_t prev = 0;
   uint32_t count = 0;
   uint32_t i;
+  uint32_t off = 0;
+  uint32_t next = 0;
 
   if (!ctx || ctx->header.res_size < 8)
   {
@@ -392,7 +430,7 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
 
   for (i = 0; i + 4 <= ctx->header.res_size; i += 4)
   {
-    uint32_t off = vm_read_u32_le(ctx->data + ctx->res_file_offset + i);
+    off = vm_read_u32_le(ctx->data + ctx->res_file_offset + i);
 
     if (off == 0)
     {
@@ -424,10 +462,10 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
 
   for (i = 0; i < count; ++i)
   {
-    uint32_t off = vm_read_u32_le(ctx->data + ctx->res_file_offset + i * 4u);
-    uint32_t next = (i + 1u < count)
-    ? vm_read_u32_le(ctx->data + ctx->res_file_offset + (i + 1u) * 4u)
-    : ctx->header.res_size;
+    off = vm_read_u32_le(ctx->data + ctx->res_file_offset + i * 4u);
+    next = (i + 1u < count)
+         ? vm_read_u32_le(ctx->data + ctx->res_file_offset + (i + 1u) * 4u)
+         : ctx->header.res_size;
     ctx->resources[i].id = i + 1u;
     ctx->resources[i].offset = off;
     ctx->resources[i].size = (next > off) ? (next - off) : 0u;
@@ -447,6 +485,8 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
  *********************************************************************************************************************/
 static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
 {
+  bool bResult = false;
+
   ctx->vm_end = ctx->res_offset + ctx->header.res_size;
   ctx->heap_base = vm_align4(ctx->vm_end);
   ctx->heap_cur = ctx->heap_base;
@@ -471,7 +511,9 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
   ctx->pc = 0;
   ctx->regs[VM_REG_SP] = ctx->stack_top;
   ctx->regs[VM_REG_ZERO] = 0;
-  return true;
+  bResult = true;
+
+  return bResult;
 } /* End of MVM_LbVmgpBuildVmMemory */
 
 /**********************************************************************************************************************
@@ -485,13 +527,16 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
  *********************************************************************************************************************/
 static const char *vm_file_str(const VMGPContext *ctx, uint32_t off)
 {
+  const char *pudtString = NULL;
 
   if (!ctx || ctx->strtab_offset + off >= ctx->size)
   {
     return NULL;
   }
 
-  return (const char *)(ctx->data + ctx->strtab_offset + off);
+  pudtString = (const char *)(ctx->data + ctx->strtab_offset + off);
+
+  return pudtString;
 } /* End of vm_file_str */
 
 /**********************************************************************************************************************

@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeCaps.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime import handlers that answer device capability queries from the guest.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -33,6 +32,7 @@ bool MVM_bRuntimeHandleCaps(VMGPContext *ctx, const char *name)
 {
   uint32_t query;
   uint32_t out;
+  bool bHandled = false;
 
   if (strcmp(name, "vGetCaps") != 0)
   {
@@ -49,36 +49,40 @@ bool MVM_bRuntimeHandleCaps(VMGPContext *ctx, const char *name)
     vm_write_u16_le(ctx->mem + out + 4, 101);
     vm_write_u16_le(ctx->mem + out + 6, 80);
     ctx->regs[VM_REG_R0] = 1;
-    return true;
+    bHandled = true;
   }
 
-  if (query == 2 && MVM_LbRuntimeMemRangeOk(ctx, out, 4))
+  else if (query == 2 && MVM_LbRuntimeMemRangeOk(ctx, out, 4))
   {
     vm_write_u16_le(ctx->mem + out + 0, 4);
     vm_write_u16_le(ctx->mem + out + 2, 0x000F);
     ctx->regs[VM_REG_R0] = 1;
-    return true;
+    bHandled = true;
   }
 
-  if (query == 3 && MVM_LbRuntimeMemRangeOk(ctx, out, 4))
+  else if (query == 3 && MVM_LbRuntimeMemRangeOk(ctx, out, 4))
   {
     vm_write_u16_le(ctx->mem + out + 0, 4);
     vm_write_u16_le(ctx->mem + out + 2, 0x00A7);
     ctx->regs[VM_REG_R0] = 1;
-    return true;
+    bHandled = true;
   }
 
-  if (query == 4 && MVM_LbRuntimeMemRangeOk(ctx, out, 12))
+  else if (query == 4 && MVM_LbRuntimeMemRangeOk(ctx, out, 12))
   {
     vm_write_u16_le(ctx->mem + out + 0, 12);
     vm_write_u16_le(ctx->mem + out + 2, 0x25);
     vm_write_u32_le(ctx->mem + out + 4, (1u << 16) | 3u);
     vm_write_u32_le(ctx->mem + out + 8, 0);
     ctx->regs[VM_REG_R0] = 1;
-    return true;
+    bHandled = true;
   }
 
-  ctx->regs[VM_REG_R0] = 0;
+  if (!bHandled)
+  {
+    ctx->regs[VM_REG_R0] = 0;
+  }
+
   return true;
 } /* End of MVM_bRuntimeHandleCaps */
 

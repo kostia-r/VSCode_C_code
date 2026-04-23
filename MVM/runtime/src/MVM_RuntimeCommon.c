@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeCommon.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Shared runtime utility helpers for VM memory ranges and string handling.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -30,7 +29,11 @@
  *********************************************************************************************************************/
 bool MVM_LbRuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size)
 {
-  return ctx && addr <= ctx->mem_size && size <= ctx->mem_size - addr;
+  bool bInRange = false;
+
+  bInRange = ctx && addr <= ctx->mem_size && size <= ctx->mem_size - addr;
+
+  return bInRange;
 } /* End of MVM_LbRuntimeMemRangeOk */
 
 /**********************************************************************************************************************

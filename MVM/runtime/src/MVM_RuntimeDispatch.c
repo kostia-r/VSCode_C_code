@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeDispatch.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime import dispatcher for host syscalls and built-in service groups.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -42,20 +41,22 @@ static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name);
 bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index)
 {
   const char *name = MVM_pudtVmgpGetImportName(ctx, pool_index);
+  bool bHandled = false;
 
-  if (MVM_LbRuntimeTryHostSyscall(ctx, name) ||
-      MVM_bRuntimeHandleStream(ctx, name) ||
-      MVM_bRuntimeHandleCaps(ctx, name) ||
-      MVM_bRuntimeHandleDecompress(ctx, name) ||
-      MVM_bRuntimeHandleHeap(ctx, name) ||
-      MVM_bRuntimeHandleTimeRandom(ctx, name) ||
-      MVM_bRuntimeHandleStrings(ctx, name) ||
-      MVM_bRuntimeHandleMisc(ctx, name))
+  bHandled = MVM_LbRuntimeTryHostSyscall(ctx, name) ||
+             MVM_bRuntimeHandleStream(ctx, name) ||
+             MVM_bRuntimeHandleCaps(ctx, name) ||
+             MVM_bRuntimeHandleDecompress(ctx, name) ||
+             MVM_bRuntimeHandleHeap(ctx, name) ||
+             MVM_bRuntimeHandleTimeRandom(ctx, name) ||
+             MVM_bRuntimeHandleStrings(ctx, name) ||
+             MVM_bRuntimeHandleMisc(ctx, name);
+
+  if (!bHandled)
   {
-    return true;
+    ctx->regs[VM_REG_R0] = 0;
   }
 
-  ctx->regs[VM_REG_R0] = 0;
   return true;
 } /* End of MVM_bRuntimeHandleImportCall */
 
@@ -75,6 +76,8 @@ bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index)
 static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name)
 {
   uint32_t i;
+  const MophunSyscall *syscall = NULL;
+  bool bHandled = false;
 
   if (!ctx || !name || !ctx->syscalls)
   {
@@ -83,16 +86,17 @@ static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name)
 
   for (i = 0; i < ctx->syscall_count; ++i)
   {
-    const MophunSyscall *syscall = &ctx->syscalls[i];
+    syscall = &ctx->syscalls[i];
 
     if (syscall->name && syscall->fn && strcmp(syscall->name, name) == 0)
     {
       ctx->regs[VM_REG_R0] = syscall->fn(ctx, syscall->user);
-      return true;
+      bHandled = true;
+      break;
     }
   } /* End of loop */
 
-  return false;
+  return bHandled;
 } /* End of MVM_LbRuntimeTryHostSyscall */
 
 /**********************************************************************************************************************

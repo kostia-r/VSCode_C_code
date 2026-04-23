@@ -5,8 +5,7 @@
  *             File:  MVM_VmgpDebug.c
  *           Module:  MVM_Debug
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  VMGP image summary and import-dump debug output helpers.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -72,6 +71,7 @@ void MVM_vidVmgpDumpSummary(const VMGPContext *ctx)
 void MVM_vidVmgpDumpImports(const VMGPContext *ctx, uint32_t max_count)
 {
   uint32_t i;
+  const VMGPPoolEntry *e = NULL;
 
   if (!ctx || !ctx->pool)
   {
@@ -82,7 +82,7 @@ void MVM_vidVmgpDumpImports(const VMGPContext *ctx, uint32_t max_count)
 
   for (i = 1; i <= ctx->header.pool_slots && i <= max_count; ++i)
   {
-    const VMGPPoolEntry *e = MVM_pudtVmgpGetPoolEntry(ctx, i);
+    e = MVM_pudtVmgpGetPoolEntry(ctx, i);
 
     if (!e || e->type != 0x02)
     {
@@ -90,7 +90,6 @@ void MVM_vidVmgpDumpImports(const VMGPContext *ctx, uint32_t max_count)
     }
     MVM_LvidLogf(ctx, "[%03u] %s\n", i, MVM_pudtVmgpGetImportName(ctx, i));
   } /* End of loop */
-
 } /* End of MVM_vidVmgpDumpImports */
 
 /**********************************************************************************************************************

@@ -5,8 +5,7 @@
  *             File:  MVM_Syscalls.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Public host syscall callback and registration declarations.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -28,13 +27,19 @@
 
 struct MophunVM;
 
+/**
+ * @brief Represents a host syscall callback.
+ */
 typedef uint32_t (*MophunSyscallFn)(struct MophunVM *vm, void *user);
 
+/**
+ * @brief Describes one host syscall binding.
+ */
 typedef struct MophunSyscall
 {
-  const char *name;
-  MophunSyscallFn fn;
-  void *user;
+  const char *name;   /**< Exported syscall name. */
+  MophunSyscallFn fn; /**< Callback implementation. */
+  void *user;         /**< User context passed to the callback. */
 } MophunSyscall;
 
 /**********************************************************************************************************************

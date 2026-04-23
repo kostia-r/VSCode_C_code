@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeDecompress.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime handlers and helpers for LZ-based resource decompression.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -20,11 +19,14 @@
  *  LOCAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
 
+/**
+ * @brief Tracks bit-wise reads from a packed LZ stream.
+ */
 typedef struct LZBitStream
 {
-  const uint8_t *data;
-  uint32_t size;
-  uint32_t bit_pos;
+  const uint8_t *data; /**< Packed bit-stream buffer. */
+  uint32_t size;       /**< Buffer size in bytes. */
+  uint32_t bit_pos;    /**< Current read position in bits. */
 } LZBitStream;
 
 /**********************************************************************************************************************
@@ -83,17 +85,19 @@ static bool handle_decompress(VMGPContext *ctx);
  *********************************************************************************************************************/
 bool MVM_bRuntimeHandleDecompress(VMGPContext *ctx, const char *name)
 {
+  bool bHandled = false;
+
   if (strcmp(name, "vDecompHdr") == 0)
   {
-    return handle_decomp_hdr(ctx);
+    bHandled = handle_decomp_hdr(ctx);
   }
 
-  if (strcmp(name, "vDecompress") == 0)
+  else if (strcmp(name, "vDecompress") == 0)
   {
-    return handle_decompress(ctx);
+    bHandled = handle_decompress(ctx);
   }
 
-  return false;
+  return bHandled;
 } /* End of MVM_bRuntimeHandleDecompress */
 
 /**********************************************************************************************************************
@@ -164,7 +168,11 @@ static bool lz_read_header(const uint8_t *p, size_t remain, uint8_t *extended_of
  *********************************************************************************************************************/
 static bool lz_bits_valid(const LZBitStream *bs)
 {
-  return bs && bs->bit_pos < bs->size * 8u;
+  bool bValid = false;
+
+  bValid = bs && bs->bit_pos < bs->size * 8u;
+
+  return bValid;
 } /* End of lz_bits_valid */
 
 /**********************************************************************************************************************
@@ -180,6 +188,8 @@ static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count)
 {
   uint32_t result = 0;
   uint32_t i;
+  uint32_t byte_index = 0;
+  uint32_t bit_index = 0;
 
   for (i = 0; i < count; ++i)
   {
@@ -187,8 +197,8 @@ static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count)
 
     if (lz_bits_valid(bs))
     {
-      uint32_t byte_index = bs->bit_pos >> 3;
-      uint32_t bit_index = 7u - (bs->bit_pos & 7u);
+      byte_index = bs->bit_pos >> 3;
+      bit_index = 7u - (bs->bit_pos & 7u);
       result |= (uint32_t)((bs->data[byte_index] >> bit_index) & 1u);
       bs->bit_pos++;
     }
@@ -215,6 +225,11 @@ static uint32_t lz_decompress_content(const uint8_t *src,
 {
   LZBitStream bs;
   uint32_t dst_pos = 0;
+  uint32_t v2 = 0;
+  uint32_t copy_len = 0;
+  uint32_t back_offset = 0;
+  uint32_t i = 0;
+  uint32_t from = 0;
 
   bs.data = src;
   bs.size = src_size;
@@ -224,10 +239,9 @@ static uint32_t lz_decompress_content(const uint8_t *src,
   {
     if (lz_read_bits(&bs, 1) == 1)
     {
-      uint32_t v2 = 0;
-      uint32_t copy_len = 2;
-      uint32_t back_offset;
-      uint32_t i;
+      v2 = 0;
+      copy_len = 2;
+      back_offset = 0;
 
       while (v2 < max_offset_bits && lz_read_bits(&bs, 1) == 1)
       {
@@ -250,7 +264,7 @@ static uint32_t lz_decompress_content(const uint8_t *src,
 
       for (i = 0; i < copy_len && dst_pos < dst_size; ++i)
       {
-        uint32_t from = (back_offset <= dst_pos) ? (dst_pos - back_offset) : 0u;
+        from = (back_offset <= dst_pos) ? (dst_pos - back_offset) : 0u;
         dst[dst_pos] = dst[from];
         dst_pos++;
       } /* End of loop */
@@ -276,17 +290,18 @@ static uint32_t lz_decompress_content(const uint8_t *src,
 static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 {
   uint32_t i;
+  VMGPStream *pudtStream = NULL;
 
   for (i = 0; i < VMGP_MAX_STREAMS; ++i)
   {
-
     if (ctx->streams[i].used && ctx->streams[i].handle == handle)
     {
-      return &ctx->streams[i];
+      pudtStream = &ctx->streams[i];
+      break;
     }
   } /* End of loop */
 
-  return NULL;
+  return pudtStream;
 } /* End of find_stream */
 
 /**********************************************************************************************************************
@@ -316,6 +331,7 @@ static bool handle_decomp_hdr(VMGPContext *ctx)
                       &compressed_size))
   {
     ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
     return true;
   }
 
@@ -332,6 +348,7 @@ static bool handle_decomp_hdr(VMGPContext *ctx)
   }
 
   ctx->regs[VM_REG_R0] = uncompressed_size;
+
   return true;
 } /* End of handle_decomp_hdr */
 
@@ -358,13 +375,17 @@ static bool handle_decompress(VMGPContext *ctx)
   uint32_t out_size = 0;
   uint32_t packed_size = 0;
   uint32_t produced = 0;
+  uint32_t copy_size = 0;
+  uint32_t dst_limit = 0;
+  uint32_t heap_limit = 0;
+  uint32_t consumed = 0;
 
   if (src != 0)
   {
-
     if (!MVM_LbRuntimeMemRangeOk(ctx, src, 22))
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
       return true;
     }
     base = ctx->mem + src;
@@ -378,6 +399,7 @@ static bool handle_decompress(VMGPContext *ctx)
     if (!s || !MVM_LbRuntimeMemRangeOk(ctx, s->base + s->pos, 22))
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
       return true;
     }
     stream_base_pos = s->pos;
@@ -387,12 +409,13 @@ static bool handle_decompress(VMGPContext *ctx)
 
   if (!lz_read_header(base, available, &extended_offset_bits, &max_offset_bits, &out_size, &packed_size))
   {
-    uint32_t copy_size = available;
-    uint32_t dst_limit;
+    copy_size = available;
+    dst_limit = 0;
 
     if (dst >= ctx->mem_size)
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
       return true;
     }
 
@@ -400,7 +423,7 @@ static bool handle_decompress(VMGPContext *ctx)
 
     if (dst < ctx->heap_cur)
     {
-      uint32_t heap_limit = ctx->heap_cur - dst;
+      heap_limit = ctx->heap_cur - dst;
 
       if (heap_limit < dst_limit)
       {
@@ -429,12 +452,14 @@ static bool handle_decompress(VMGPContext *ctx)
     }
 
     ctx->regs[VM_REG_R0] = copy_size;
+
     return true;
   }
 
   if (!MVM_LbRuntimeMemRangeOk(ctx, dst, out_size))
   {
     ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
     return true;
   }
 
@@ -452,7 +477,7 @@ static bool handle_decompress(VMGPContext *ctx)
 
   if (s)
   {
-    uint32_t consumed = 22u + packed_size;
+    consumed = 22u + packed_size;
     s->pos = stream_base_pos + consumed;
 
     if (s->pos > s->size)
@@ -462,6 +487,7 @@ static bool handle_decompress(VMGPContext *ctx)
   }
 
   ctx->regs[VM_REG_R0] = produced;
+
   return true;
 } /* End of handle_decompress */
 

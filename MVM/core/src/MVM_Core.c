@@ -5,8 +5,7 @@
  *             File:  MVM_Core.c
  *           Module:  MVM_Core
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Core VM lifecycle, memory helpers, and platform integration entry points.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -71,6 +70,7 @@ size_t MVM_udtGetStorageAlign(void)
 MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
 {
   size_t align = MVM_udtGetStorageAlign();
+  MophunVM *pudtVm = NULL;
 
   if (!storage || storage_size < sizeof(MophunVM))
   {
@@ -82,7 +82,9 @@ MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
     return NULL;
   }
 
-  return (MophunVM *)storage;
+  pudtVm = (MophunVM *)storage;
+
+  return pudtVm;
 } /* End of MVM_pudtGetVmFromStorage */
 
 /**********************************************************************************************************************
@@ -110,10 +112,13 @@ bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size)
  *********************************************************************************************************************/
 bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t size, const MophunPlatform *platform)
 {
+  bool bResult = false;
+
   if (!ctx || !data || size < sizeof(VMGPHeader))
   {
     return false;
   }
+
   memset(ctx, 0, sizeof(*ctx));
 
   if (platform)
@@ -124,7 +129,9 @@ bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t siz
   ctx->size = size;
   ctx->next_stream_handle = 0x30u;
   ctx->random_state = 1u;
-  return true;
+  bResult = true;
+
+  return bResult;
 } /* End of MVM_LbInitRawWithPlatform */
 
 /**********************************************************************************************************************
@@ -152,6 +159,8 @@ bool MVM_bInit(MophunVM *vm, const uint8_t *image, size_t image_size)
  *********************************************************************************************************************/
 bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size, const MophunPlatform *platform)
 {
+  bool bResult = false;
+
   if (!MVM_LbInitRawWithPlatform(vm, image, image_size, platform))
   {
     return false;
@@ -160,10 +169,13 @@ bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size
   if (!MVM_bVmgpParseHeader(vm) || !MVM_bVmgpLoadPool(vm))
   {
     MVM_LvidFreeRaw(vm);
+
     return false;
   }
 
-  return true;
+  bResult = true;
+
+  return bResult;
 } /* End of MVM_bInitWithPlatform */
 
 /**********************************************************************************************************************
@@ -177,19 +189,25 @@ bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size
  *********************************************************************************************************************/
 void *MVM_LpudtCalloc(VMGPContext *ctx, size_t count, size_t size)
 {
+  void *pudtMem = NULL;
+
   if (ctx && ctx->platform.calloc)
   {
-    return ctx->platform.calloc(ctx->platform.user, count, size);
+    pudtMem = ctx->platform.calloc(ctx->platform.user, count, size);
+
+    return pudtMem;
   }
 
 #if MVM_ENABLE_DEFAULT_ALLOCATOR
-  return calloc(count, size);
+  pudtMem = calloc(count, size);
 #else
   (void)ctx;
   (void)count;
   (void)size;
-  return NULL;
+  pudtMem = NULL;
 #endif
+
+  return pudtMem;
 } /* End of MVM_LpudtCalloc */
 
 /**********************************************************************************************************************
@@ -211,6 +229,7 @@ void MVM_LvidFreeMem(VMGPContext *ctx, void *ptr)
   if (ctx && ctx->platform.free)
   {
     ctx->platform.free(ctx->platform.user, ptr);
+
     return;
   }
 #if MVM_ENABLE_DEFAULT_ALLOCATOR
@@ -241,6 +260,7 @@ void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...)
   if (ctx && ctx->platform.log)
   {
     ctx->platform.log(ctx->platform.user, buffer);
+
     return;
   }
 

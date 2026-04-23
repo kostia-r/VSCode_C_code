@@ -5,8 +5,7 @@
  *             File:  MVM_Trace.c
  *           Module:  MVM_Debug
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Trace execution driver and memory write watch debug hooks.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -47,6 +46,8 @@ void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t siz
  *********************************************************************************************************************/
 bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_calls)
 {
+  bool bResult = false;
+
   if (!ctx || !ctx->mem)
   {
     return false;
@@ -71,7 +72,9 @@ bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_ca
   ctx->logged_calls,
   ctx->heap_cur,
   ctx->regs[VM_REG_R0]);
-  return true;
+  bResult = true;
+
+  return bResult;
 } /* End of MVM_LbRunTrace */
 
 /**********************************************************************************************************************

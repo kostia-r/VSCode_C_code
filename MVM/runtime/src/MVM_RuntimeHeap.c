@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeHeap.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime heap allocation and free-related import handlers.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -31,10 +30,14 @@
  *********************************************************************************************************************/
 bool MVM_bRuntimeHandleHeap(VMGPContext *ctx, const char *name)
 {
+  uint32_t size = 0;
+  uint32_t addr = 0;
+  bool bHandled = false;
+
   if (strcmp(name, "vNewPtr") == 0)
   {
-    uint32_t size = ctx->regs[VM_REG_P0];
-    uint32_t addr = vm_align4(ctx->heap_cur);
+    size = ctx->regs[VM_REG_P0];
+    addr = vm_align4(ctx->heap_cur);
 
     if (size == 0)
     {
@@ -51,16 +54,18 @@ bool MVM_bRuntimeHandleHeap(VMGPContext *ctx, const char *name)
       ctx->regs[VM_REG_R0] = addr;
       ctx->heap_cur = addr + size;
     }
-    return true;
+
+    bHandled = true;
   }
 
-  if (strcmp(name, "vDisposePtr") == 0 || strcmp(name, "vMemFree") == 0)
+  else if (strcmp(name, "vDisposePtr") == 0 || strcmp(name, "vMemFree") == 0)
   {
     ctx->regs[VM_REG_R0] = 0;
-    return true;
+
+    bHandled = true;
   }
 
-  return false;
+  return bHandled;
 } /* End of MVM_bRuntimeHandleHeap */
 
 /**********************************************************************************************************************

@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeMisc.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime handlers for miscellaneous guest imports and stubs.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -31,19 +30,21 @@
  *********************************************************************************************************************/
 bool MVM_bRuntimeHandleMisc(VMGPContext *ctx, const char *name)
 {
+  bool bHandled = false;
+
   if (strcmp(name, "vTerminateVMGP") == 0)
   {
     ctx->regs[VM_REG_R0] = 0;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "DbgPrintf") == 0 || strcmp(name, "vPrint") == 0)
+  else if (strcmp(name, "DbgPrintf") == 0 || strcmp(name, "vPrint") == 0)
   {
     ctx->regs[VM_REG_R0] = 0;
-    return true;
+    bHandled = true;
   }
 
-  return false;
+  return bHandled;
 } /* End of MVM_bRuntimeHandleMisc */
 
 /**********************************************************************************************************************

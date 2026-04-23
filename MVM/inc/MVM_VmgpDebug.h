@@ -5,8 +5,7 @@
  *             File:  MVM_VmgpDebug.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Public VMGP image structures and debug inspection helpers.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -35,35 +34,44 @@
 /**********************************************************************************************************************
  *  GLOBAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
+/**
+ * @brief Describes the fixed VMGP file header.
+ */
 typedef struct VMGPHeader
 {
-  char magic[4];
-  uint16_t unknown1;
-  uint16_t unknown2;
-  uint16_t stack_words;
-  uint8_t unknown3;
-  uint8_t unknown4;
-  uint32_t code_size;
-  uint32_t data_size;
-  uint32_t bss_size;
-  uint32_t res_size;
-  uint32_t unknown5;
-  uint32_t pool_slots;
-  uint32_t string_size;
+  char magic[4];        /**< File magic, expected to be `VMGP`. */
+  uint16_t unknown1;    /**< Reserved header field. */
+  uint16_t unknown2;    /**< Reserved header field. */
+  uint16_t stack_words; /**< Initial stack size in 32-bit words. */
+  uint8_t unknown3;     /**< Reserved header field. */
+  uint8_t unknown4;     /**< Reserved header field. */
+  uint32_t code_size;   /**< Code section size in bytes. */
+  uint32_t data_size;   /**< Data section size in bytes. */
+  uint32_t bss_size;    /**< BSS section size in bytes. */
+  uint32_t res_size;    /**< Resource table size in bytes. */
+  uint32_t unknown5;    /**< Reserved header field. */
+  uint32_t pool_slots;  /**< Number of pool entries. */
+  uint32_t string_size; /**< String table size in bytes. */
 } VMGPHeader;
 
+/**
+ * @brief Describes one VMGP constant-pool entry.
+ */
 typedef struct VMGPPoolEntry
 {
-  uint8_t type;
-  uint32_t aux24;
-  uint32_t value;
+  uint8_t type;   /**< Pool entry type tag. */
+  uint32_t aux24; /**< Auxiliary 24-bit payload stored in a 32-bit field. */
+  uint32_t value; /**< Primary entry value or offset. */
 } VMGPPoolEntry;
 
+/**
+ * @brief Describes one resource stored in the VM image.
+ */
 typedef struct VMGPResource
 {
-  uint32_t id;
-  uint32_t offset;
-  uint32_t size;
+  uint32_t id;     /**< Resource identifier. */
+  uint32_t offset; /**< Resource payload offset in VM memory. */
+  uint32_t size;   /**< Resource payload size in bytes. */
 } VMGPResource;
 
 /**********************************************************************************************************************

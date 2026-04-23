@@ -5,8 +5,7 @@
  *             File:  MVM_Vm.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Public VM creation, initialization, and lifetime management API.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************

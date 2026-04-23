@@ -78,7 +78,7 @@ int main(int argc, char **argv)
   MophunVM *vm;
   MophunPlatform platform = {0};
   uint32_t max_steps = 5000000;
-  uint32_t max_logged_calls = 500;
+  uint32_t max_logged_calls = 1000;
 
   if (argc < 2 || argc > 4)
   {

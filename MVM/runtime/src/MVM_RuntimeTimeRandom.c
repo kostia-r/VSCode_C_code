@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeTimeRandom.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime handlers for guest tick-count and random-number services.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -31,6 +30,8 @@
  *********************************************************************************************************************/
 bool MVM_bRuntimeHandleTimeRandom(VMGPContext *ctx, const char *name)
 {
+  bool bHandled = false;
+
   if (strcmp(name, "vGetTickCount") == 0)
   {
     if (ctx->platform.get_ticks_ms)
@@ -43,19 +44,18 @@ bool MVM_bRuntimeHandleTimeRandom(VMGPContext *ctx, const char *name)
     }
 
     ctx->regs[VM_REG_R0] = ctx->tick_count;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "vSetRandom") == 0)
+  else if (strcmp(name, "vSetRandom") == 0)
   {
     ctx->random_state = ctx->regs[VM_REG_P0] ? ctx->regs[VM_REG_P0] : 1u;
     ctx->regs[VM_REG_R0] = 0;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "vGetRandom") == 0)
+  else if (strcmp(name, "vGetRandom") == 0)
   {
-
     if (ctx->platform.get_random)
     {
       ctx->regs[VM_REG_R0] = ctx->platform.get_random(ctx->platform.user);
@@ -66,10 +66,10 @@ bool MVM_bRuntimeHandleTimeRandom(VMGPContext *ctx, const char *name)
       ctx->regs[VM_REG_R0] = (ctx->random_state >> 16) & 0xFFFFu;
     }
 
-    return true;
+    bHandled = true;
   }
 
-  return false;
+  return bHandled;
 } /* End of MVM_bRuntimeHandleTimeRandom */
 
 /**********************************************************************************************************************

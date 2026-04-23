@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeStreams.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime handlers for guest stream open, seek, read, and close operations.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -45,26 +44,40 @@ static VMGPStream *alloc_stream(VMGPContext *ctx);
  *********************************************************************************************************************/
 bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
 {
+  uint32_t mode = 0;
+  uint32_t resid = 0;
+  VMGPStream *s = NULL;
+  const VMGPResource *res = NULL;
+  int32_t where = 0;
+  uint32_t whence = 0;
+  int32_t pos = -1;
+  uint32_t buf = 0;
+  uint32_t count = 0;
+  uint32_t avail = 0;
+  bool bHandled = false;
+
   if (strcmp(name, "vStreamOpen") == 0)
   {
-    uint32_t mode = ctx->regs[VM_REG_P1];
-    uint32_t resid = mode >> 16;
-    VMGPStream *s = alloc_stream(ctx);
+    mode = ctx->regs[VM_REG_P1];
+    resid = mode >> 16;
+    s = alloc_stream(ctx);
 
     if (!s)
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
       return true;
     }
 
     if (resid != 0)
     {
-      const VMGPResource *res = MVM_pudtVmgpGetResource(ctx, resid);
+      res = MVM_pudtVmgpGetResource(ctx, resid);
 
       if (!res)
       {
         memset(s, 0, sizeof(*s));
         ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
         return true;
       }
 
@@ -80,19 +93,20 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
 
     s->pos = 0;
     ctx->regs[VM_REG_R0] = s->handle;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "vStreamSeek") == 0)
+  else if (strcmp(name, "vStreamSeek") == 0)
   {
-    VMGPStream *s = find_stream(ctx, ctx->regs[VM_REG_P0]);
-    int32_t where = vm_reg_s32(ctx->regs[VM_REG_P1]);
-    uint32_t whence = ctx->regs[VM_REG_P2];
-    int32_t pos = -1;
+    s = find_stream(ctx, ctx->regs[VM_REG_P0]);
+    where = vm_reg_s32(ctx->regs[VM_REG_P1]);
+    whence = ctx->regs[VM_REG_P2];
+    pos = -1;
 
     if (!s)
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
       return true;
     }
 
@@ -121,19 +135,19 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
 
     s->pos = (uint32_t)pos;
     ctx->regs[VM_REG_R0] = s->pos;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "vStreamRead") == 0)
+  else if (strcmp(name, "vStreamRead") == 0)
   {
-    VMGPStream *s = find_stream(ctx, ctx->regs[VM_REG_P0]);
-    uint32_t buf = ctx->regs[VM_REG_P1];
-    uint32_t count = ctx->regs[VM_REG_P2];
-    uint32_t avail;
+    s = find_stream(ctx, ctx->regs[VM_REG_P0]);
+    buf = ctx->regs[VM_REG_P1];
+    count = ctx->regs[VM_REG_P2];
 
     if (!s || buf >= ctx->mem_size)
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
       return true;
     }
 
@@ -158,22 +172,22 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
     memcpy(ctx->mem + buf, ctx->mem + s->base + s->pos, count);
     s->pos += count;
     ctx->regs[VM_REG_R0] = count;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "vStreamClose") == 0)
+  else if (strcmp(name, "vStreamClose") == 0)
   {
-    VMGPStream *s = find_stream(ctx, ctx->regs[VM_REG_P0]);
+    s = find_stream(ctx, ctx->regs[VM_REG_P0]);
 
     if (s)
     {
       memset(s, 0, sizeof(*s));
     }
     ctx->regs[VM_REG_R0] = 0;
-    return true;
+    bHandled = true;
   }
 
-  return false;
+  return bHandled;
 } /* End of MVM_bRuntimeHandleStream */
 
 /**********************************************************************************************************************
@@ -192,17 +206,18 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
 static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 {
   uint32_t i;
+  VMGPStream *pudtStream = NULL;
 
   for (i = 0; i < VMGP_MAX_STREAMS; ++i)
   {
-
     if (ctx->streams[i].used && ctx->streams[i].handle == handle)
     {
-      return &ctx->streams[i];
+      pudtStream = &ctx->streams[i];
+      break;
     }
   } /* End of loop */
 
-  return NULL;
+  return pudtStream;
 } /* End of find_stream */
 
 /**********************************************************************************************************************
@@ -217,20 +232,21 @@ static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 static VMGPStream *alloc_stream(VMGPContext *ctx)
 {
   uint32_t i;
+  VMGPStream *pudtStream = NULL;
 
   for (i = 0; i < VMGP_MAX_STREAMS; ++i)
   {
-
     if (!ctx->streams[i].used)
     {
       memset(&ctx->streams[i], 0, sizeof(ctx->streams[i]));
       ctx->streams[i].used = true;
       ctx->streams[i].handle = i;
-      return &ctx->streams[i];
+      pudtStream = &ctx->streams[i];
+      break;
     }
   } /* End of loop */
 
-  return NULL;
+  return pudtStream;
 } /* End of alloc_stream */
 
 /**********************************************************************************************************************

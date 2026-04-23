@@ -67,6 +67,14 @@ MVM_Lu32TraceMask
 
 Global variables, if any are unavoidable, use `MVM_` before the type prefix.
 
+- Add a short Doxygen-style comment for data type declarations, `struct` /
+  `enum` / `union` declarations, their fields, and standalone variables whose
+  purpose is not self-evident.
+- Prefer `/** @brief ... */` comments before type declarations and
+  `/**< ... */` comments for structure fields.
+- For local variables, add a short Doxygen-style comment when the role is not
+  obvious from the name and surrounding code.
+
 ### Types
 
 Struct types follow:
@@ -117,6 +125,8 @@ MVM_Trace.h
   containing `switch`.
 - Use blank lines to separate logical blocks; see `Blank Lines` below.
 - Use one variable declaration per line.
+- Declare local variables at the beginning of the function body, before the
+  first executable statement.
 - Keep operators surrounded by spaces, except unary operators.
 - Each file ends with a newline.
 
@@ -130,6 +140,10 @@ MVM_Trace.h
   `else if`.
 - Insert a blank line after a completed nested block or `if`/`else` chain before
   subsequent non-control continuation statements.
+- Do not add vertical padding inside a block when it contains only one simple
+  statement.
+- Insert a blank line immediately before a `return` statement only when it
+  improves separation from preceding statements in the same block.
 - Insert a blank line between adjacent `typedef` declarations.
 - Intentional fall-through `case` labels may be adjacent without blank lines.
 - Keep a blank line between completed `case` bodies.
@@ -224,6 +238,15 @@ static bool MVM_LbValidateEntryPoint(uint32_t par_u32Address);
 - Keep the long function header comment above the implementation itself. The
   prototype gets only the short `@brief`; the implementation gets the full
   function description block.
+
+### Return Style
+
+- Prefer a single exit point per function when this does not make the code less
+  clear.
+- Early returns remain acceptable for simple guard clauses or error handling
+  when they keep the control flow easier to follow.
+- Do not add an empty line before `return` when it is the only statement in the
+  block or when the extra spacing does not improve readability.
 
 ### Header Inline Functions
 

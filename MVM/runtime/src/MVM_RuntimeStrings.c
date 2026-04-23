@@ -5,8 +5,7 @@
  *             File:  MVM_RuntimeStrings.c
  *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Mophun VM component source.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Runtime handlers for guest string length and copy operations.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -31,22 +30,29 @@
  *********************************************************************************************************************/
 bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name)
 {
+  uint32_t p = 0;
+  uint32_t dst = 0;
+  uint32_t src = 0;
+  size_t max_copy = 0;
+  size_t n = 0;
+  bool bHandled = false;
+
   if (strcmp(name, "vStrLen") == 0)
   {
-    uint32_t p = ctx->regs[VM_REG_P0];
+    p = ctx->regs[VM_REG_P0];
     ctx->regs[VM_REG_R0] = (p < ctx->mem_size) ? MVM_Lu32RuntimeStrLen(ctx->mem + p, ctx->mem_size - p) : 0u;
-    return true;
+    bHandled = true;
   }
 
-  if (strcmp(name, "vStrCpy") == 0)
+  else if (strcmp(name, "vStrCpy") == 0)
   {
-    uint32_t dst = ctx->regs[VM_REG_P0];
-    uint32_t src = ctx->regs[VM_REG_P1];
+    dst = ctx->regs[VM_REG_P0];
+    src = ctx->regs[VM_REG_P1];
 
     if (dst < ctx->mem_size && src < ctx->mem_size)
     {
-      size_t max_copy = ctx->mem_size - dst;
-      size_t n = MVM_Lu32RuntimeStrLen(ctx->mem + src, ctx->mem_size - src);
+      max_copy = ctx->mem_size - dst;
+      n = MVM_Lu32RuntimeStrLen(ctx->mem + src, ctx->mem_size - src);
 
       if (n + 1 > max_copy)
       {
@@ -62,10 +68,10 @@ bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name)
     }
 
     ctx->regs[VM_REG_R0] = dst;
-    return true;
+    bHandled = true;
   }
 
-  return false;
+  return bHandled;
 } /* End of MVM_bRuntimeHandleStrings */
 
 /**********************************************************************************************************************

@@ -5,8 +5,7 @@
  *             File:  MVM_Trace.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Mophun VM component header.
- *            Notes:  Structured according to project styling guidelines.
+ *      Description:  Public tracing and execution-log API for VM debugging.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
