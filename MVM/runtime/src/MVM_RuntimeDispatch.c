@@ -22,14 +22,14 @@
 /**
  * @brief Dispatches an import to a host-provided syscall.
  */
-static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name);
+static bool MVM_lTryHostSyscall(VMGPContext *ctx, const char *name);
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_bRuntimeHandleImportCall
+ *  Name: MVM_HandleRuntimeImportCall
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -37,16 +37,16 @@ static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name);
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index)
+bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index)
 {
-  const char *name = MVM_pudtVmgpGetImportName(ctx, pool_index);
+  const char *name = MVM_GetVmgpImportName(ctx, pool_index);
   bool bHandled = false;
 
-  bHandled = MVM_LbRuntimeTryHostSyscall(ctx, name) ||
-             MVM_bRuntimeHandleStream(ctx, name) ||
-             MVM_bRuntimeHandleDecompress(ctx, name) ||
-             MVM_bRuntimeHandleHeap(ctx, name) ||
-             MVM_bRuntimeHandleStrings(ctx, name);
+  bHandled = MVM_lTryHostSyscall(ctx, name) ||
+             MVM_HandleRuntimeStream(ctx, name) ||
+             MVM_HandleRuntimeDecompress(ctx, name) ||
+             MVM_HandleRuntimeHeap(ctx, name) ||
+             MVM_HandleRuntimeStrings(ctx, name);
 
   if (!bHandled)
   {
@@ -54,14 +54,14 @@ bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index)
   }
 
   return true;
-} /* End of MVM_bRuntimeHandleImportCall */
+} /* End of MVM_HandleRuntimeImportCall */
 
 /**********************************************************************************************************************
  *  LOCAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_LbRuntimeTryHostSyscall
+ *  Name: MVM_lTryHostSyscall
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -69,10 +69,10 @@ bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index)
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name)
+static bool MVM_lTryHostSyscall(VMGPContext *ctx, const char *name)
 {
   uint32_t i;
-  const MophunSyscall *syscall = NULL;
+  const MpnSyscall_t *syscall = NULL;
   bool bHandled = false;
 
   if (!ctx || !name || !ctx->syscalls)
@@ -93,7 +93,7 @@ static bool MVM_LbRuntimeTryHostSyscall(VMGPContext *ctx, const char *name)
   } /* End of loop */
 
   return bHandled;
-} /* End of MVM_LbRuntimeTryHostSyscall */
+} /* End of MVM_lTryHostSyscall */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_RuntimeDispatch.c

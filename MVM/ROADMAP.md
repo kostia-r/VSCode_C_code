@@ -17,14 +17,14 @@ treated as a frozen specification.
 ## Current Baseline
 
 - VM code is split into `core`, `loader`, `pip`, `runtime`, and `debug`.
-- `MophunVM` is opaque to host code.
+- `MpnVM_t` is opaque to host code.
 - Component style rules are captured in `STYLE_GUIDE.md`.
 - VM source and header files use the `MVM_` prefix.
 - Public VM APIs use the `MVM_` function prefix.
 - Public storage API exists:
-  - `MVM_udtGetStorageSize()`
-  - `MVM_udtGetStorageAlign()`
-  - `MVM_pudtGetVmFromStorage()`
+  - `MVM_GetStorageSize()`
+  - `MVM_GetStorageAlign()`
+  - `MVM_GetVmFromStorage()`
 - Platform callbacks exist for logging, ticks, and random.
 - Runtime syscalls are split by domain.
 - Host/platform bindings are now centralized in `Config/` instead of being overridden through a public syscall registration API.
@@ -386,7 +386,7 @@ Current rough model:
 
 Measurements to add:
 
-- `sizeof(MophunVM)`.
+- `sizeof(MpnVM_t)`.
 - Guest memory size for target games.
 - Max host stack depth during VM run.
 - Per-frame or per-step CPU time on desktop and MCU.

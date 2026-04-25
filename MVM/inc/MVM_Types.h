@@ -22,7 +22,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct MophunDeviceProfile MophunDeviceProfile;
+typedef struct MpnDevProfile_t MpnDevProfile_t;
 
 /**********************************************************************************************************************
  *  GLOBAL DATA TYPES AND STRUCTURES
@@ -31,31 +31,31 @@ typedef struct MophunDeviceProfile MophunDeviceProfile;
 /**
  * @brief Describes host services exposed to the VM core.
  */
-typedef struct MophunPlatform
+typedef struct MpnPlatform_t
 {
   void *user;                                   /**< Opaque host context passed to all platform callbacks. */
   uint32_t (*get_ticks_ms)(void *user);         /**< Returns a monotonic host tick value in milliseconds. */
   uint32_t (*get_random)(void *user);           /**< Returns one host-provided random value. */
   int (*log)(void *user, const char *message);  /**< Writes one diagnostic message through the host logger. */
-} MophunPlatform;
+} MpnPlatform_t;
 
 /**
  * @brief Describes the current execution state of the VM.
  */
-typedef enum MVM_tenuState
+typedef enum MVM_State_t
 {
-  MVM_TENU_STATE_READY = 0, /**< VM is initialized and ready to execute. */
-  MVM_TENU_STATE_RUNNING,   /**< VM is currently executing instructions. */
-  MVM_TENU_STATE_PAUSED,    /**< VM execution is paused by the host. */
-  MVM_TENU_STATE_WAITING,   /**< VM is waiting for a host-driven external event. */
-  MVM_TENU_STATE_EXITED,    /**< VM has exited normally. */
-  MVM_TENU_STATE_ERROR,     /**< VM has stopped because of a fatal error. */
-} MVM_tenuState;
+  MVM_STATE_READY = 0, /**< VM is initialized and ready to execute. */
+  MVM_STATE_RUNNING,   /**< VM is currently executing instructions. */
+  MVM_STATE_PAUSED,    /**< VM execution is paused by the host. */
+  MVM_STATE_WAITING,   /**< VM is waiting for a host-driven external event. */
+  MVM_STATE_EXITED,    /**< VM has exited normally. */
+  MVM_STATE_ERROR,     /**< VM has stopped because of a fatal error. */
+} MVM_State_t;
 
 /**
  * @brief Describes public API return codes.
  */
-typedef enum MVM_tenuReturnCode
+typedef enum MVM_RetCode_t
 {
   MVM_OK = 0,          /**< Operation completed successfully. */
   MVM_INVALID_ARG,     /**< One or more API arguments are invalid. */
@@ -65,25 +65,25 @@ typedef enum MVM_tenuReturnCode
   MVM_MEMORY_ERROR,    /**< Runtime memory configuration is missing or too small. */
   MVM_EXECUTION_ERROR, /**< VM execution failed. */
   MVM_WATCHDOG_ERROR,  /**< The VM watchdog detected stalled execution. */
-} MVM_tenuReturnCode;
+} MVM_RetCode_t;
 
 /**
  * @brief Describes the last fatal execution error reported by the VM.
  */
-typedef enum MVM_tenuError
+typedef enum MVM_Err_t
 {
-  MVM_TENU_ERROR_NONE = 0,       /**< No fatal error has been reported. */
-  MVM_TENU_ERROR_INVALID_ARG,    /**< Host code passed an invalid argument. */
-  MVM_TENU_ERROR_INIT_FAILED,    /**< VM initialization failed. */
-  MVM_TENU_ERROR_MEMORY,         /**< VM runtime pool is missing or undersized. */
-  MVM_TENU_ERROR_EXECUTION,      /**< VM execution failed. */
-  MVM_TENU_ERROR_WATCHDOG,       /**< Soft watchdog detected a stalled PC. */
-} MVM_tenuError;
+  MVM_E_NONE = 0,       /**< No fatal error has been reported. */
+  MVM_E_INVALID_ARG,    /**< Host code passed an invalid argument. */
+  MVM_E_INIT_FAILED,    /**< VM initialization failed. */
+  MVM_E_MEMORY,         /**< VM runtime pool is missing or undersized. */
+  MVM_E_EXECUTION,      /**< VM execution failed. */
+  MVM_E_WDG,            /**< Soft watchdog detected a stalled PC. */
+} MVM_Err_t;
 
 /**
  * @brief Describes runtime memory requirements for one loaded VMGP image.
  */
-typedef struct MVM_tstMemoryRequirements
+typedef struct MVM_MemReqs_t
 {
   size_t runtime_pool_bytes;     /**< Total arena capacity required by the VM runtime. */
   size_t guest_memory_bytes;     /**< Total guest-visible RAM requirement. */
@@ -96,9 +96,9 @@ typedef struct MVM_tstMemoryRequirements
   uint32_t resource_bytes;       /**< Guest RAM budget reserved for loaded resource payloads. */
   uint32_t heap_bytes;           /**< Guest heap budget included in the RAM requirement. */
   uint32_t stack_bytes;          /**< Guest stack budget included in the RAM requirement. */
-} MVM_tstMemoryRequirements;
+} MVM_MemReqs_t;
 
-typedef struct MophunVM MophunVM;
+typedef struct MpnVM_t MpnVM_t;
 
 /**
  * @brief Represents a host syscall callback.
@@ -107,17 +107,17 @@ typedef struct MophunVM MophunVM;
  * control APIs when host-driven waiting, pause, resume, or exit handling is
  * required.
  */
-typedef uint32_t (*MophunSyscallFn)(MophunVM *vm, void *user);
+typedef uint32_t (*MpnSyscallFn_t)(MpnVM_t *vm, void *user);
 
 /**
  * @brief Describes one named host syscall binding.
  */
-typedef struct MophunSyscall
+typedef struct MpnSyscall_t
 {
   const char *name;   /**< Exported syscall name visible to the guest runtime. */
-  MophunSyscallFn fn; /**< Host callback that implements the named syscall. */
+  MpnSyscallFn_t fn;  /**< Host callback that implements the named syscall. */
   void *user;         /**< Opaque host context passed to the syscall callback. */
-} MophunSyscall;
+} MpnSyscall_t;
 
 /**********************************************************************************************************************
  *  END of header file guard

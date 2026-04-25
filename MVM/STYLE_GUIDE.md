@@ -5,7 +5,7 @@ This guide adapts the project documents `2.+Naming+conventions.docx` and
 
 ## Component Identity
 
-- Human-readable component name: `MophunVM`.
+- Human-readable component name: `MpnVM_t`.
 - C symbol prefix: `MVM`.
 - Source/header file prefix: `MVM_`.
 - New public symbols must use the `MVM_` prefix.
@@ -17,52 +17,42 @@ This guide adapts the project documents `2.+Naming+conventions.docx` and
 Function names follow:
 
 ```text
-MVM_<ReturnType><PascalCaseName>
-MVM_L<ReturnType><PascalCaseName>   // private/static functions
-MVM_cbk_<ReturnType><PascalCaseName> // callbacks
+MVM_<PascalCaseName>
+MVM_l<PascalCaseName>   // private/static functions
+MVM_cbk_<PascalCaseName> // callbacks
 ```
-
-Return type prefixes:
-
-- `vid` for `void`
-- `b` for `bool`
-- `u8`, `u16`, `u32`, `u64` for unsigned integers
-- `s8`, `s16`, `s32`, `s64` for signed integers
-- `udt` for user-defined types or platform/library types such as `size_t`
-- `pudt` for user-defined pointers when the distinction is useful
 
 Examples:
 
 ```c
-MVM_enuInit(...)
-MVM_vidFree(...)
-MVM_udtGetStorageSize(...)
-MVM_Lu32ReadOpcode(...)
+MVM_Init(...)
+MVM_Free(...)
+MVM_GetStorageSize(...)
+MVM_lReadOpcode(...)
 ```
+
+- Do not encode the return type into the function name.
+- Avoid prefixes such as `u32`, `udt`, `vid`, `tvid`, `enu`, `tenu` in new
+  function names.
+- Keep names semantic and short: `MVM_RunStep`, `MVM_GetState`,
+  `MVM_SetWdgLimit`.
+- Use `MVM_l...` for `static` helper functions instead of `MVM_L...`.
 
 ### Variables
 
-Variables use a type prefix and PascalCase name:
+Variables use a PascalCase name:
 
 ```text
-u32StepCount
-bIsReady
-udtVm
-pudtStorage
+stepCount
+isReady
+vm
+storage
 ```
 
-Function parameters start with `par_`:
+File-scope variables use `MVM_l` before the type prefix:
 
 ```text
-par_pudtVm
-par_u32MaxSteps
-par_pu8Data_out
-```
-
-File-scope variables use `MVM_L` before the type prefix:
-
-```text
-MVM_Lu32TraceMask
+MVM_lTraceMask
 ```
 
 Global variables, if any are unavoidable, use `MVM_` before the type prefix.
@@ -80,16 +70,20 @@ Global variables, if any are unavoidable, use `MVM_` before the type prefix.
 Struct types follow:
 
 ```text
-MVM_tstr<Name>
+MVM_<Name>_t
 ```
 
 Enum types follow:
 
 ```text
-MVM_tenu<Name>
+MVM_<Name>_t
 ```
 
 Enum values include the enum name or a clear abbreviated prefix.
+
+- Avoid old-style type prefixes such as `tst` and `tenu` in new type names.
+- Prefer direct names such as `MVM_State_t`, `MVM_RetCode_t`,
+  `MVM_MemReqs_t`, `MpnVM_t`.
 
 ### Macros
 
@@ -153,7 +147,7 @@ MVM_Trace.h
 Use explicit closing comments for high-level and control-flow blocks:
 
 ```c
-} /* End of MVM_enuInit */
+} /* End of MVM_Init */
 } /* End of case OP_CALLL */
 } /* End of switch */
 } /* End of loop */
@@ -226,13 +220,19 @@ changes with behavioral changes.
   of the `.c` file.
 - Every `static` function in a `.c` file must have a prototype in
   `LOCAL FUNCTIONS PROTOTYPES`.
+- Thin internal helpers that exist only to support a public API in the same
+  translation unit must be `static`.
+- Do not expose helper functions through public headers when they are not used
+  outside the current translation unit.
+- Public functions and variables must be only those that are referenced outside
+  the current translation unit.
 - Each `static` prototype must have a short Doxygen-style `@brief` comment:
 
 ```c
 /**
  * @brief Checks whether the entry point is valid.
  */
-static bool MVM_LbValidateEntryPoint(uint32_t par_u32Address);
+static bool MVM_lValidateEntryPoint(uint32_t address);
 ```
 
 - Keep the long function header comment above the implementation itself. The
@@ -247,6 +247,8 @@ static bool MVM_LbValidateEntryPoint(uint32_t par_u32Address);
   when they keep the control flow easier to follow.
 - Do not add an empty line before `return` when it is the only statement in the
   block or when the extra spacing does not improve readability.
+- For public APIs, prefer explicit status returns over bare `bool` results when
+  the caller benefits from distinguishing error classes.
 
 ### Header Inline Functions
 

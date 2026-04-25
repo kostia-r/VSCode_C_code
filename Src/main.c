@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define MAX_STEPS_DEFAULT              (10000000U)
+#define MAX_LOGGED_CALLS_DEFAULT       (5000U)
+
 /**
  * @brief Describes parsed command-line options for the VM runner.
  */
@@ -92,14 +95,14 @@ static void print_available_profiles(void)
 {
   uint32_t i;
   uint32_t profile_count;
-  const MophunDeviceProfile *profile;
+  const MpnDevProfile_t *profile;
 
   fprintf(stderr, "Available profiles:");
 
-  profile_count = MVM_u32GetDeviceProfileCount();
+  profile_count = MVM_GetDevProfileCount();
   for (i = 0u; i < profile_count; ++i)
   {
-    profile = MVM_pcdtGetDeviceProfile(i);
+    profile = MVM_GetDevProfile(i);
     if (profile && profile->name)
     {
       fprintf(stderr, " %s", profile->name);
@@ -112,13 +115,13 @@ static void print_available_profiles(void)
 /**
  * @brief Executes one bounded VM step.
  */
-static int pump_vm_once(MophunVM *vm, uint32_t *step_budget)
+static int pump_vm_once(MpnVM_t *vm, uint32_t *step_budget)
 {
-  MVM_tenuReturnCode retVal;
-  MVM_tenuState state;
+  MVM_RetCode_t retVal;
+  MVM_State_t state;
 
-  state = MVM_tenuGetState(vm);
-  if (state != MVM_TENU_STATE_READY && state != MVM_TENU_STATE_RUNNING)
+  state = MVM_GetState(vm);
+  if (state != MVM_STATE_READY && state != MVM_STATE_RUNNING)
   {
     return 1;
   }
@@ -128,7 +131,7 @@ static int pump_vm_once(MophunVM *vm, uint32_t *step_budget)
     return 1;
   }
 
-  retVal = MVM_enuStep(vm);
+  retVal = MVM_RunStep(vm);
   if (MVM_OK != retVal)
   {
     return 1;
@@ -180,8 +183,8 @@ static int parse_options(int argc, char **argv, AppOptions *options)
 
   options->image_path = argv[1];
   options->profile_name = NULL;
-  options->max_steps = 5000000u;
-  options->max_logged_calls = 1000u;
+  options->max_steps = MAX_STEPS_DEFAULT;
+  options->max_logged_calls = MAX_LOGGED_CALLS_DEFAULT;
 
   arg_index = 2;
   if (argc > arg_index && !is_numeric_arg(argv[arg_index]))
@@ -214,7 +217,7 @@ static int validate_device_profile(const char *profile_name)
     return 1;
   }
 
-  if (!MVM_pcdtFindDeviceProfileByName(profile_name))
+  if (!MVM_FindDevProfileByName(profile_name))
   {
     fprintf(stderr, "Unknown device profile: %s\n", profile_name);
     print_available_profiles();
@@ -228,13 +231,13 @@ static int validate_device_profile(const char *profile_name)
 /**
  * @brief Creates a VM view over caller-provided storage.
  */
-static MophunVM *create_vm(void *storage)
+static MpnVM_t *create_vm(void *storage)
 {
   size_t storage_size;
-  MophunVM *vm;
+  MpnVM_t *vm;
 
-  storage_size = MVM_udtGetStorageSize();
-  vm = MVM_pudtGetVmFromStorage(storage, storage_size);
+  storage_size = MVM_GetStorageSize();
+  vm = MVM_GetVmFromStorage(storage, storage_size);
 
   return vm;
 }
@@ -242,14 +245,14 @@ static MophunVM *create_vm(void *storage)
 /**
  * @brief Runs the VM until one local stop condition is reached.
  */
-static int run_vm(MophunVM *vm, uint32_t max_steps, uint32_t max_logged_calls)
+static int run_vm(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls)
 {
-  MVM_tenuReturnCode retVal;
+  MVM_RetCode_t retVal;
   uint32_t step_budget;
 
-  MVM_vidVmgpDumpSummary(vm);
-  MVM_vidVmgpDumpImports(vm, 64);
-  retVal = MVM_enuSetWatchdogLimit(vm, 0u);
+  MVM_DumpVmgpSummary(vm);
+  MVM_DumpVmgpImports(vm, 64);
+  retVal = MVM_SetWdgLimit(vm, 0u);
   if (MVM_OK != retVal)
   {
     return 0;
@@ -258,7 +261,7 @@ static int run_vm(MophunVM *vm, uint32_t max_steps, uint32_t max_logged_calls)
   step_budget = max_steps;
   while (pump_vm_once(vm, &step_budget) == 0)
   {
-    if (MVM_u32GetLoggedCalls(vm) >= max_logged_calls)
+    if (MVM_GetLoggedCalls(vm) >= max_logged_calls)
     {
       break;
     }
@@ -270,18 +273,18 @@ static int run_vm(MophunVM *vm, uint32_t max_steps, uint32_t max_logged_calls)
 /**
  * @brief Prints the final VM execution summary.
  */
-static void print_stop_summary(MophunVM *vm)
+static void print_stop_summary(MpnVM_t *vm)
 {
-  MVM_tenuState state;
-  MVM_tenuError error;
+  MVM_State_t state;
+  MVM_Err_t error;
 
-  state = MVM_tenuGetState(vm);
-  error = MVM_tenuGetLastError(vm);
+  state = MVM_GetState(vm);
+  error = MVM_GetLastError(vm);
   fprintf(stdout,
           "=== stop ===\nsteps=%u pc=0x%08X logged_calls=%u state=%u error=%u\n",
-          MVM_u32GetExecutedSteps(vm),
-          MVM_u32GetProgramCounter(vm),
-          MVM_u32GetLoggedCalls(vm),
+          MVM_GetExecutedSteps(vm),
+          MVM_GetProgramCounter(vm),
+          MVM_GetLoggedCalls(vm),
           (unsigned)state,
           (unsigned)error);
 }
@@ -292,16 +295,16 @@ int main(int argc, char **argv)
   size_t file_size;
   uint8_t *file_data;
   void *vm_storage;
-  MophunVM *vm;
-  MVM_tstMemoryRequirements memory_requirements;
-  MVM_tenuReturnCode retVal;
+  MpnVM_t *vm;
+  MVM_MemReqs_t memory_requirements;
+  MVM_RetCode_t retVal;
   int exit_code;
 
   file_size = 0u;
   file_data = NULL;
   vm_storage = NULL;
   vm = NULL;
-  memory_requirements = (MVM_tstMemoryRequirements){0};
+  memory_requirements = (MVM_MemReqs_t){0};
   retVal = MVM_OK;
   exit_code = 1;
 
@@ -332,7 +335,7 @@ int main(int argc, char **argv)
   /* The host owns raw VM storage and asks the library to construct a VM
    * instance inside that storage block.
    */
-  vm_storage = malloc(MVM_udtGetStorageSize());
+  vm_storage = malloc(MVM_GetStorageSize());
   vm = create_vm(vm_storage);
   if (!vm)
   {
@@ -346,11 +349,11 @@ int main(int argc, char **argv)
   /* Query image-driven runtime memory needs before init so the integration can
    * validate its configured runtime pool capacity.
    */
-  retVal = MVM_enuQueryMemoryRequirements(file_data, file_size, &memory_requirements);
+  retVal = MVM_QueryMemReqs(file_data, file_size, &memory_requirements);
   if (MVM_OK != retVal)
   {
     fprintf(stderr, "Could not query VM memory requirements. ret=%u\n", (unsigned)retVal);
-    MVM_vidFree(vm);
+    MVM_Free(vm);
     free(vm_storage);
     free(file_data);
 
@@ -360,15 +363,15 @@ int main(int argc, char **argv)
   /* Initialize the VM through the simple public API. The host only provides
    * VM storage, the VMGP image, and the optional device profile name.
    */
-  retVal = MVM_enuInit(vm, file_data, file_size, options.profile_name);
+  retVal = MVM_Init(vm, file_data, file_size, options.profile_name);
   if (MVM_OK != retVal)
   {
     fprintf(stderr,
             "Failed to initialize VMGP context. ret=%u required_pool=%llu error=%u\n",
             (unsigned)retVal,
             (unsigned long long)memory_requirements.runtime_pool_bytes,
-            (unsigned)MVM_tenuGetLastError(vm));
-    MVM_vidFree(vm);
+            (unsigned)MVM_GetLastError(vm));
+    MVM_Free(vm);
     free(vm_storage);
     free(file_data);
 
@@ -382,7 +385,7 @@ int main(int argc, char **argv)
   print_stop_summary(vm);
 
   exit_code = 0;
-  MVM_vidFree(vm);
+  MVM_Free(vm);
   free(vm_storage);
   free(file_data);
 

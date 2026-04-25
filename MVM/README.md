@@ -47,15 +47,15 @@ config files:
 - platform-owned VM imports such as graphics, input, UI, audio, and system
   control;
 - thin adapters that bridge foreign platform callback signatures to the stable
-  `MophunPlatform` callback shape expected by the VM.
+  `MpnPlatform_t` callback shape expected by the VM.
 
 The default integration path is now:
 
 - size the runtime pool with `MVM_CFG_RUNTIME_POOL_SIZE`;
-- optionally inspect one image with `MVM_enuQueryMemoryRequirements()`;
-- initialize the VM with `MVM_enuInit()`.
+- optionally inspect one image with `MVM_QueryMemReqs()`;
+- initialize the VM with `MVM_Init()`.
 - optionally validate or enumerate built-in device profiles through the public
-  profile query helpers before calling `MVM_enuInit()`.
+  profile query helpers before calling `MVM_Init()`.
 - replace the default callback bindings or import stubs in `Config/MVM_Lcfg.c`
   when porting to a real platform backend.
 
@@ -77,7 +77,7 @@ Instead, it carves guest RAM, pool metadata, and resource metadata from the
 runtime pool owned by the built-in integration config. Host code must still supply opaque VM
 storage.
 
-`MophunVM` is opaque to host code. Allocate storage using
-`MVM_udtGetStorageSize()` and align it to `MVM_udtGetStorageAlign()`, then pass
-it through `MVM_pudtGetVmFromStorage()` before initialization. Host code may
+`MpnVM_t` is opaque to host code. Allocate storage using
+`MVM_GetStorageSize()` and align it to `MVM_GetStorageAlign()`, then pass
+it through `MVM_GetVmFromStorage()` before initialization. Host code may
 use `malloc`, a static buffer, or task-owned storage depending on the target.

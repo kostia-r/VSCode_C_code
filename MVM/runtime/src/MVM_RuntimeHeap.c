@@ -28,7 +28,7 @@
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-bool MVM_bRuntimeHandleHeap(VMGPContext *ctx, const char *name)
+bool MVM_HandleRuntimeHeap(VMGPContext *ctx, const char *name)
 {
   uint32_t size = 0;
   uint32_t addr = 0;

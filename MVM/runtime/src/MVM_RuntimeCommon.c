@@ -19,7 +19,7 @@
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_LbRuntimeMemRangeOk
+ *  Name: MVM_RuntimeMemRangeOk
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -27,17 +27,17 @@
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-bool MVM_LbRuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size)
+bool MVM_RuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size)
 {
   bool bInRange = false;
 
   bInRange = ctx && addr <= ctx->mem_size && size <= ctx->mem_size - addr;
 
   return bInRange;
-} /* End of MVM_LbRuntimeMemRangeOk */
+} /* End of MVM_RuntimeMemRangeOk */
 
 /**********************************************************************************************************************
- *  Name: MVM_Lu32RuntimeStrLen
+ *  Name: MVM_RuntimeStrLen
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -45,7 +45,7 @@ bool MVM_LbRuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t siz
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-uint32_t MVM_Lu32RuntimeStrLen(const uint8_t *s, size_t max_len)
+uint32_t MVM_RuntimeStrLen(const uint8_t *s, size_t max_len)
 {
   uint32_t n = 0;
 
@@ -55,7 +55,7 @@ uint32_t MVM_Lu32RuntimeStrLen(const uint8_t *s, size_t max_len)
   } /* End of loop */
 
   return n;
-} /* End of MVM_Lu32RuntimeStrLen */
+} /* End of MVM_RuntimeStrLen */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_RuntimeCommon.c

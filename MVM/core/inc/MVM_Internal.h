@@ -72,10 +72,10 @@ typedef struct VMGPStream
 /**
  * @brief Stores the complete mutable VM execution context.
  */
-struct MophunVM
+struct MpnVM_t
 {
-  MophunPlatform platform;          /**< Host integration callbacks. */
-  const MophunDeviceProfile *device_profile; /**< Selected device profile exposed to platform wrappers. */
+  MpnPlatform_t platform;          /**< Host integration callbacks. */
+  const MpnDevProfile_t *device_profile; /**< Selected device profile exposed to platform wrappers. */
 
   const uint8_t *data;              /**< Pointer to the loaded VM image. */
   size_t size;                      /**< Loaded VM image size in bytes. */
@@ -122,17 +122,17 @@ struct MophunVM
   uint32_t no_progress_steps;       /**< Consecutive steps without PC progress. */
   uint32_t watchdog_limit;          /**< Allowed no-progress step budget. */
   bool halted;                      /**< Indicates that execution has stopped. */
-  MVM_tenuState state;              /**< Current VM execution state. */
-  MVM_tenuError last_error;         /**< Last fatal execution error. */
+  MVM_State_t state;              /**< Current VM execution state. */
+  MVM_Err_t last_error;         /**< Last fatal execution error. */
 
-  const MophunSyscall *syscalls;    /**< Registered host syscall table. */
+  const MpnSyscall_t *syscalls;    /**< Registered host syscall table. */
   uint32_t syscall_count;           /**< Number of registered host syscalls. */
 };
 
 /**
  * @brief Aliases the public VM type as the internal runtime context.
  */
-typedef MophunVM VMGPContext;
+typedef MpnVM_t VMGPContext;
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS PROTOTYPES
@@ -186,115 +186,110 @@ static inline uint32_t vm_align4(uint32_t v);
 /**
  * @brief Handles VMGP pool data.
  */
-uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry *entry);
+uint32_t MVM_ResolveVmgpPoolValue(const VMGPContext *ctx, const VMGPPoolEntry *entry);
 
 /**
  * @brief Returns VMGP resource metadata.
  */
-const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t resource_id);
+const VMGPResource *MVM_GetVmgpResource(const VMGPContext *ctx, uint32_t resource_id);
 
 /**
  * @brief Parses one VMGP header through the internal loader path.
  */
-bool MVM_LbVmgpParseHeader(VMGPContext *ctx);
+bool MVM_ParseVmgpHeaderRaw(VMGPContext *ctx);
 
 /**
  * @brief Loads one VMGP pool through the internal loader path.
  */
-bool MVM_LbVmgpLoadPool(VMGPContext *ctx);
+bool MVM_LoadVmgpPoolRaw(VMGPContext *ctx);
 
 /**
- * @brief Provides MVM_vidMemoryWriteWatch API.
+ * @brief Traces one VM memory write.
  */
-void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag);
+void MVM_WatchMemoryWrite(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag);
 
 /**
  * @brief Handles a VM runtime import group.
  */
-bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index);
+bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index);
 
 /**
  * @brief Initializes VM state with one integration config object.
  */
-bool MVM_LbInitRawWithConfig(VMGPContext *ctx,
+bool MVM_InitRawWithConfig(VMGPContext *ctx,
 const uint8_t *data,
 size_t size,
-const MVM_tstConfig *config);
+const MVM_Config_t *config);
 
 /**
  * @brief Releases VM resources.
  */
-void MVM_LvidFreeRaw(VMGPContext *ctx);
+void MVM_FreeRaw(VMGPContext *ctx);
 
 /**
- * @brief Runs traced VM execution.
+ * @brief Executes one VM instruction.
  */
-bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_calls);
-
-/**
- * @brief Provides MVM_LbPipStep API.
- */
-bool MVM_LbPipStep(VMGPContext *ctx);
+bool MVM_PipStep(VMGPContext *ctx);
 
 /**
  * @brief Acquires one initialization buffer from the runtime arena.
  */
-void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size);
+void *MVM_AcquireInitBuffer(VMGPContext *ctx, size_t required_size);
 
 /**
  * @brief Executes up to one internal VM instruction budget.
  */
-uint32_t MVM_Lu32RunStepsRaw(VMGPContext *ctx, uint32_t max_steps);
+uint32_t MVM_RunStepsRaw(VMGPContext *ctx, uint32_t max_steps);
 
 /**
- * @brief Provides MVM_LvidLogf API.
+ * @brief Writes one formatted log line through the platform hook.
  */
-void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...);
+void MVM_Logf(const VMGPContext *ctx, const char *fmt, ...);
 
 /**
  * @brief Updates the current VM execution state.
  */
-void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state);
+void MVM_SetStateRaw(VMGPContext *ctx, MVM_State_t state);
 
 /**
  * @brief Records the last fatal execution error and moves the VM into error state.
  */
-void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error);
+void MVM_SetErrorRaw(VMGPContext *ctx, MVM_Err_t error);
 
 /**
  * @brief Requests immediate VM termination through the internal control path.
  */
-void MVM_LvidRequestExitRaw(VMGPContext *ctx);
+void MVM_RequestExitRaw(VMGPContext *ctx);
 
 /**
- * @brief Provides MVM_LbRuntimeMemRangeOk API.
+ * @brief Checks one VM memory range.
  */
-bool MVM_LbRuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size);
+bool MVM_RuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size);
 
 /**
- * @brief Provides MVM_Lu32RuntimeStrLen API.
+ * @brief Measures one bounded VM string length.
  */
-uint32_t MVM_Lu32RuntimeStrLen(const uint8_t *s, size_t max_len);
-
-/**
- * @brief Handles a VM runtime import group.
- */
-bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name);
+uint32_t MVM_RuntimeStrLen(const uint8_t *s, size_t max_len);
 
 /**
  * @brief Handles a VM runtime import group.
  */
-bool MVM_bRuntimeHandleDecompress(VMGPContext *ctx, const char *name);
+bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name);
 
 /**
  * @brief Handles a VM runtime import group.
  */
-bool MVM_bRuntimeHandleHeap(VMGPContext *ctx, const char *name);
+bool MVM_HandleRuntimeDecompress(VMGPContext *ctx, const char *name);
 
 /**
  * @brief Handles a VM runtime import group.
  */
-bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name);
+bool MVM_HandleRuntimeHeap(VMGPContext *ctx, const char *name);
+
+/**
+ * @brief Handles a VM runtime import group.
+ */
+bool MVM_HandleRuntimeStrings(VMGPContext *ctx, const char *name);
 
 /**********************************************************************************************************************
  *  GLOBAL INLINE FUNCTIONS

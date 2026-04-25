@@ -81,42 +81,42 @@ typedef struct VMGPResource
 /**
  * @brief Provides MVM_bVmgpParseHeader API.
  */
-bool MVM_bVmgpParseHeader(MophunVM *vm);
+bool MVM_ParseVmgpHeader(MpnVM_t *vm);
 
 /**
  * @brief Handles VMGP pool data.
  */
-bool MVM_bVmgpLoadPool(MophunVM *vm);
+bool MVM_LoadVmgpPool(MpnVM_t *vm);
 
 /**
  * @brief Handles VMGP pool data.
  */
-const VMGPPoolEntry *MVM_pudtVmgpGetPoolEntry(const MophunVM *vm, uint32_t pool_index_1based);
+const VMGPPoolEntry *MVM_GetVmgpPoolEntry(const MpnVM_t *vm, uint32_t pool_index_1based);
 
 /**
  * @brief Handles VMGP pool data.
  */
-const char *MVM_pudtVmgpPoolTypeName(uint8_t type);
+const char *MVM_GetVmgpPoolTypeName(uint8_t type);
 
 /**
- * @brief Provides MVM_pudtVmgpGetImportName API.
+ * @brief Returns the import name stored at one pool index.
  */
-const char *MVM_pudtVmgpGetImportName(const MophunVM *vm, uint32_t pool_index_1based);
+const char *MVM_GetVmgpImportName(const MpnVM_t *vm, uint32_t pool_index_1based);
 
 /**
  * @brief Handles VMGP pool data.
  */
-size_t MVM_udtVmgpPoolSizeBytes(const VMGPHeader *header);
+size_t MVM_GetVmgpPoolSizeBytes(const VMGPHeader *header);
 
 /**
- * @brief Provides MVM_vidVmgpDumpSummary API.
+ * @brief Dumps the parsed VMGP header summary.
  */
-void MVM_vidVmgpDumpSummary(const MophunVM *vm);
+void MVM_DumpVmgpSummary(const MpnVM_t *vm);
 
 /**
- * @brief Provides MVM_vidVmgpDumpImports API.
+ * @brief Dumps the leading import entries from the pool.
  */
-void MVM_vidVmgpDumpImports(const MophunVM *vm, uint32_t max_count);
+void MVM_DumpVmgpImports(const MpnVM_t *vm, uint32_t max_count);
 
 /**********************************************************************************************************************
  *  END of header file guard

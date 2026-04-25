@@ -29,7 +29,7 @@
 /**
  * @brief Describes one target device profile exposed to VM code.
  */
-typedef struct MophunDeviceProfile
+typedef struct MpnDevProfile_t
 {
   const char *name;       /**< Human-readable profile name used by host-side profile selection. */
   uint16_t screen_width;  /**< Display width in pixels. */
@@ -38,7 +38,7 @@ typedef struct MophunDeviceProfile
   uint16_t sound_flags;   /**< Encoded sound capability flags reported to guest code. */
   uint16_t system_flags;  /**< Encoded system capability flags reported to guest code. */
   uint32_t device_id;     /**< Stable device identifier reported to the guest runtime. */
-} MophunDeviceProfile;
+} MpnDevProfile_t;
 
 /**********************************************************************************************************************
  *  END of header file guard

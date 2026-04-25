@@ -20,11 +20,33 @@
 #include <string.h>
 
 /**********************************************************************************************************************
+ *  LOCAL FUNCTIONS PROTOTYPES
+ *********************************************************************************************************************/
+
+/**
+ * @brief Maps one internal fatal VM error to one public API return code.
+ */
+static MVM_RetCode_t MVM_lMapFatalError(MVM_Err_t error, MVM_RetCode_t fallback);
+
+/**
+ * @brief Finds one configured device profile by name.
+ */
+static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name);
+
+/**
+ * @brief Initializes VM state using one internal integration config object.
+ */
+static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
+                                         const uint8_t *image,
+                                         size_t image_size,
+                                         const MVM_Config_t *config);
+
+/**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_udtGetStorageSize
+ *  Name: MVM_GetStorageSize
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -32,13 +54,13 @@
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-size_t MVM_udtGetStorageSize(void)
+size_t MVM_GetStorageSize(void)
 {
-  return sizeof(MophunVM);
-} /* End of MVM_udtGetStorageSize */
+  return sizeof(MpnVM_t);
+} /* End of MVM_GetStorageSize */
 
 /**********************************************************************************************************************
- *  Name: MVM_udtGetStorageAlign
+ *  Name: MVM_GetStorageAlign
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -46,19 +68,19 @@ size_t MVM_udtGetStorageSize(void)
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-size_t MVM_udtGetStorageAlign(void)
+size_t MVM_GetStorageAlign(void)
 {
   typedef struct MophunVMAlignProbe
   {
     char c;
-    MophunVM vm;
+    MpnVM_t vm;
   } MophunVMAlignProbe;
 
   return offsetof(MophunVMAlignProbe, vm);
-} /* End of MVM_udtGetStorageAlign */
+} /* End of MVM_GetStorageAlign */
 
 /**********************************************************************************************************************
- *  Name: MVM_pudtGetVmFromStorage
+ *  Name: MVM_GetVmFromStorage
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -66,12 +88,12 @@ size_t MVM_udtGetStorageAlign(void)
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
+MpnVM_t *MVM_GetVmFromStorage(void *storage, size_t storage_size)
 {
-  size_t align = MVM_udtGetStorageAlign();
-  MophunVM *pudtVm = NULL;
+  size_t align = MVM_GetStorageAlign();
+  MpnVM_t *vm = NULL;
 
-  if (!storage || storage_size < sizeof(MophunVM))
+  if (!storage || storage_size < sizeof(MpnVM_t))
   {
     return NULL;
   }
@@ -81,13 +103,13 @@ MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
     return NULL;
   }
 
-  pudtVm = (MophunVM *)storage;
+  vm = (MpnVM_t *)storage;
 
-  return pudtVm;
-} /* End of MVM_pudtGetVmFromStorage */
+  return vm;
+} /* End of MVM_GetVmFromStorage */
 
 /**********************************************************************************************************************
- *  Name: MVM_LbInitRawWithConfig
+ *  Name: MVM_InitRawWithConfig
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -95,10 +117,10 @@ MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
  *  Returns: See function signature.
  *  Description: Initializes VM state.
  *********************************************************************************************************************/
-bool MVM_LbInitRawWithConfig(VMGPContext *ctx,
-const uint8_t *data,
-size_t size,
-const MVM_tstConfig *config)
+bool MVM_InitRawWithConfig(VMGPContext *ctx,
+                           const uint8_t *data,
+                           size_t size,
+                           const MVM_Config_t *config)
 {
   bool bResult = false;
 
@@ -128,133 +150,15 @@ const MVM_tstConfig *config)
   {
     ctx->watchdog_limit = MVM_U32_DEFAULT_WATCHDOG_LIMIT;
   }
-  ctx->state = MVM_TENU_STATE_READY;
-  ctx->last_error = MVM_TENU_ERROR_NONE;
+  ctx->state = MVM_STATE_READY;
+  ctx->last_error = MVM_E_NONE;
   bResult = true;
 
   return bResult;
-} /* End of MVM_LbInitRawWithConfig */
+} /* End of MVM_InitRawWithConfig */
 
 /**********************************************************************************************************************
- *  Name: MVM_LenuMapFatalError
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Maps one internal fatal VM error to one public API return code.
- *********************************************************************************************************************/
-static MVM_tenuReturnCode MVM_LenuMapFatalError(MVM_tenuError error, MVM_tenuReturnCode fallback)
-{
-  MVM_tenuReturnCode enuResult = fallback;
-
-  switch (error)
-  {
-    case MVM_TENU_ERROR_NONE:
-    {
-      enuResult = fallback;
-      break;
-    }
-
-    case MVM_TENU_ERROR_INVALID_ARG:
-    {
-      enuResult = MVM_INVALID_ARG;
-      break;
-    }
-
-    case MVM_TENU_ERROR_INIT_FAILED:
-    {
-      enuResult = MVM_INIT_FAILED;
-      break;
-    }
-
-    case MVM_TENU_ERROR_MEMORY:
-    {
-      enuResult = MVM_MEMORY_ERROR;
-      break;
-    }
-
-    case MVM_TENU_ERROR_EXECUTION:
-    {
-      enuResult = MVM_EXECUTION_ERROR;
-      break;
-    }
-
-    case MVM_TENU_ERROR_WATCHDOG:
-    {
-      enuResult = MVM_WATCHDOG_ERROR;
-      break;
-    }
-
-    default:
-    {
-      break;
-    }
-  }
-
-  return enuResult;
-} /* End of MVM_LenuMapFatalError */
-
-/**********************************************************************************************************************
- *  Name: MVM_LpcdtFindDeviceProfileByName
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Finds one configured device profile by name.
- *********************************************************************************************************************/
-static const MophunDeviceProfile *MVM_LpcdtFindDeviceProfileByName(const char *profile_name)
-{
-  return MVM_Cfg_pcdtFindDeviceProfileByName(&MVM_kstConfig, profile_name);
-} /* End of MVM_LpcdtFindDeviceProfileByName */
-
-/**********************************************************************************************************************
- *  Name: MVM_LenuInitWithConfig
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Initializes VM state using one internal integration config object.
- *********************************************************************************************************************/
-static MVM_tenuReturnCode MVM_LenuInitWithConfig(MophunVM *vm,
-const uint8_t *image,
-size_t image_size,
-const MVM_tstConfig *config)
-{
-  MVM_tenuReturnCode enuResult = MVM_OK;
-  const MVM_tstConfig *pstConfig = config;
-
-  if (!vm || !image || image_size < sizeof(VMGPHeader) || !pstConfig)
-  {
-    return MVM_INVALID_ARG;
-  }
-
-  if (!MVM_LbInitRawWithConfig(vm, image, image_size, pstConfig))
-  {
-    MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
-
-    return MVM_INIT_FAILED;
-  }
-
-  if (!MVM_LbVmgpParseHeader(vm) || !MVM_LbVmgpLoadPool(vm))
-  {
-    if (vm->last_error == MVM_TENU_ERROR_NONE)
-    {
-      MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
-    }
-
-    enuResult = MVM_LenuMapFatalError(vm->last_error, MVM_INIT_FAILED);
-
-    return enuResult;
-  }
-
-  return enuResult;
-} /* End of MVM_LenuInitWithConfig */
-
-/**********************************************************************************************************************
- *  Name: MVM_enuInit
+ *  Name: MVM_Init
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -262,17 +166,17 @@ const MVM_tstConfig *config)
  *  Returns: See function signature.
  *  Description: Initializes VM state with the built-in integration config.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuInit(MophunVM *vm,
-const uint8_t *image,
-size_t image_size,
-const char *profile_name)
+MVM_RetCode_t MVM_Init(MpnVM_t *vm,
+                       const uint8_t *image,
+                       size_t image_size,
+                       const char *profile_name)
 {
-  MVM_tstConfig stConfig = MVM_kstConfig;
-  const MophunDeviceProfile *pcdtProfile = NULL;
+  MVM_Config_t stConfig = MVM_Config;
+  const MpnDevProfile_t *pcdtProfile = NULL;
 
   if (profile_name)
   {
-    pcdtProfile = MVM_LpcdtFindDeviceProfileByName(profile_name);
+    pcdtProfile = MVM_lFindDevProfileByName(profile_name);
     if (!pcdtProfile)
     {
       return MVM_NOT_FOUND;
@@ -281,11 +185,11 @@ const char *profile_name)
     stConfig.device_profile = pcdtProfile;
   }
 
-  return MVM_LenuInitWithConfig(vm, image, image_size, &stConfig);
-} /* End of MVM_enuInit */
+  return MVM_lInitWithConfig(vm, image, image_size, &stConfig);
+} /* End of MVM_Init */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32GetDeviceProfileCount
+ *  Name: MVM_GetDevProfileCount
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -293,13 +197,13 @@ const char *profile_name)
  *  Returns: See function signature.
  *  Description: Returns the number of built-in device profiles.
  *********************************************************************************************************************/
-uint32_t MVM_u32GetDeviceProfileCount(void)
+uint32_t MVM_GetDevProfileCount(void)
 {
-  return MVM_kstConfig.device_profile_count;
-} /* End of MVM_u32GetDeviceProfileCount */
+  return MVM_Config.device_profile_count;
+} /* End of MVM_GetDevProfileCount */
 
 /**********************************************************************************************************************
- *  Name: MVM_pcdtGetDeviceProfile
+ *  Name: MVM_GetDevProfile
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -307,18 +211,18 @@ uint32_t MVM_u32GetDeviceProfileCount(void)
  *  Returns: See function signature.
  *  Description: Returns one built-in device profile by index.
  *********************************************************************************************************************/
-const MophunDeviceProfile *MVM_pcdtGetDeviceProfile(uint32_t profile_index)
+const MpnDevProfile_t *MVM_GetDevProfile(uint32_t profile_index)
 {
-  if (profile_index >= MVM_kstConfig.device_profile_count)
+  if (profile_index >= MVM_Config.device_profile_count)
   {
     return NULL;
   }
 
-  return &MVM_kstConfig.device_profiles[profile_index];
-} /* End of MVM_pcdtGetDeviceProfile */
+  return &MVM_Config.device_profiles[profile_index];
+} /* End of MVM_GetDevProfile */
 
 /**********************************************************************************************************************
- *  Name: MVM_pcdtFindDeviceProfileByName
+ *  Name: MVM_FindDevProfileByName
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -326,13 +230,13 @@ const MophunDeviceProfile *MVM_pcdtGetDeviceProfile(uint32_t profile_index)
  *  Returns: See function signature.
  *  Description: Finds one built-in device profile by name.
  *********************************************************************************************************************/
-const MophunDeviceProfile *MVM_pcdtFindDeviceProfileByName(const char *profile_name)
+const MpnDevProfile_t *MVM_FindDevProfileByName(const char *profile_name)
 {
-  return MVM_LpcdtFindDeviceProfileByName(profile_name);
-} /* End of MVM_pcdtFindDeviceProfileByName */
+  return MVM_lFindDevProfileByName(profile_name);
+} /* End of MVM_FindDevProfileByName */
 
 /**********************************************************************************************************************
- *  Name: MVM_LpudtAcquireInitBuffer
+ *  Name: MVM_AcquireInitBuffer
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -340,11 +244,11 @@ const MophunDeviceProfile *MVM_pcdtFindDeviceProfileByName(const char *profile_n
  *  Returns: See function signature.
  *  Description: Acquires one initialization buffer from static config.
  *********************************************************************************************************************/
-void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size)
+void *MVM_AcquireInitBuffer(VMGPContext *ctx, size_t required_size)
 {
-  size_t udtAlignedOffset = 0;
-  size_t udtEndOffset = 0;
-  void *pudtMem = NULL;
+  size_t alignedOffset = 0;
+  size_t endOffset = 0;
+  void *mem = NULL;
 
   if (!ctx || required_size == 0u)
   {
@@ -356,23 +260,23 @@ void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size)
     return NULL;
   }
 
-  udtAlignedOffset = (ctx->runtime_pool_used + 3u) & ~(size_t)3u;
-  udtEndOffset = udtAlignedOffset + required_size;
+  alignedOffset = (ctx->runtime_pool_used + 3u) & ~(size_t)3u;
+  endOffset = alignedOffset + required_size;
 
-  if (udtEndOffset < udtAlignedOffset || udtEndOffset > ctx->runtime_pool_size)
+  if (endOffset < alignedOffset || endOffset > ctx->runtime_pool_size)
   {
     return NULL;
   }
 
-  pudtMem = ctx->runtime_pool + udtAlignedOffset;
-  memset(pudtMem, 0, required_size);
-  ctx->runtime_pool_used = udtEndOffset;
+  mem = ctx->runtime_pool + alignedOffset;
+  memset(mem, 0, required_size);
+  ctx->runtime_pool_used = endOffset;
 
-  return pudtMem;
-} /* End of MVM_LpudtAcquireInitBuffer */
+  return mem;
+} /* End of MVM_AcquireInitBuffer */
 
 /**********************************************************************************************************************
- *  Name: MVM_LvidLogf
+ *  Name: MVM_Logf
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -380,7 +284,7 @@ void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size)
  *  Returns: See function signature.
  *  Description: Emits diagnostic trace output.
  *********************************************************************************************************************/
-void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...)
+void MVM_Logf(const VMGPContext *ctx, const char *fmt, ...)
 {
   char buffer[MVM_LOG_BUFFER_SIZE];
   va_list ap;
@@ -401,10 +305,10 @@ void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...)
 #else
   (void)ctx;
 #endif
-} /* End of MVM_LvidLogf */
+} /* End of MVM_Logf */
 
 /**********************************************************************************************************************
- *  Name: MVM_LvidSetState
+ *  Name: MVM_SetStateRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -412,7 +316,7 @@ void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...)
  *  Returns: See function signature.
  *  Description: Updates the current VM execution state.
  *********************************************************************************************************************/
-void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state)
+void MVM_SetStateRaw(VMGPContext *ctx, MVM_State_t state)
 {
   if (!ctx)
   {
@@ -420,10 +324,10 @@ void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state)
   }
 
   ctx->state = state;
-} /* End of MVM_LvidSetState */
+} /* End of MVM_SetStateRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_LvidSetError
+ *  Name: MVM_SetErrorRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -431,7 +335,7 @@ void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state)
  *  Returns: See function signature.
  *  Description: Records the last fatal execution error and stops execution.
  *********************************************************************************************************************/
-void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error)
+void MVM_SetErrorRaw(VMGPContext *ctx, MVM_Err_t error)
 {
   if (!ctx)
   {
@@ -440,11 +344,11 @@ void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error)
 
   ctx->last_error = error;
   ctx->halted = true;
-  ctx->state = MVM_TENU_STATE_ERROR;
-} /* End of MVM_LvidSetError */
+  ctx->state = MVM_STATE_ERROR;
+} /* End of MVM_SetErrorRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_LvidFreeRaw
+ *  Name: MVM_FreeRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -452,7 +356,7 @@ void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error)
  *  Returns: See function signature.
  *  Description: Releases VM resources.
  *********************************************************************************************************************/
-void MVM_LvidFreeRaw(VMGPContext *ctx)
+void MVM_FreeRaw(VMGPContext *ctx)
 {
   if (!ctx)
   {
@@ -460,10 +364,10 @@ void MVM_LvidFreeRaw(VMGPContext *ctx)
   }
 
   memset(ctx, 0, sizeof(*ctx));
-} /* End of MVM_LvidFreeRaw */
+} /* End of MVM_FreeRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_vidFree
+ *  Name: MVM_Free
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -471,13 +375,13 @@ void MVM_LvidFreeRaw(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Releases VM resources.
  *********************************************************************************************************************/
-void MVM_vidFree(MophunVM *vm)
+void MVM_Free(MpnVM_t *vm)
 {
-  MVM_LvidFreeRaw(vm);
-} /* End of MVM_vidFree */
+  MVM_FreeRaw(vm);
+} /* End of MVM_Free */
 
 /**********************************************************************************************************************
- *  Name: MVM_Lu32RunStepsRaw
+ *  Name: MVM_RunStepsRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -485,10 +389,10 @@ void MVM_vidFree(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Executes up to the requested VM instruction budget through the internal path.
  *********************************************************************************************************************/
-uint32_t MVM_Lu32RunStepsRaw(VMGPContext *vm, uint32_t max_steps)
+uint32_t MVM_RunStepsRaw(VMGPContext *vm, uint32_t max_steps)
 {
-  uint32_t u32Executed = 0;
-  uint32_t u32PcBefore = 0;
+  uint32_t executed = 0;
+  uint32_t pcBefore = 0;
 
   if (!vm)
   {
@@ -500,41 +404,41 @@ uint32_t MVM_Lu32RunStepsRaw(VMGPContext *vm, uint32_t max_steps)
     return 0;
   }
 
-  if (vm->state == MVM_TENU_STATE_ERROR ||
-      vm->state == MVM_TENU_STATE_EXITED ||
-      vm->state == MVM_TENU_STATE_PAUSED ||
-      vm->state == MVM_TENU_STATE_WAITING)
+  if (vm->state == MVM_STATE_ERROR ||
+      vm->state == MVM_STATE_EXITED ||
+      vm->state == MVM_STATE_PAUSED ||
+      vm->state == MVM_STATE_WAITING)
   {
     return 0;
   }
 
-  vm->state = MVM_TENU_STATE_RUNNING;
+  vm->state = MVM_STATE_RUNNING;
 
-  while (u32Executed < max_steps)
+  while (executed < max_steps)
   {
     if (vm->halted)
     {
-      if (vm->state != MVM_TENU_STATE_ERROR)
+      if (vm->state != MVM_STATE_ERROR)
       {
-        vm->state = MVM_TENU_STATE_EXITED;
+        vm->state = MVM_STATE_EXITED;
       }
       break;
     }
 
-    u32PcBefore = vm->pc;
+    pcBefore = vm->pc;
 
-    if (!MVM_LbPipStep(vm))
+    if (!MVM_PipStep(vm))
     {
-      if (vm->last_error == MVM_TENU_ERROR_NONE)
+      if (vm->last_error == MVM_E_NONE)
       {
-        MVM_LvidSetError(vm, MVM_TENU_ERROR_EXECUTION);
+        MVM_SetErrorRaw(vm, MVM_E_EXECUTION);
       }
       break;
     }
 
-    ++u32Executed;
+    ++executed;
 
-    if (vm->pc == u32PcBefore)
+    if (vm->pc == pcBefore)
     {
       ++vm->no_progress_steps;
     }
@@ -547,21 +451,21 @@ uint32_t MVM_Lu32RunStepsRaw(VMGPContext *vm, uint32_t max_steps)
 
     if (vm->watchdog_limit != 0u && vm->no_progress_steps >= vm->watchdog_limit)
     {
-      MVM_LvidSetError(vm, MVM_TENU_ERROR_WATCHDOG);
+      MVM_SetErrorRaw(vm, MVM_E_WDG);
       break;
     }
   } /* End of loop */
 
-  if (vm->state == MVM_TENU_STATE_RUNNING)
+  if (vm->state == MVM_STATE_RUNNING)
   {
-    vm->state = vm->halted ? MVM_TENU_STATE_EXITED : MVM_TENU_STATE_READY;
+    vm->state = vm->halted ? MVM_STATE_EXITED : MVM_STATE_READY;
   }
 
-  return u32Executed;
-} /* End of MVM_Lu32RunStepsRaw */
+  return executed;
+} /* End of MVM_RunStepsRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuStep
+ *  Name: MVM_RunStep
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -569,33 +473,33 @@ uint32_t MVM_Lu32RunStepsRaw(VMGPContext *vm, uint32_t max_steps)
  *  Returns: See function signature.
  *  Description: Executes at most one VM instruction.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuStep(MophunVM *vm)
+MVM_RetCode_t MVM_RunStep(MpnVM_t *vm)
 {
-  uint32_t u32Executed = 0;
+  uint32_t executed = 0;
 
   if (!vm)
   {
     return MVM_INVALID_ARG;
   }
 
-  u32Executed = MVM_Lu32RunStepsRaw(vm, 1u);
-  if (u32Executed == 1u)
+  executed = MVM_RunStepsRaw(vm, 1u);
+  if (executed == 1u)
   {
     return MVM_OK;
   }
 
-  if (vm->state == MVM_TENU_STATE_PAUSED ||
-      vm->state == MVM_TENU_STATE_WAITING ||
-      vm->state == MVM_TENU_STATE_EXITED)
+  if (vm->state == MVM_STATE_PAUSED ||
+      vm->state == MVM_STATE_WAITING ||
+      vm->state == MVM_STATE_EXITED)
   {
     return MVM_BAD_STATE;
   }
 
-  return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
-} /* End of MVM_enuStep */
+  return MVM_lMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+} /* End of MVM_RunStep */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuRunSteps
+ *  Name: MVM_RunSteps
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -603,35 +507,35 @@ MVM_tenuReturnCode MVM_enuStep(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Executes up to the requested VM instruction budget.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuRunSteps(MophunVM *vm, uint32_t max_steps, uint32_t *executed_steps)
+MVM_RetCode_t MVM_RunSteps(MpnVM_t *vm, uint32_t max_steps, uint32_t *executed_steps)
 {
-  uint32_t u32Executed = 0;
+  uint32_t executed = 0;
 
   if (!vm || !executed_steps || max_steps == 0u)
   {
     return MVM_INVALID_ARG;
   }
 
-  u32Executed = MVM_Lu32RunStepsRaw(vm, max_steps);
-  *executed_steps = u32Executed;
+  executed = MVM_RunStepsRaw(vm, max_steps);
+  *executed_steps = executed;
 
-  if (u32Executed > 0u)
+  if (executed > 0u)
   {
     return MVM_OK;
   }
 
-  if (vm->state == MVM_TENU_STATE_PAUSED ||
-      vm->state == MVM_TENU_STATE_WAITING ||
-      vm->state == MVM_TENU_STATE_EXITED)
+  if (vm->state == MVM_STATE_PAUSED ||
+      vm->state == MVM_STATE_WAITING ||
+      vm->state == MVM_STATE_EXITED)
   {
     return MVM_BAD_STATE;
   }
 
-  return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
-} /* End of MVM_enuRunSteps */
+  return MVM_lMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+} /* End of MVM_RunSteps */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuRunForTime
+ *  Name: MVM_RunForTime
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -639,11 +543,11 @@ MVM_tenuReturnCode MVM_enuRunSteps(MophunVM *vm, uint32_t max_steps, uint32_t *e
  *  Returns: See function signature.
  *  Description: Executes VM instructions for up to the requested host time budget.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuRunForTime(MophunVM *vm, uint32_t budget_ms, uint32_t *executed_steps)
+MVM_RetCode_t MVM_RunForTime(MpnVM_t *vm, uint32_t budget_ms, uint32_t *executed_steps)
 {
-  uint32_t u32Executed = 0;
-  uint32_t u32Start = 0;
-  uint32_t u32Now = 0;
+  uint32_t executed = 0;
+  uint32_t start = 0;
+  uint32_t now = 0;
 
   if (!vm || !executed_steps || budget_ms == 0u)
   {
@@ -654,62 +558,62 @@ MVM_tenuReturnCode MVM_enuRunForTime(MophunVM *vm, uint32_t budget_ms, uint32_t 
 
   if (!vm->platform.get_ticks_ms)
   {
-    *executed_steps = MVM_Lu32RunStepsRaw(vm, budget_ms);
+    *executed_steps = MVM_RunStepsRaw(vm, budget_ms);
 
     if (*executed_steps > 0u)
     {
       return MVM_OK;
     }
 
-    if (vm->state == MVM_TENU_STATE_PAUSED ||
-        vm->state == MVM_TENU_STATE_WAITING ||
-        vm->state == MVM_TENU_STATE_EXITED)
+    if (vm->state == MVM_STATE_PAUSED ||
+        vm->state == MVM_STATE_WAITING ||
+        vm->state == MVM_STATE_EXITED)
     {
       return MVM_BAD_STATE;
     }
 
-    return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+    return MVM_lMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
   }
 
-  u32Start = vm->platform.get_ticks_ms(vm->platform.user);
-  u32Now = u32Start;
+  start = vm->platform.get_ticks_ms(vm->platform.user);
+  now = start;
 
-  while ((u32Now - u32Start) < budget_ms)
+  while ((now - start) < budget_ms)
   {
-    if (MVM_Lu32RunStepsRaw(vm, 1u) == 0u)
+    if (MVM_RunStepsRaw(vm, 1u) == 0u)
     {
       break;
     }
 
-    ++u32Executed;
+    ++executed;
 
-    if (vm->state != MVM_TENU_STATE_READY && vm->state != MVM_TENU_STATE_RUNNING)
+    if (vm->state != MVM_STATE_READY && vm->state != MVM_STATE_RUNNING)
     {
       break;
     }
 
-    u32Now = vm->platform.get_ticks_ms(vm->platform.user);
+    now = vm->platform.get_ticks_ms(vm->platform.user);
   } /* End of loop */
 
-  *executed_steps = u32Executed;
+  *executed_steps = executed;
 
-  if (u32Executed > 0u)
+  if (executed > 0u)
   {
     return MVM_OK;
   }
 
-  if (vm->state == MVM_TENU_STATE_PAUSED ||
-      vm->state == MVM_TENU_STATE_WAITING ||
-      vm->state == MVM_TENU_STATE_EXITED)
+  if (vm->state == MVM_STATE_PAUSED ||
+      vm->state == MVM_STATE_WAITING ||
+      vm->state == MVM_STATE_EXITED)
   {
     return MVM_BAD_STATE;
   }
 
-  return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
-} /* End of MVM_enuRunForTime */
+  return MVM_lMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+} /* End of MVM_RunForTime */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuPause
+ *  Name: MVM_Pause
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -717,25 +621,25 @@ MVM_tenuReturnCode MVM_enuRunForTime(MophunVM *vm, uint32_t budget_ms, uint32_t 
  *  Returns: See function signature.
  *  Description: Pauses VM execution.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuPause(MophunVM *vm)
+MVM_RetCode_t MVM_Pause(MpnVM_t *vm)
 {
   if (!vm)
   {
     return MVM_INVALID_ARG;
   }
 
-  if (vm->state == MVM_TENU_STATE_READY || vm->state == MVM_TENU_STATE_RUNNING)
+  if (vm->state == MVM_STATE_READY || vm->state == MVM_STATE_RUNNING)
   {
-    vm->state = MVM_TENU_STATE_PAUSED;
+    vm->state = MVM_STATE_PAUSED;
 
     return MVM_OK;
   }
 
   return MVM_BAD_STATE;
-} /* End of MVM_enuPause */
+} /* End of MVM_Pause */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuWait
+ *  Name: MVM_Wait
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -743,25 +647,25 @@ MVM_tenuReturnCode MVM_enuPause(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Moves VM execution into a host-wait state.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuWait(MophunVM *vm)
+MVM_RetCode_t MVM_Wait(MpnVM_t *vm)
 {
   if (!vm)
   {
     return MVM_INVALID_ARG;
   }
 
-  if (vm->state == MVM_TENU_STATE_READY || vm->state == MVM_TENU_STATE_RUNNING)
+  if (vm->state == MVM_STATE_READY || vm->state == MVM_STATE_RUNNING)
   {
-    vm->state = MVM_TENU_STATE_WAITING;
+    vm->state = MVM_STATE_WAITING;
 
     return MVM_OK;
   }
 
   return MVM_BAD_STATE;
-} /* End of MVM_enuWait */
+} /* End of MVM_Wait */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuResume
+ *  Name: MVM_Resume
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -769,25 +673,25 @@ MVM_tenuReturnCode MVM_enuWait(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Resumes VM execution.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuResume(MophunVM *vm)
+MVM_RetCode_t MVM_Resume(MpnVM_t *vm)
 {
   if (!vm)
   {
     return MVM_INVALID_ARG;
   }
 
-  if (vm->state == MVM_TENU_STATE_PAUSED || vm->state == MVM_TENU_STATE_WAITING)
+  if (vm->state == MVM_STATE_PAUSED || vm->state == MVM_STATE_WAITING)
   {
-    vm->state = MVM_TENU_STATE_READY;
+    vm->state = MVM_STATE_READY;
 
     return MVM_OK;
   }
 
   return MVM_BAD_STATE;
-} /* End of MVM_enuResume */
+} /* End of MVM_Resume */
 
 /**********************************************************************************************************************
- *  Name: MVM_LvidRequestExitRaw
+ *  Name: MVM_RequestExitRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -795,7 +699,7 @@ MVM_tenuReturnCode MVM_enuResume(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Requests immediate VM termination through the internal path.
  *********************************************************************************************************************/
-void MVM_LvidRequestExitRaw(VMGPContext *vm)
+void MVM_RequestExitRaw(VMGPContext *vm)
 {
   if (!vm)
   {
@@ -803,11 +707,11 @@ void MVM_LvidRequestExitRaw(VMGPContext *vm)
   }
 
   vm->halted = true;
-  vm->state = MVM_TENU_STATE_EXITED;
-} /* End of MVM_LvidRequestExitRaw */
+  vm->state = MVM_STATE_EXITED;
+} /* End of MVM_RequestExitRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuRequestExit
+ *  Name: MVM_RequestExit
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -815,20 +719,20 @@ void MVM_LvidRequestExitRaw(VMGPContext *vm)
  *  Returns: See function signature.
  *  Description: Requests immediate VM termination.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuRequestExit(MophunVM *vm)
+MVM_RetCode_t MVM_RequestExit(MpnVM_t *vm)
 {
   if (!vm)
   {
     return MVM_INVALID_ARG;
   }
 
-  MVM_LvidRequestExitRaw(vm);
+  MVM_RequestExitRaw(vm);
 
   return MVM_OK;
-} /* End of MVM_enuRequestExit */
+} /* End of MVM_RequestExit */
 
 /**********************************************************************************************************************
- *  Name: MVM_tenuGetState
+ *  Name: MVM_GetState
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -836,17 +740,17 @@ MVM_tenuReturnCode MVM_enuRequestExit(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Returns the current VM execution state.
  *********************************************************************************************************************/
-MVM_tenuState MVM_tenuGetState(const MophunVM *vm)
+MVM_State_t MVM_GetState(const MpnVM_t *vm)
 {
-  MVM_tenuState enuState = MVM_TENU_STATE_ERROR;
+  MVM_State_t state = MVM_STATE_ERROR;
 
-  enuState = vm ? vm->state : MVM_TENU_STATE_ERROR;
+  state = vm ? vm->state : MVM_STATE_ERROR;
 
-  return enuState;
-} /* End of MVM_tenuGetState */
+  return state;
+} /* End of MVM_GetState */
 
 /**********************************************************************************************************************
- *  Name: MVM_tenuGetLastError
+ *  Name: MVM_GetLastError
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -854,17 +758,17 @@ MVM_tenuState MVM_tenuGetState(const MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Returns the last fatal VM execution error.
  *********************************************************************************************************************/
-MVM_tenuError MVM_tenuGetLastError(const MophunVM *vm)
+MVM_Err_t MVM_GetLastError(const MpnVM_t *vm)
 {
-  MVM_tenuError enuError = MVM_TENU_ERROR_INVALID_ARG;
+  MVM_Err_t error = MVM_E_INVALID_ARG;
 
-  enuError = vm ? vm->last_error : MVM_TENU_ERROR_INVALID_ARG;
+  error = vm ? vm->last_error : MVM_E_INVALID_ARG;
 
-  return enuError;
-} /* End of MVM_tenuGetLastError */
+  return error;
+} /* End of MVM_GetLastError */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuSetWatchdogLimit
+ *  Name: MVM_SetWdgLimit
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -872,7 +776,7 @@ MVM_tenuError MVM_tenuGetLastError(const MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Configures the no-progress soft watchdog limit.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuSetWatchdogLimit(MophunVM *vm, uint32_t no_progress_steps)
+MVM_RetCode_t MVM_SetWdgLimit(MpnVM_t *vm, uint32_t no_progress_steps)
 {
   if (!vm)
   {
@@ -884,10 +788,10 @@ MVM_tenuReturnCode MVM_enuSetWatchdogLimit(MophunVM *vm, uint32_t no_progress_st
   vm->last_pc = UINT32_MAX;
 
   return MVM_OK;
-} /* End of MVM_enuSetWatchdogLimit */
+} /* End of MVM_SetWdgLimit */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32GetWatchdogLimit
+ *  Name: MVM_GetWdgLimit
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -895,17 +799,17 @@ MVM_tenuReturnCode MVM_enuSetWatchdogLimit(MophunVM *vm, uint32_t no_progress_st
  *  Returns: See function signature.
  *  Description: Returns the configured no-progress soft watchdog limit.
  *********************************************************************************************************************/
-uint32_t MVM_u32GetWatchdogLimit(const MophunVM *vm)
+uint32_t MVM_GetWdgLimit(const MpnVM_t *vm)
 {
-  uint32_t u32Limit = 0;
+  uint32_t limit = 0;
 
-  u32Limit = vm ? vm->watchdog_limit : 0u;
+  limit = vm ? vm->watchdog_limit : 0u;
 
-  return u32Limit;
-} /* End of MVM_u32GetWatchdogLimit */
+  return limit;
+} /* End of MVM_GetWdgLimit */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32GetExecutedSteps
+ *  Name: MVM_GetExecutedSteps
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -913,17 +817,17 @@ uint32_t MVM_u32GetWatchdogLimit(const MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Returns the total number of executed VM instructions.
  *********************************************************************************************************************/
-uint32_t MVM_u32GetExecutedSteps(const MophunVM *vm)
+uint32_t MVM_GetExecutedSteps(const MpnVM_t *vm)
 {
-  uint32_t u32Steps = 0;
+  uint32_t steps = 0;
 
-  u32Steps = vm ? vm->steps : 0u;
+  steps = vm ? vm->steps : 0u;
 
-  return u32Steps;
-} /* End of MVM_u32GetExecutedSteps */
+  return steps;
+} /* End of MVM_GetExecutedSteps */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32GetProgramCounter
+ *  Name: MVM_GetProgramCounter
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -931,17 +835,17 @@ uint32_t MVM_u32GetExecutedSteps(const MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Returns the current VM program counter.
  *********************************************************************************************************************/
-uint32_t MVM_u32GetProgramCounter(const MophunVM *vm)
+uint32_t MVM_GetProgramCounter(const MpnVM_t *vm)
 {
-  uint32_t u32Pc = 0;
+  uint32_t pc = 0;
 
-  u32Pc = vm ? vm->pc : 0u;
+  pc = vm ? vm->pc : 0u;
 
-  return u32Pc;
-} /* End of MVM_u32GetProgramCounter */
+  return pc;
+} /* End of MVM_GetProgramCounter */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32GetLoggedCalls
+ *  Name: MVM_GetLoggedCalls
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -949,14 +853,136 @@ uint32_t MVM_u32GetProgramCounter(const MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Returns the number of trace calls logged so far.
  *********************************************************************************************************************/
-uint32_t MVM_u32GetLoggedCalls(const MophunVM *vm)
+uint32_t MVM_GetLoggedCalls(const MpnVM_t *vm)
 {
-  uint32_t u32LoggedCalls = 0;
+  uint32_t loggedCalls = 0;
 
-  u32LoggedCalls = vm ? vm->logged_calls : 0u;
+  loggedCalls = vm ? vm->logged_calls : 0u;
 
-  return u32LoggedCalls;
-} /* End of MVM_u32GetLoggedCalls */
+  return loggedCalls;
+} /* End of MVM_GetLoggedCalls */
+
+/**********************************************************************************************************************
+ *  LOCAL FUNCTIONS
+ *********************************************************************************************************************/
+
+/**********************************************************************************************************************
+ *  Name: MVM_lMapFatalError
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Maps one internal fatal VM error to one public API return code.
+ *********************************************************************************************************************/
+static MVM_RetCode_t MVM_lMapFatalError(MVM_Err_t error, MVM_RetCode_t fallback)
+{
+  MVM_RetCode_t retCode = fallback;
+
+  switch (error)
+  {
+    case MVM_E_NONE:
+    {
+      retCode = fallback;
+      break;
+    }
+
+    case MVM_E_INVALID_ARG:
+    {
+      retCode = MVM_INVALID_ARG;
+      break;
+    }
+
+    case MVM_E_INIT_FAILED:
+    {
+      retCode = MVM_INIT_FAILED;
+      break;
+    }
+
+    case MVM_E_MEMORY:
+    {
+      retCode = MVM_MEMORY_ERROR;
+      break;
+    }
+
+    case MVM_E_EXECUTION:
+    {
+      retCode = MVM_EXECUTION_ERROR;
+      break;
+    }
+
+    case MVM_E_WDG:
+    {
+      retCode = MVM_WATCHDOG_ERROR;
+      break;
+    }
+
+    default:
+    {
+      break;
+    }
+  }
+
+  return retCode;
+} /* End of MVM_lMapFatalError */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lFindDevProfileByName
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Finds one configured device profile by name.
+ *********************************************************************************************************************/
+static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name)
+{
+  return MVM_Cfg_lFindDevProfileByName(&MVM_Config, profile_name);
+} /* End of MVM_lFindDevProfileByName */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lInitWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state using one internal integration config object.
+ *********************************************************************************************************************/
+static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
+                                         const uint8_t *image,
+                                         size_t image_size,
+                                         const MVM_Config_t *config)
+{
+  MVM_RetCode_t retCode = MVM_OK;
+  const MVM_Config_t *cfg = config;
+
+  if (!vm || !image || image_size < sizeof(VMGPHeader) || !cfg)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  if (!MVM_InitRawWithConfig(vm, image, image_size, cfg))
+  {
+    MVM_SetErrorRaw(vm, MVM_E_INIT_FAILED);
+
+    return MVM_INIT_FAILED;
+  }
+
+  if (!MVM_ParseVmgpHeaderRaw(vm) || !MVM_LoadVmgpPoolRaw(vm))
+  {
+    if (vm->last_error == MVM_E_NONE)
+    {
+      MVM_SetErrorRaw(vm, MVM_E_INIT_FAILED);
+    }
+
+    retCode = MVM_lMapFatalError(vm->last_error, MVM_INIT_FAILED);
+
+    return retCode;
+  }
+
+  return retCode;
+} /* End of MVM_lInitWithConfig */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_Core.c

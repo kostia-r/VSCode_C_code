@@ -129,7 +129,7 @@ enum
 /**
  * @brief Fetches one 32-bit instruction word from VM code memory.
  */
-static bool fetch_code_u32(const VMGPContext *ctx, uint32_t pc, uint32_t *out);
+static bool fetch_code_word(const VMGPContext *ctx, uint32_t pc, uint32_t *out);
 
 /**
  * @brief Returns a printable PIP opcode name.
@@ -156,7 +156,7 @@ static void log_syscall(VMGPContext *ctx, uint8_t op);
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_LbPipStep
+ *  Name: MVM_PipStep
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -164,7 +164,7 @@ static void log_syscall(VMGPContext *ctx, uint8_t op);
  *  Returns: See function signature.
  *  Description: Executes one VM instruction.
  *********************************************************************************************************************/
-bool MVM_LbPipStep(VMGPContext *ctx)
+bool MVM_PipStep(VMGPContext *ctx)
 {
   uint32_t w, ext;
   uint8_t op, b1, b2, b3;
@@ -191,9 +191,9 @@ bool MVM_LbPipStep(VMGPContext *ctx)
     return true;
   }
 
-  if (!fetch_code_u32(ctx, ctx->pc, &w))
+  if (!fetch_code_word(ctx, ctx->pc, &w))
   {
-    MVM_LvidLogf(ctx, "pc out of code: 0x%08X\n", ctx->pc);
+    MVM_Logf(ctx, "pc out of code: 0x%08X\n", ctx->pc);
     return false;
   }
 
@@ -240,7 +240,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
     {
       if (ctx->regs[rt] == 0)
       {
-        MVM_LvidLogf(ctx, "DIVU by zero at pc=0x%X\n", ctx->pc);
+        MVM_Logf(ctx, "DIVU by zero at pc=0x%X\n", ctx->pc);
 
         return false;
       }
@@ -507,7 +507,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
     case OP_ORI:
     {
-      if (!fetch_code_u32(ctx, ctx->pc + 4, &ext))
+      if (!fetch_code_word(ctx, ctx->pc + 4, &ext))
       {
         return false;
       }
@@ -539,7 +539,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
         if (imm == 0)
         {
-          MVM_LvidLogf(ctx, "DIVi by zero at pc=0x%X\n", ctx->pc);
+          MVM_Logf(ctx, "DIVi by zero at pc=0x%X\n", ctx->pc);
 
           return false;
         }
@@ -552,23 +552,23 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
     case OP_LDI:
     {
-      if (!fetch_code_u32(ctx, ctx->pc + 4, &ext))
+      if (!fetch_code_word(ctx, ctx->pc + 4, &ext))
       {
         return false;
       }
 
       if ((ext >> 24) == 0x00)
       {
-        entry = MVM_pudtVmgpGetPoolEntry(ctx, vm_imm24_u(ext));
+        entry = MVM_GetVmgpPoolEntry(ctx, vm_imm24_u(ext));
 
         if (!entry)
         {
-          MVM_LvidLogf(ctx, "LDI pool index OOB at pc=0x%X\n", ctx->pc);
+          MVM_Logf(ctx, "LDI pool index OOB at pc=0x%X\n", ctx->pc);
 
           return false;
         }
 
-        ctx->regs[rd] = MVM_u32VmgpResolvePoolValue(ctx, entry);
+        ctx->regs[rd] = MVM_ResolveVmgpPoolValue(ctx, entry);
       }
       else
       {
@@ -593,19 +593,19 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
     case OP_STBD:
     {
-      if (!fetch_code_u32(ctx, ctx->pc + 4, &ext))
+      if (!fetch_code_word(ctx, ctx->pc + 4, &ext))
       {
         return false;
       }
       entry = NULL;
       off = ((ext >> 24) == 0x00)
-          ? ((entry = MVM_pudtVmgpGetPoolEntry(ctx, vm_imm24_u(ext))) ? MVM_u32VmgpResolvePoolValue(ctx, entry) : 0u)
+          ? ((entry = MVM_GetVmgpPoolEntry(ctx, vm_imm24_u(ext))) ? MVM_ResolveVmgpPoolValue(ctx, entry) : 0u)
           : (uint32_t)vm_sext24(ext);
       addr = ctx->regs[rs] + off;
 
       if ((ext >> 24) == 0x00 && !entry)
       {
-        MVM_LvidLogf(ctx, "%s pool index OOB at pc=0x%X\n", opcode_name(op), ctx->pc);
+        MVM_Logf(ctx, "%s pool index OOB at pc=0x%X\n", opcode_name(op), ctx->pc);
 
         return false;
       }
@@ -614,7 +614,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       {
         if (addr + 4 > ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "LDWd addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "LDWd addr OOB: 0x%X\n", addr);
 
           return false;
         }
@@ -625,7 +625,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       {
         if (addr >= ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "LDBd addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "LDBd addr OOB: 0x%X\n", addr);
 
           return false;
         }
@@ -636,7 +636,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       {
         if (addr >= ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "LDBU addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "LDBU addr OOB: 0x%X\n", addr);
 
           return false;
         }
@@ -647,7 +647,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       {
         if (addr + 2 > ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "LDHU addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "LDHU addr OOB: 0x%X\n", addr);
 
           return false;
         }
@@ -658,36 +658,36 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       {
         if (addr + 4 > ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "STWd addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "STWd addr OOB: 0x%X\n", addr);
 
           return false;
         }
 
-        MVM_vidMemoryWriteWatch(ctx, addr, 4, "STWD");
+        MVM_WatchMemoryWrite(ctx, addr, 4, "STWD");
         vm_write_u32_le(ctx->mem + addr, ctx->regs[rd]);
       }
       else if (op == OP_STHD)
       {
         if (addr + 2 > ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "STHd addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "STHd addr OOB: 0x%X\n", addr);
 
           return false;
         }
 
-        MVM_vidMemoryWriteWatch(ctx, addr, 2, "STHD");
+        MVM_WatchMemoryWrite(ctx, addr, 2, "STHD");
         vm_write_u16_le(ctx->mem + addr, (uint16_t)(ctx->regs[rd] & 0xFFFFu));
       }
       else
       {
         if (addr >= ctx->mem_size)
         {
-          MVM_LvidLogf(ctx, "STBd addr OOB: 0x%X\n", addr);
+          MVM_Logf(ctx, "STBd addr OOB: 0x%X\n", addr);
 
           return false;
         }
 
-        MVM_vidMemoryWriteWatch(ctx, addr, 1, "STBD");
+        MVM_WatchMemoryWrite(ctx, addr, 1, "STBD");
         ctx->mem[addr] = (uint8_t)(ctx->regs[rd] & 0xFFu);
       }
 
@@ -702,7 +702,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
         return false;
       }
 
-      MVM_vidMemoryWriteWatch(ctx, ctx->regs[rd], ctx->regs[rt], "SYSCPY");
+      MVM_WatchMemoryWrite(ctx, ctx->regs[rd], ctx->regs[rt], "SYSCPY");
       memmove(ctx->mem + ctx->regs[rd], ctx->mem + ctx->regs[rs], ctx->regs[rt]);
       ctx->pc += 4;
       break;
@@ -715,7 +715,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
         return false;
       }
 
-      MVM_vidMemoryWriteWatch(ctx, ctx->regs[rd], ctx->regs[rt], "SYSSET");
+      MVM_WatchMemoryWrite(ctx, ctx->regs[rd], ctx->regs[rt], "SYSSET");
       memset(ctx->mem + ctx->regs[rd], (int)(ctx->regs[rs] & 0xFFu), ctx->regs[rt]);
       ctx->pc += 4;
       break;
@@ -789,7 +789,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
     case OP_JPL:
     {
-      if (!fetch_code_u32(ctx, ctx->pc + 4, &ext))
+      if (!fetch_code_word(ctx, ctx->pc + 4, &ext))
       {
         return false;
       }
@@ -803,7 +803,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       raw = 0;
       index = 0;
 
-      if (!fetch_code_u32(ctx, ctx->pc + 4, &raw))
+      if (!fetch_code_word(ctx, ctx->pc + 4, &raw))
       {
         return false;
       }
@@ -816,11 +816,11 @@ bool MVM_LbPipStep(VMGPContext *ctx)
       }
 
       index = vm_imm24_u(raw);
-      entry = MVM_pudtVmgpGetPoolEntry(ctx, index);
+      entry = MVM_GetVmgpPoolEntry(ctx, index);
 
       if (!entry)
       {
-        MVM_LvidLogf(ctx, "CALLl pool index OOB at pc=0x%X\n", ctx->pc);
+        MVM_Logf(ctx, "CALLl pool index OOB at pc=0x%X\n", ctx->pc);
 
         return false;
       }
@@ -829,13 +829,13 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
       if (entry->type == 0x02)
       {
-        MVM_bRuntimeHandleImportCall(ctx, index);
+        MVM_HandleRuntimeImportCall(ctx, index);
         ctx->pc += 8;
       }
       else if (entry->type == 0x11)
       {
         ctx->regs[VM_REG_RA] = ctx->pc + 8;
-        ctx->pc = MVM_u32VmgpResolvePoolValue(ctx, entry);
+        ctx->pc = MVM_ResolveVmgpPoolValue(ctx, entry);
       }
       else
       {
@@ -1001,7 +1001,6 @@ bool MVM_LbPipStep(VMGPContext *ctx)
         {
           break;
         } /* End of default */
-
       } /* End of switch */
 
       ctx->pc += take ? (uint32_t)(rel * 4) : 4u;
@@ -1026,7 +1025,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
     {
       take = false;
 
-      if (!fetch_code_u32(ctx, ctx->pc + 4, &ext))
+      if (!fetch_code_word(ctx, ctx->pc + 4, &ext))
       {
         return false;
       }
@@ -1092,7 +1091,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
     default:
     {
-      MVM_LvidLogf(ctx,
+      MVM_Logf(ctx,
       "unhandled opcode 0x%02X (%s) at pc=0x%08X raw=%08X b1=%u b2=%u b3=%u\n",
       op,
       opcode_name(op),
@@ -1104,20 +1103,19 @@ bool MVM_LbPipStep(VMGPContext *ctx)
 
       return false;
     } /* End of default */
-
   } /* End of switch */
 
   ctx->regs[VM_REG_ZERO] = 0;
   ctx->steps++;
   return true;
-} /* End of MVM_LbPipStep */
+} /* End of MVM_PipStep */
 
 /**********************************************************************************************************************
  *  LOCAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: fetch_code_u32
+ *  Name: fetch_code_word
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -1125,7 +1123,7 @@ bool MVM_LbPipStep(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-static bool fetch_code_u32(const VMGPContext *ctx, uint32_t pc, uint32_t *out)
+static bool fetch_code_word(const VMGPContext *ctx, uint32_t pc, uint32_t *out)
 {
   if (!ctx || !out || pc + 4 > ctx->header.code_size)
   {
@@ -1135,7 +1133,7 @@ static bool fetch_code_u32(const VMGPContext *ctx, uint32_t pc, uint32_t *out)
   *out = vm_read_u32_le(ctx->data + ctx->code_file_offset + pc);
 
   return true;
-} /* End of fetch_code_u32 */
+} /* End of fetch_code_word */
 
 /**********************************************************************************************************************
  *  Name: opcode_name
@@ -1148,577 +1146,577 @@ static bool fetch_code_u32(const VMGPContext *ctx, uint32_t pc, uint32_t *out)
  *********************************************************************************************************************/
 static const char *opcode_name(uint8_t op)
 {
-  const char *pudtOpcodeName = "UNKNOWN";
+  const char *opcodeName = "UNKNOWN";
 
   switch (op)
   {
     case OP_NOP:
     {
-      pudtOpcodeName = "NOP";
+      opcodeName = "NOP";
       break;
     } /* End of case OP_NOP */
 
     case OP_ADD:
     {
-      pudtOpcodeName = "ADD";
+      opcodeName = "ADD";
       break;
     } /* End of case OP_ADD */
 
     case OP_AND:
     {
-      pudtOpcodeName = "AND";
+      opcodeName = "AND";
       break;
     } /* End of case OP_AND */
 
     case OP_MUL:
     {
-      pudtOpcodeName = "MUL";
+      opcodeName = "MUL";
       break;
     } /* End of case OP_MUL */
 
     case OP_DIVU:
     {
-      pudtOpcodeName = "DIVU";
+      opcodeName = "DIVU";
       break;
     } /* End of case OP_DIVU */
 
     case OP_OR:
     {
-      pudtOpcodeName = "OR";
+      opcodeName = "OR";
       break;
     } /* End of case OP_OR */
 
     case OP_XOR:
     {
-      pudtOpcodeName = "XOR";
+      opcodeName = "XOR";
       break;
     } /* End of case OP_XOR */
 
     case OP_SUB:
     {
-      pudtOpcodeName = "SUB";
+      opcodeName = "SUB";
       break;
     } /* End of case OP_SUB */
 
     case OP_NOT:
     {
-      pudtOpcodeName = "NOT";
+      opcodeName = "NOT";
       break;
     } /* End of case OP_NOT */
 
     case OP_NEG:
     {
-      pudtOpcodeName = "NEG";
+      opcodeName = "NEG";
       break;
     } /* End of case OP_NEG */
 
     case OP_EXSB:
     {
-      pudtOpcodeName = "EXSB";
+      opcodeName = "EXSB";
       break;
     } /* End of case OP_EXSB */
 
     case OP_EXSH:
     {
-      pudtOpcodeName = "EXSH";
+      opcodeName = "EXSH";
       break;
     } /* End of case OP_EXSH */
 
     case OP_MOV:
     {
-      pudtOpcodeName = "MOV";
+      opcodeName = "MOV";
       break;
     } /* End of case OP_MOV */
 
     case OP_ADDB:
     {
-      pudtOpcodeName = "ADDB";
+      opcodeName = "ADDB";
       break;
     } /* End of case OP_ADDB */
 
     case OP_SUBB:
     {
-      pudtOpcodeName = "SUBB";
+      opcodeName = "SUBB";
       break;
     } /* End of case OP_SUBB */
 
     case OP_ANDB:
     {
-      pudtOpcodeName = "ANDB";
+      opcodeName = "ANDB";
       break;
     } /* End of case OP_ANDB */
 
     case OP_ORB:
     {
-      pudtOpcodeName = "ORB";
+      opcodeName = "ORB";
       break;
     } /* End of case OP_ORB */
 
     case OP_MOVB:
     {
-      pudtOpcodeName = "MOVB";
+      opcodeName = "MOVB";
       break;
     } /* End of case OP_MOVB */
 
     case OP_ADDH:
     {
-      pudtOpcodeName = "ADDH";
+      opcodeName = "ADDH";
       break;
     } /* End of case OP_ADDH */
 
     case OP_SUBH:
     {
-      pudtOpcodeName = "SUBH";
+      opcodeName = "SUBH";
       break;
     } /* End of case OP_SUBH */
 
     case OP_ANDH:
     {
-      pudtOpcodeName = "ANDH";
+      opcodeName = "ANDH";
       break;
     } /* End of case OP_ANDH */
 
     case OP_ORH:
     {
-      pudtOpcodeName = "ORH";
+      opcodeName = "ORH";
       break;
     } /* End of case OP_ORH */
 
     case OP_MOVH:
     {
-      pudtOpcodeName = "MOVH";
+      opcodeName = "MOVH";
       break;
     } /* End of case OP_MOVH */
 
     case OP_SLLI:
     {
-      pudtOpcodeName = "SLLi";
+      opcodeName = "SLLi";
       break;
     } /* End of case OP_SLLI */
 
     case OP_SRAI:
     {
-      pudtOpcodeName = "SRAi";
+      opcodeName = "SRAi";
       break;
     } /* End of case OP_SRAI */
 
     case OP_SRLI:
     {
-      pudtOpcodeName = "SRLi";
+      opcodeName = "SRLi";
       break;
     } /* End of case OP_SRLI */
 
     case OP_ADDQ:
     {
-      pudtOpcodeName = "ADDQ";
+      opcodeName = "ADDQ";
       break;
     } /* End of case OP_ADDQ */
 
     case OP_MULQ:
     {
-      pudtOpcodeName = "MULQ";
+      opcodeName = "MULQ";
       break;
     } /* End of case OP_MULQ */
 
     case OP_ADDBI:
     {
-      pudtOpcodeName = "ADDBi";
+      opcodeName = "ADDBi";
       break;
     } /* End of case OP_ADDBI */
 
     case OP_ANDBI:
     {
-      pudtOpcodeName = "ANDBi";
+      opcodeName = "ANDBi";
       break;
     } /* End of case OP_ANDBI */
 
     case OP_ORBI:
     {
-      pudtOpcodeName = "ORBi";
+      opcodeName = "ORBi";
       break;
     } /* End of case OP_ORBI */
 
     case OP_SLLB:
     {
-      pudtOpcodeName = "SLLB";
+      opcodeName = "SLLB";
       break;
     } /* End of case OP_SLLB */
 
     case OP_SRLB:
     {
-      pudtOpcodeName = "SRLB";
+      opcodeName = "SRLB";
       break;
     } /* End of case OP_SRLB */
 
     case OP_SRAB:
     {
-      pudtOpcodeName = "SRAB";
+      opcodeName = "SRAB";
       break;
     } /* End of case OP_SRAB */
 
     case OP_ADDHI:
     {
-      pudtOpcodeName = "ADDHi";
+      opcodeName = "ADDHi";
       break;
     } /* End of case OP_ADDHI */
 
     case OP_ANDHI:
     {
-      pudtOpcodeName = "ANDHi";
+      opcodeName = "ANDHi";
       break;
     } /* End of case OP_ANDHI */
 
     case OP_SLLH:
     {
-      pudtOpcodeName = "SLLH";
+      opcodeName = "SLLH";
       break;
     } /* End of case OP_SLLH */
 
     case OP_SRLH:
     {
-      pudtOpcodeName = "SRLH";
+      opcodeName = "SRLH";
       break;
     } /* End of case OP_SRLH */
 
     case OP_SRAH:
     {
-      pudtOpcodeName = "SRAH";
+      opcodeName = "SRAH";
       break;
     } /* End of case OP_SRAH */
 
     case OP_BEQI:
     {
-      pudtOpcodeName = "BEQI";
+      opcodeName = "BEQI";
       break;
     } /* End of case OP_BEQI */
 
     case OP_BNEI:
     {
-      pudtOpcodeName = "BNEI";
+      opcodeName = "BNEI";
       break;
     } /* End of case OP_BNEI */
 
     case OP_BGEI:
     {
-      pudtOpcodeName = "BGEI";
+      opcodeName = "BGEI";
       break;
     } /* End of case OP_BGEI */
 
     case OP_BGTI:
     {
-      pudtOpcodeName = "BGTI";
+      opcodeName = "BGTI";
       break;
     } /* End of case OP_BGTI */
 
     case OP_BGTUI:
     {
-      pudtOpcodeName = "BGTUI";
+      opcodeName = "BGTUI";
       break;
     } /* End of case OP_BGTUI */
 
     case OP_BLEI:
     {
-      pudtOpcodeName = "BLEI";
+      opcodeName = "BLEI";
       break;
     } /* End of case OP_BLEI */
 
     case OP_BLEUI:
     {
-      pudtOpcodeName = "BLEUI";
+      opcodeName = "BLEUI";
       break;
     } /* End of case OP_BLEUI */
 
     case OP_BLTI:
     {
-      pudtOpcodeName = "BLTI";
+      opcodeName = "BLTI";
       break;
     } /* End of case OP_BLTI */
 
     case OP_BEQIB:
     {
-      pudtOpcodeName = "BEQIB";
+      opcodeName = "BEQIB";
       break;
     } /* End of case OP_BEQIB */
 
     case OP_BNEIB:
     {
-      pudtOpcodeName = "BNEIB";
+      opcodeName = "BNEIB";
       break;
     } /* End of case OP_BNEIB */
 
     case OP_BGEIB:
     {
-      pudtOpcodeName = "BGEIB";
+      opcodeName = "BGEIB";
       break;
     } /* End of case OP_BGEIB */
 
     case OP_BGEUIB:
     {
-      pudtOpcodeName = "BGEUIB";
+      opcodeName = "BGEUIB";
       break;
     } /* End of case OP_BGEUIB */
 
     case OP_BGTIB:
     {
-      pudtOpcodeName = "BGTIB";
+      opcodeName = "BGTIB";
       break;
     } /* End of case OP_BGTIB */
 
     case OP_BGTUIB:
     {
-      pudtOpcodeName = "BGTUIB";
+      opcodeName = "BGTUIB";
       break;
     } /* End of case OP_BGTUIB */
 
     case OP_BLEIB:
     {
-      pudtOpcodeName = "BLEIB";
+      opcodeName = "BLEIB";
       break;
     } /* End of case OP_BLEIB */
 
     case OP_BLEUIB:
     {
-      pudtOpcodeName = "BLEUIB";
+      opcodeName = "BLEUIB";
       break;
     } /* End of case OP_BLEUIB */
 
     case OP_BLTIB:
     {
-      pudtOpcodeName = "BLTIB";
+      opcodeName = "BLTIB";
       break;
     } /* End of case OP_BLTIB */
 
     case OP_BLTUIB:
     {
-      pudtOpcodeName = "BLTUIB";
+      opcodeName = "BLTUIB";
       break;
     } /* End of case OP_BLTUIB */
 
     case OP_LDQ:
     {
-      pudtOpcodeName = "LDQ";
+      opcodeName = "LDQ";
       break;
     } /* End of case OP_LDQ */
 
     case OP_JPR:
     {
-      pudtOpcodeName = "JPr";
+      opcodeName = "JPr";
       break;
     } /* End of case OP_JPR */
 
     case OP_CALLR:
     {
-      pudtOpcodeName = "CALLr";
+      opcodeName = "CALLr";
       break;
     } /* End of case OP_CALLR */
 
     case OP_STORE:
     {
-      pudtOpcodeName = "STORE";
+      opcodeName = "STORE";
       break;
     } /* End of case OP_STORE */
 
     case OP_RESTORE:
     {
-      pudtOpcodeName = "RESTORE";
+      opcodeName = "RESTORE";
       break;
     } /* End of case OP_RESTORE */
 
     case OP_RET:
     {
-      pudtOpcodeName = "RET";
+      opcodeName = "RET";
       break;
     } /* End of case OP_RET */
 
     case OP_SLEEP:
     {
-      pudtOpcodeName = "SLEEP";
+      opcodeName = "SLEEP";
       break;
     } /* End of case OP_SLEEP */
 
     case OP_SYSCPY:
     {
-      pudtOpcodeName = "SYSCPY";
+      opcodeName = "SYSCPY";
       break;
     } /* End of case OP_SYSCPY */
 
     case OP_SYSSET:
     {
-      pudtOpcodeName = "SYSSET";
+      opcodeName = "SYSSET";
       break;
     } /* End of case OP_SYSSET */
 
     case OP_ADDI:
     {
-      pudtOpcodeName = "ADDi";
+      opcodeName = "ADDi";
       break;
     } /* End of case OP_ADDI */
 
     case OP_ANDI:
     {
-      pudtOpcodeName = "ANDi";
+      opcodeName = "ANDi";
       break;
     } /* End of case OP_ANDI */
 
     case OP_MULI:
     {
-      pudtOpcodeName = "MULi";
+      opcodeName = "MULi";
       break;
     } /* End of case OP_MULI */
 
     case OP_DIVI:
     {
-      pudtOpcodeName = "DIVi";
+      opcodeName = "DIVi";
       break;
     } /* End of case OP_DIVI */
 
     case OP_DIVUI:
     {
-      pudtOpcodeName = "DIVUi";
+      opcodeName = "DIVUi";
       break;
     } /* End of case OP_DIVUI */
 
     case OP_ORI:
     {
-      pudtOpcodeName = "ORi";
+      opcodeName = "ORi";
       break;
     } /* End of case OP_ORI */
 
     case OP_STBD:
     {
-      pudtOpcodeName = "STBd";
+      opcodeName = "STBd";
       break;
     } /* End of case OP_STBD */
 
     case OP_STHD:
     {
-      pudtOpcodeName = "STHd";
+      opcodeName = "STHd";
       break;
     } /* End of case OP_STHD */
 
     case OP_STWD:
     {
-      pudtOpcodeName = "STWd";
+      opcodeName = "STWd";
       break;
     } /* End of case OP_STWD */
 
     case OP_LDBD:
     {
-      pudtOpcodeName = "LDBd";
+      opcodeName = "LDBd";
       break;
     } /* End of case OP_LDBD */
 
     case OP_LDWD:
     {
-      pudtOpcodeName = "LDWd";
+      opcodeName = "LDWd";
       break;
     } /* End of case OP_LDWD */
 
     case OP_LDBU:
     {
-      pudtOpcodeName = "LDBU";
+      opcodeName = "LDBU";
       break;
     } /* End of case OP_LDBU */
 
     case OP_LDHU:
     {
-      pudtOpcodeName = "LDHU";
+      opcodeName = "LDHU";
       break;
     } /* End of case OP_LDHU */
 
     case OP_LDI:
     {
-      pudtOpcodeName = "LDI";
+      opcodeName = "LDI";
       break;
     } /* End of case OP_LDI */
 
     case OP_JPL:
     {
-      pudtOpcodeName = "JPl";
+      opcodeName = "JPl";
       break;
     } /* End of case OP_JPL */
 
     case OP_CALLL:
     {
-      pudtOpcodeName = "CALLl";
+      opcodeName = "CALLl";
       break;
     } /* End of case OP_CALLL */
 
     case OP_BEQ:
     {
-      pudtOpcodeName = "BEQ";
+      opcodeName = "BEQ";
       break;
     } /* End of case OP_BEQ */
 
     case OP_BNE:
     {
-      pudtOpcodeName = "BNE";
+      opcodeName = "BNE";
       break;
     } /* End of case OP_BNE */
 
     case OP_BGE:
     {
-      pudtOpcodeName = "BGE";
+      opcodeName = "BGE";
       break;
     } /* End of case OP_BGE */
 
     case OP_BGTU:
     {
-      pudtOpcodeName = "BGTU";
+      opcodeName = "BGTU";
       break;
     } /* End of case OP_BGTU */
 
     case OP_BLE:
     {
-      pudtOpcodeName = "BLE";
+      opcodeName = "BLE";
       break;
     } /* End of case OP_BLE */
 
     case OP_BLEU:
     {
-      pudtOpcodeName = "BLEU";
+      opcodeName = "BLEU";
       break;
     } /* End of case OP_BLEU */
 
     case OP_BLT:
     {
-      pudtOpcodeName = "BLT";
+      opcodeName = "BLT";
       break;
     } /* End of case OP_BLT */
 
     case OP_BLTU:
     {
-      pudtOpcodeName = "BLTU";
+      opcodeName = "BLTU";
       break;
     } /* End of case OP_BLTU */
 
     case OP_SYSCALL4:
     {
-      pudtOpcodeName = "SYSCALL4";
+      opcodeName = "SYSCALL4";
       break;
     } /* End of case OP_SYSCALL4 */
 
     case OP_SYSCALL0:
     {
-      pudtOpcodeName = "SYSCALL0";
+      opcodeName = "SYSCALL0";
       break;
     } /* End of case OP_SYSCALL0 */
 
     case OP_SYSCALL1:
     {
-      pudtOpcodeName = "SYSCALL1";
+      opcodeName = "SYSCALL1";
       break;
     } /* End of case OP_SYSCALL1 */
 
     case OP_SYSCALL2:
     {
-      pudtOpcodeName = "SYSCALL2";
+      opcodeName = "SYSCALL2";
       break;
     } /* End of case OP_SYSCALL2 */
 
     case OP_SYSCALL3:
     {
-      pudtOpcodeName = "SYSCALL3";
+      opcodeName = "SYSCALL3";
       break;
     } /* End of case OP_SYSCALL3 */
 
@@ -1726,10 +1724,9 @@ static const char *opcode_name(uint8_t op)
     {
       break;
     } /* End of default */
-
   } /* End of switch */
 
-  return pudtOpcodeName;
+  return opcodeName;
 } /* End of opcode_name */
 
 /**********************************************************************************************************************
@@ -1743,11 +1740,11 @@ static const char *opcode_name(uint8_t op)
  *********************************************************************************************************************/
 static uint32_t stack_arg0(const VMGPContext *ctx)
 {
-  uint32_t u32Arg0 = 0;
+  uint32_t arg0 = 0;
 
-  u32Arg0 = (ctx->regs[VM_REG_SP] + 4 <= ctx->mem_size) ? vm_read_u32_le(ctx->mem + ctx->regs[VM_REG_SP]) : 0u;
+  arg0 = (ctx->regs[VM_REG_SP] + 4 <= ctx->mem_size) ? vm_read_u32_le(ctx->mem + ctx->regs[VM_REG_SP]) : 0u;
 
-  return u32Arg0;
+  return arg0;
 } /* End of stack_arg0 */
 
 /**********************************************************************************************************************
@@ -1763,12 +1760,12 @@ static void log_vm_call(VMGPContext *ctx, uint32_t call_site, uint32_t index, co
 {
   if (e->type == 0x02)
   {
-    MVM_LvidLogf(ctx,
+    MVM_Logf(ctx,
     "[vm-call %02u] pc=0x%08X CALLl pool[%u] import=%s sp=%08X stk0=%08X p0=%08X p1=%08X p2=%08X p3=%08X r0=%08X\n",
     ctx->logged_calls + 1,
     call_site,
     index,
-    MVM_pudtVmgpGetImportName(ctx, index),
+    MVM_GetVmgpImportName(ctx, index),
     ctx->regs[VM_REG_SP],
     stack_arg0(ctx),
     ctx->regs[VM_REG_P0],
@@ -1779,13 +1776,13 @@ static void log_vm_call(VMGPContext *ctx, uint32_t call_site, uint32_t index, co
   }
   else
   {
-    MVM_LvidLogf(ctx,
+    MVM_Logf(ctx,
     "[vm-call %02u] pc=0x%08X CALLl pool[%u] type=0x%02X(%s) value=0x%08X aux=0x%06X\n",
     ctx->logged_calls + 1,
     call_site,
     index,
     e->type,
-    MVM_pudtVmgpPoolTypeName(e->type),
+    MVM_GetVmgpPoolTypeName(e->type),
     e->value,
     e->aux24);
   }
@@ -1805,7 +1802,7 @@ static void log_vm_call(VMGPContext *ctx, uint32_t call_site, uint32_t index, co
 static void log_syscall(VMGPContext *ctx, uint8_t op)
 {
   uint32_t argc = (op == OP_SYSCALL0) ? 0u : (uint32_t)(op - OP_SYSCALL0);
-  MVM_LvidLogf(ctx,
+  MVM_Logf(ctx,
   "[syscall %02u] pc=0x%08X %s argc=%u p0=%08X p1=%08X p2=%08X p3=%08X\n",
   ctx->logged_calls + 1,
   ctx->pc,

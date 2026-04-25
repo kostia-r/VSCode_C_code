@@ -83,7 +83,7 @@ static bool handle_decompress(VMGPContext *ctx);
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-bool MVM_bRuntimeHandleDecompress(VMGPContext *ctx, const char *name)
+bool MVM_HandleRuntimeDecompress(VMGPContext *ctx, const char *name)
 {
   bool bHandled = false;
 
@@ -290,18 +290,18 @@ static uint32_t lz_decompress_content(const uint8_t *src,
 static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 {
   uint32_t i;
-  VMGPStream *pudtStream = NULL;
+  VMGPStream *stream = NULL;
 
   for (i = 0; i < VMGP_MAX_STREAMS; ++i)
   {
     if (ctx->streams[i].used && ctx->streams[i].handle == handle)
     {
-      pudtStream = &ctx->streams[i];
+      stream = &ctx->streams[i];
       break;
     }
   } /* End of loop */
 
-  return pudtStream;
+  return stream;
 } /* End of find_stream */
 
 /**********************************************************************************************************************
@@ -322,7 +322,7 @@ static bool handle_decomp_hdr(VMGPContext *ctx)
   uint32_t uncompressed_size = 0;
   uint32_t compressed_size = 0;
 
-  if (!MVM_LbRuntimeMemRangeOk(ctx, hdr, 22) ||
+  if (!MVM_RuntimeMemRangeOk(ctx, hdr, 22) ||
       !lz_read_header(ctx->mem + hdr,
                       ctx->mem_size - hdr,
                       &extended_offset_bits,
@@ -335,7 +335,7 @@ static bool handle_decomp_hdr(VMGPContext *ctx)
     return true;
   }
 
-  if (info != 0 && MVM_LbRuntimeMemRangeOk(ctx, info, 20))
+  if (info != 0 && MVM_RuntimeMemRangeOk(ctx, info, 20))
   {
     ctx->mem[info + 0] = 0;
     ctx->mem[info + 1] = 0;
@@ -382,7 +382,7 @@ static bool handle_decompress(VMGPContext *ctx)
 
   if (src != 0)
   {
-    if (!MVM_LbRuntimeMemRangeOk(ctx, src, 22))
+    if (!MVM_RuntimeMemRangeOk(ctx, src, 22))
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
@@ -396,7 +396,7 @@ static bool handle_decompress(VMGPContext *ctx)
   {
     s = find_stream(ctx, stream_handle);
 
-    if (!s || !MVM_LbRuntimeMemRangeOk(ctx, s->base + s->pos, 22))
+    if (!s || !MVM_RuntimeMemRangeOk(ctx, s->base + s->pos, 22))
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
@@ -456,7 +456,7 @@ static bool handle_decompress(VMGPContext *ctx)
     return true;
   }
 
-  if (!MVM_LbRuntimeMemRangeOk(ctx, dst, out_size))
+  if (!MVM_RuntimeMemRangeOk(ctx, dst, out_size))
   {
     ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 

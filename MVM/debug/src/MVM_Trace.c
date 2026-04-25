@@ -15,11 +15,20 @@
 #include "MVM_Internal.h"
 
 /**********************************************************************************************************************
+ *  LOCAL FUNCTIONS PROTOTYPES
+ *********************************************************************************************************************/
+
+/**
+ * @brief Runs traced VM execution through the local trace helper.
+ */
+static bool MVM_lRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_calls);
+
+/**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_vidMemoryWriteWatch
+ *  Name: MVM_WatchMemoryWrite
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -27,16 +36,16 @@
  *  Returns: See function signature.
  *  Description: Handles VM memory diagnostics.
  *********************************************************************************************************************/
-void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag)
+void MVM_WatchMemoryWrite(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag)
 {
   (void)ctx;
   (void)addr;
   (void)size;
   (void)tag;
-} /* End of MVM_vidMemoryWriteWatch */
+} /* End of MVM_WatchMemoryWrite */
 
 /**********************************************************************************************************************
- *  Name: MVM_LbRunTrace
+ *  Name: MVM_RunTrace
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -44,55 +53,59 @@ void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t siz
  *  Returns: See function signature.
  *  Description: Runs traced VM execution.
  *********************************************************************************************************************/
-bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_calls)
+bool MVM_RunTrace(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls)
+{
+  return MVM_lRunTrace(vm, max_steps, max_logged_calls);
+} /* End of MVM_RunTrace */
+
+/**********************************************************************************************************************
+ *  LOCAL FUNCTIONS
+ *********************************************************************************************************************/
+
+/**********************************************************************************************************************
+ *  Name: MVM_lRunTrace
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Runs traced VM execution.
+ *********************************************************************************************************************/
+static bool MVM_lRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_calls)
 {
   bool bResult = false;
-  uint32_t u32Executed = 0;
+  uint32_t executed = 0;
 
   if (!ctx || !ctx->mem)
   {
     return false;
   }
 
-  MVM_LvidLogf(ctx, "=== execution trace (first %u MVM/system calls) ===\n", max_logged_calls);
+  MVM_Logf(ctx, "=== execution trace (first %u MVM/system calls) ===\n", max_logged_calls);
 
   while (ctx->steps < max_steps && ctx->logged_calls < max_logged_calls && !ctx->halted)
   {
-    u32Executed = MVM_Lu32RunStepsRaw(ctx, 1u);
+    executed = MVM_RunStepsRaw(ctx, 1u);
 
-    if (u32Executed == 0u)
+    if (executed == 0u)
     {
       break;
     }
   } /* End of loop */
 
-  MVM_LvidLogf(ctx, "=== stop ===\n");
-  MVM_LvidLogf(ctx,
-  "steps=%u pc=0x%08X logged_calls=%u heap_cur=0x%08X r0=0x%08X\n",
-  ctx->steps,
-  ctx->pc,
-  ctx->logged_calls,
-  ctx->heap_cur,
-  ctx->regs[VM_REG_R0]);
-  MVM_LvidLogf(ctx, "state=%u error=%u\n", (uint32_t)ctx->state, (uint32_t)ctx->last_error);
+  MVM_Logf(ctx, "=== stop ===\n");
+  MVM_Logf(ctx,
+               "steps=%u pc=0x%08X logged_calls=%u heap_cur=0x%08X r0=0x%08X\n",
+               ctx->steps,
+               ctx->pc,
+               ctx->logged_calls,
+               ctx->heap_cur,
+               ctx->regs[VM_REG_R0]);
+  MVM_Logf(ctx, "state=%u error=%u\n", (uint32_t)ctx->state, (uint32_t)ctx->last_error);
   bResult = true;
 
   return bResult;
-} /* End of MVM_LbRunTrace */
-
-/**********************************************************************************************************************
- *  Name: MVM_bRunTrace
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Runs traced VM execution.
- *********************************************************************************************************************/
-bool MVM_bRunTrace(MophunVM *vm, uint32_t max_steps, uint32_t max_logged_calls)
-{
-  return MVM_LbRunTrace(vm, max_steps, max_logged_calls);
-} /* End of MVM_bRunTrace */
+} /* End of MVM_lRunTrace */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_Trace.c

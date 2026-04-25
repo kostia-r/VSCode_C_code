@@ -30,7 +30,7 @@
 /**
  * @brief Runs traced VM execution.
  */
-bool MVM_bRunTrace(MophunVM *vm, uint32_t max_steps, uint32_t max_logged_calls);
+bool MVM_RunTrace(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls);
 
 /**********************************************************************************************************************
  *  END of header file guard

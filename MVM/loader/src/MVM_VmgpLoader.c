@@ -24,17 +24,17 @@
 /**
  * @brief Loads VMGP resource table metadata.
  */
-static bool MVM_LbVmgpLoadResources(VMGPContext *ctx);
+static bool MVM_lLoadVmgpResources(VMGPContext *ctx);
 
 /**
  * @brief Counts resource table entries in a VMGP image.
  */
-static uint32_t MVM_Lu32VmgpCountResources(const uint8_t *data, uint32_t res_file_offset, uint32_t res_size);
+static uint32_t MVM_lCountVmgpResources(const uint8_t *data, uint32_t res_file_offset, uint32_t res_size);
 
 /**
  * @brief Builds the initial VM memory image.
  */
-static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx);
+static bool MVM_lBuildVmgpMemory(VMGPContext *ctx);
 
 /**
  * @brief Returns a string-table pointer from a file offset.
@@ -44,14 +44,14 @@ static const char *vm_file_str(const VMGPContext *ctx, uint32_t off);
 /**
  * @brief Aligns one size value for runtime-pool planning.
  */
-static size_t MVM_LudtAlignPoolSize(size_t value);
+static size_t MVM_lAlignPoolSize(size_t value);
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_pudtVmgpPoolTypeName
+ *  Name: MVM_GetVmgpPoolTypeName
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -59,81 +59,81 @@ static size_t MVM_LudtAlignPoolSize(size_t value);
  *  Returns: See function signature.
  *  Description: Handles VMGP pool data.
  *********************************************************************************************************************/
-const char *MVM_pudtVmgpPoolTypeName(uint8_t type)
+const char *MVM_GetVmgpPoolTypeName(uint8_t type)
 {
-  const char *pudtName = "unknown";
+  const char *name = "unknown";
 
   switch (type)
   {
     case 0x00:
     {
-      pudtName = "null";
+      name = "null";
       break;
     } /* End of case 0x00 */
 
     case 0x02:
     {
-      pudtName = "import";
+      name = "import";
       break;
     } /* End of case 0x02 */
 
     case 0x11:
     {
-      pudtName = "code";
+      name = "code";
       break;
     } /* End of case 0x11 */
 
     case 0x13:
     {
-      pudtName = "export";
+      name = "export";
       break;
     } /* End of case 0x13 */
 
     case 0x18:
     {
-      pudtName = "bytes";
+      name = "bytes";
       break;
     } /* End of case 0x18 */
 
     case 0x21:
     {
-      pudtName = "u32";
+      name = "u32";
       break;
     } /* End of case 0x21 */
 
     case 0x23:
     {
-      pudtName = "const?";
+      name = "const?";
       break;
     } /* End of case 0x23 */
 
     case 0x24:
     {
-      pudtName = "str?";
+      name = "str?";
       break;
     } /* End of case 0x24 */
 
     case 0x25:
     {
-      pudtName = "res?";
+      name = "res?";
       break;
     } /* End of case 0x25 */
 
     case 0x26:
     {
-      pudtName = "ptr?";
+      name = "ptr?";
       break;
     } /* End of case 0x26 */
 
     case 0x41:
     {
-      pudtName = "addr?";
+      name = "addr?";
       break;
     } /* End of case 0x41 */
 
     case 0x67:
     {
-      pudtName = "sys?";
+      name = "sys?";
       break;
     } /* End of case 0x67 */
 
@@ -141,14 +141,13 @@ const char *MVM_pudtVmgpPoolTypeName(uint8_t type)
     {
       break;
     } /* End of default */
-
   } /* End of switch */
 
-  return pudtName;
-} /* End of MVM_pudtVmgpPoolTypeName */
+  return name;
+} /* End of MVM_GetVmgpPoolTypeName */
 
 /**********************************************************************************************************************
- *  Name: MVM_udtVmgpPoolSizeBytes
+ *  Name: MVM_GetVmgpPoolSizeBytes
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -156,17 +155,17 @@ const char *MVM_pudtVmgpPoolTypeName(uint8_t type)
  *  Returns: See function signature.
  *  Description: Handles VMGP pool data.
  *********************************************************************************************************************/
-size_t MVM_udtVmgpPoolSizeBytes(const VMGPHeader *header)
+size_t MVM_GetVmgpPoolSizeBytes(const VMGPHeader *header)
 {
-  size_t udtSize = 0;
+  size_t sizeBytes = 0;
 
-  udtSize = header ? (size_t)header->pool_slots * VMGP_POOL_SLOT_SIZE : 0u;
+  sizeBytes = header ? (size_t)header->pool_slots * VMGP_POOL_SLOT_SIZE : 0u;
 
-  return udtSize;
-} /* End of MVM_udtVmgpPoolSizeBytes */
+  return sizeBytes;
+} /* End of MVM_GetVmgpPoolSizeBytes */
 
 /**********************************************************************************************************************
- *  Name: MVM_pudtVmgpGetPoolEntry
+ *  Name: MVM_GetVmgpPoolEntry
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -174,22 +173,22 @@ size_t MVM_udtVmgpPoolSizeBytes(const VMGPHeader *header)
  *  Returns: See function signature.
  *  Description: Handles VMGP pool data.
  *********************************************************************************************************************/
-const VMGPPoolEntry *MVM_pudtVmgpGetPoolEntry(const VMGPContext *ctx, uint32_t pool_index_1based)
+const VMGPPoolEntry *MVM_GetVmgpPoolEntry(const VMGPContext *ctx, uint32_t pool_index_1based)
 {
-  const VMGPPoolEntry *pudtEntry = NULL;
+  const VMGPPoolEntry *entry = NULL;
 
   if (!ctx || !ctx->pool || pool_index_1based == 0 || pool_index_1based > ctx->header.pool_slots)
   {
     return NULL;
   }
 
-  pudtEntry = &ctx->pool[pool_index_1based - 1u];
+  entry = &ctx->pool[pool_index_1based - 1u];
 
-  return pudtEntry;
-} /* End of MVM_pudtVmgpGetPoolEntry */
+  return entry;
+} /* End of MVM_GetVmgpPoolEntry */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32VmgpResolvePoolValue
+ *  Name: MVM_ResolveVmgpPoolValue
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -197,9 +196,9 @@ const VMGPPoolEntry *MVM_pudtVmgpGetPoolEntry(const VMGPContext *ctx, uint32_t p
  *  Returns: See function signature.
  *  Description: Handles VMGP pool data.
  *********************************************************************************************************************/
-uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry *entry)
+uint32_t MVM_ResolveVmgpPoolValue(const VMGPContext *ctx, const VMGPPoolEntry *entry)
 {
-  uint32_t u32Value = 0;
+  uint32_t value = 0;
 
   if (!ctx || !entry)
   {
@@ -212,13 +211,13 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
 
     case 0x23: /* global .data */
     {
-      u32Value = ctx->data_offset + entry->value;
+      value = ctx->data_offset + entry->value;
       break;
     } /* End of case 0x23 */
 
     case 0x41: /* .bss */
     {
-      u32Value = ctx->bss_offset + entry->value;
+      value = ctx->bss_offset + entry->value;
       break;
     } /* End of case 0x41 */
 
@@ -230,17 +229,16 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
 
     default:
     {
-      u32Value = entry->value;
+      value = entry->value;
       break;
     } /* End of default */
-
   } /* End of switch */
 
-  return u32Value;
-} /* End of MVM_u32VmgpResolvePoolValue */
+  return value;
+} /* End of MVM_ResolveVmgpPoolValue */
 
 /**********************************************************************************************************************
- *  Name: MVM_pudtVmgpGetImportName
+ *  Name: MVM_GetVmgpImportName
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -248,14 +246,14 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-const char *MVM_pudtVmgpGetImportName(const VMGPContext *ctx, uint32_t pool_index_1based)
+const char *MVM_GetVmgpImportName(const VMGPContext *ctx, uint32_t pool_index_1based)
 {
   static char bad[32];
   const VMGPPoolEntry *entry = NULL;
   const char *name = NULL;
-  const char *pudtImportName = NULL;
+  const char *importName = NULL;
 
-  entry = MVM_pudtVmgpGetPoolEntry(ctx, pool_index_1based);
+  entry = MVM_GetVmgpPoolEntry(ctx, pool_index_1based);
 
   if (!entry)
   {
@@ -272,13 +270,13 @@ const char *MVM_pudtVmgpGetImportName(const VMGPContext *ctx, uint32_t pool_inde
   }
 
   name = vm_file_str(ctx, entry->aux24);
-  pudtImportName = name ? name : "<str-oob>";
+  importName = name ? name : "<str-oob>";
 
-  return pudtImportName;
-} /* End of MVM_pudtVmgpGetImportName */
+  return importName;
+} /* End of MVM_GetVmgpImportName */
 
 /**********************************************************************************************************************
- *  Name: MVM_pudtVmgpGetResource
+ *  Name: MVM_GetVmgpResource
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -286,10 +284,10 @@ const char *MVM_pudtVmgpGetImportName(const VMGPContext *ctx, uint32_t pool_inde
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t resource_id)
+const VMGPResource *MVM_GetVmgpResource(const VMGPContext *ctx, uint32_t resource_id)
 {
   uint32_t i;
-  const VMGPResource *pudtResource = NULL;
+  const VMGPResource *resource = NULL;
 
   if (!ctx || !ctx->resources || resource_id == 0)
   {
@@ -300,16 +298,16 @@ const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t res
   {
     if (ctx->resources[i].id == resource_id)
     {
-      pudtResource = &ctx->resources[i];
+      resource = &ctx->resources[i];
       break;
     }
   } /* End of loop */
 
-  return pudtResource;
-} /* End of MVM_pudtVmgpGetResource */
+  return resource;
+} /* End of MVM_GetVmgpResource */
 
 /**********************************************************************************************************************
- *  Name: MVM_bVmgpParseHeader
+ *  Name: MVM_ParseVmgpHeaderRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -317,7 +315,7 @@ const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t res
  *  Returns: See function signature.
  *  Description: Parses VMGP image data.
  *********************************************************************************************************************/
-bool MVM_LbVmgpParseHeader(VMGPContext *ctx)
+bool MVM_ParseVmgpHeaderRaw(VMGPContext *ctx)
 {
   if (!ctx || !ctx->data || ctx->size < sizeof(VMGPHeader))
   {
@@ -361,10 +359,10 @@ bool MVM_LbVmgpParseHeader(VMGPContext *ctx)
   }
 
   return true;
-} /* End of MVM_LbVmgpParseHeader */
+} /* End of MVM_ParseVmgpHeaderRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_bVmgpParseHeader
+ *  Name: MVM_ParseVmgpHeader
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -372,13 +370,13 @@ bool MVM_LbVmgpParseHeader(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Public wrapper for VMGP header parsing.
  *********************************************************************************************************************/
-bool MVM_bVmgpParseHeader(VMGPContext *ctx)
+bool MVM_ParseVmgpHeader(VMGPContext *ctx)
 {
-  return MVM_LbVmgpParseHeader(ctx);
-} /* End of MVM_bVmgpParseHeader */
+  return MVM_ParseVmgpHeaderRaw(ctx);
+} /* End of MVM_ParseVmgpHeader */
 
 /**********************************************************************************************************************
- *  Name: MVM_enuQueryMemoryRequirements
+ *  Name: MVM_QueryMemReqs
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -386,13 +384,13 @@ bool MVM_bVmgpParseHeader(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Queries static memory requirements for a VMGP image.
  *********************************************************************************************************************/
-MVM_tenuReturnCode MVM_enuQueryMemoryRequirements(const uint8_t *image,
-size_t image_size,
-MVM_tstMemoryRequirements *requirements)
+MVM_RetCode_t MVM_QueryMemReqs(const uint8_t *image,
+                               size_t image_size,
+                               MVM_MemReqs_t *requirements)
 {
   VMGPContext ctx;
   uint32_t resource_count = 0;
-  size_t udtRuntimePoolBytes = 0;
+  size_t runtimePoolBytes = 0;
 
   if (!requirements)
   {
@@ -410,12 +408,12 @@ MVM_tstMemoryRequirements *requirements)
   ctx.data = image;
   ctx.size = image_size;
 
-  if (!MVM_LbVmgpParseHeader(&ctx))
+  if (!MVM_ParseVmgpHeaderRaw(&ctx))
   {
     return MVM_INIT_FAILED;
   }
 
-  resource_count = MVM_Lu32VmgpCountResources(ctx.data, ctx.res_file_offset, ctx.header.res_size);
+  resource_count = MVM_lCountVmgpResources(ctx.data, ctx.res_file_offset, ctx.header.res_size);
   ctx.vm_end = ctx.res_offset + ctx.header.res_size;
   ctx.heap_base = vm_align4(ctx.vm_end);
   ctx.heap_cur = ctx.heap_base;
@@ -425,13 +423,13 @@ MVM_tstMemoryRequirements *requirements)
   requirements->guest_memory_bytes = ctx.mem_size;
   requirements->pool_entries_bytes = (size_t)ctx.header.pool_slots * sizeof(VMGPPoolEntry);
   requirements->resource_entries_bytes = (size_t)resource_count * sizeof(VMGPResource);
-  udtRuntimePoolBytes = MVM_LudtAlignPoolSize(0u);
-  udtRuntimePoolBytes += requirements->pool_entries_bytes;
-  udtRuntimePoolBytes = MVM_LudtAlignPoolSize(udtRuntimePoolBytes);
-  udtRuntimePoolBytes += requirements->resource_entries_bytes;
-  udtRuntimePoolBytes = MVM_LudtAlignPoolSize(udtRuntimePoolBytes);
-  udtRuntimePoolBytes += requirements->guest_memory_bytes;
-  requirements->runtime_pool_bytes = udtRuntimePoolBytes;
+  runtimePoolBytes = MVM_lAlignPoolSize(0u);
+  runtimePoolBytes += requirements->pool_entries_bytes;
+  runtimePoolBytes = MVM_lAlignPoolSize(runtimePoolBytes);
+  runtimePoolBytes += requirements->resource_entries_bytes;
+  runtimePoolBytes = MVM_lAlignPoolSize(runtimePoolBytes);
+  runtimePoolBytes += requirements->guest_memory_bytes;
+  requirements->runtime_pool_bytes = runtimePoolBytes;
   requirements->pool_entry_count = ctx.header.pool_slots;
   requirements->resource_count = resource_count;
   requirements->static_data_bytes = ctx.header.data_size;
@@ -441,10 +439,10 @@ MVM_tstMemoryRequirements *requirements)
   requirements->stack_bytes = ctx.stack_top - ctx.heap_limit;
 
   return MVM_OK;
-} /* End of MVM_enuQueryMemoryRequirements */
+} /* End of MVM_QueryMemReqs */
 
 /**********************************************************************************************************************
- *  Name: MVM_bVmgpLoadPool
+ *  Name: MVM_LoadVmgpPoolRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -452,7 +450,7 @@ MVM_tstMemoryRequirements *requirements)
  *  Returns: See function signature.
  *  Description: Loads VMGP image data.
  *********************************************************************************************************************/
-bool MVM_LbVmgpLoadPool(VMGPContext *ctx)
+bool MVM_LoadVmgpPoolRaw(VMGPContext *ctx)
 {
   uint32_t i;
   uint32_t off = 0;
@@ -462,12 +460,12 @@ bool MVM_LbVmgpLoadPool(VMGPContext *ctx)
     return false;
   }
 
-  ctx->pool = (VMGPPoolEntry *)MVM_LpudtAcquireInitBuffer(ctx,
-                                                          (size_t)ctx->header.pool_slots * sizeof(VMGPPoolEntry));
+  ctx->pool = (VMGPPoolEntry *)MVM_AcquireInitBuffer(ctx,
+                                                     (size_t)ctx->header.pool_slots * sizeof(VMGPPoolEntry));
 
   if (!ctx->pool)
   {
-    MVM_LvidSetError(ctx, MVM_TENU_ERROR_MEMORY);
+    MVM_SetErrorRaw(ctx, MVM_E_MEMORY);
 
     return false;
   }
@@ -477,26 +475,26 @@ bool MVM_LbVmgpLoadPool(VMGPContext *ctx)
     off = ctx->pool_offset + i * VMGP_POOL_SLOT_SIZE;
     ctx->pool[i].type = ctx->data[off + 0];
     ctx->pool[i].aux24 = (uint32_t)ctx->data[off + 1] |
-    ((uint32_t)ctx->data[off + 2] << 8) |
-    ((uint32_t)ctx->data[off + 3] << 16);
+                         ((uint32_t)ctx->data[off + 2] << 8) |
+                         ((uint32_t)ctx->data[off + 3] << 16);
     ctx->pool[i].value = vm_read_u32_le(ctx->data + off + 4);
   } /* End of loop */
 
-  if (!MVM_LbVmgpLoadResources(ctx))
+  if (!MVM_lLoadVmgpResources(ctx))
   {
     return false;
   }
 
-  if (!MVM_LbVmgpBuildVmMemory(ctx))
+  if (!MVM_lBuildVmgpMemory(ctx))
   {
     return false;
   }
 
   return true;
-} /* End of MVM_LbVmgpLoadPool */
+} /* End of MVM_LoadVmgpPoolRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_bVmgpLoadPool
+ *  Name: MVM_LoadVmgpPool
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -504,17 +502,17 @@ bool MVM_LbVmgpLoadPool(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Public wrapper for VMGP pool loading.
  *********************************************************************************************************************/
-bool MVM_bVmgpLoadPool(VMGPContext *ctx)
+bool MVM_LoadVmgpPool(VMGPContext *ctx)
 {
-  return MVM_LbVmgpLoadPool(ctx);
-} /* End of MVM_bVmgpLoadPool */
+  return MVM_LoadVmgpPoolRaw(ctx);
+} /* End of MVM_LoadVmgpPool */
 
 /**********************************************************************************************************************
  *  LOCAL FUNCTIONS
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_LbVmgpLoadResources
+ *  Name: MVM_lLoadVmgpResources
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -522,7 +520,7 @@ bool MVM_bVmgpLoadPool(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Loads VMGP image data.
  *********************************************************************************************************************/
-static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
+static bool MVM_lLoadVmgpResources(VMGPContext *ctx)
 {
   uint32_t prev = 0;
   uint32_t count = 0;
@@ -558,12 +556,11 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
     return true;
   }
 
-  ctx->resources = (VMGPResource *)MVM_LpudtAcquireInitBuffer(ctx,
-                                                              (size_t)count * sizeof(VMGPResource));
+  ctx->resources = (VMGPResource *)MVM_AcquireInitBuffer(ctx, (size_t)count * sizeof(VMGPResource));
 
   if (!ctx->resources)
   {
-    MVM_LvidSetError(ctx, MVM_TENU_ERROR_MEMORY);
+    MVM_SetErrorRaw(ctx, MVM_E_MEMORY);
 
     return false;
   }
@@ -574,18 +571,18 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
   {
     off = vm_read_u32_le(ctx->data + ctx->res_file_offset + i * 4u);
     next = (i + 1u < count)
-         ? vm_read_u32_le(ctx->data + ctx->res_file_offset + (i + 1u) * 4u)
-         : ctx->header.res_size;
+               ? vm_read_u32_le(ctx->data + ctx->res_file_offset + (i + 1u) * 4u)
+               : ctx->header.res_size;
     ctx->resources[i].id = i + 1u;
     ctx->resources[i].offset = off;
     ctx->resources[i].size = (next > off) ? (next - off) : 0u;
   } /* End of loop */
 
   return true;
-} /* End of MVM_LbVmgpLoadResources */
+} /* End of MVM_lLoadVmgpResources */
 
 /**********************************************************************************************************************
- *  Name: MVM_LbVmgpBuildVmMemory
+ *  Name: MVM_lBuildVmgpMemory
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -593,7 +590,7 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Handles VM memory diagnostics.
  *********************************************************************************************************************/
-static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
+static bool MVM_lBuildVmgpMemory(VMGPContext *ctx)
 {
   bool bResult = false;
 
@@ -604,11 +601,11 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
   ctx->stack_top = ctx->heap_limit + VM_STACK_EXTRA;
   ctx->mem_size = ctx->stack_top + 0x100u;
 
-  ctx->mem = (uint8_t *)MVM_LpudtAcquireInitBuffer(ctx, ctx->mem_size);
+  ctx->mem = (uint8_t *)MVM_AcquireInitBuffer(ctx, ctx->mem_size);
 
   if (!ctx->mem)
   {
-    MVM_LvidSetError(ctx, MVM_TENU_ERROR_MEMORY);
+    MVM_SetErrorRaw(ctx, MVM_E_MEMORY);
 
     return false;
   }
@@ -626,10 +623,10 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
   bResult = true;
 
   return bResult;
-} /* End of MVM_LbVmgpBuildVmMemory */
+} /* End of MVM_lBuildVmgpMemory */
 
 /**********************************************************************************************************************
- *  Name: MVM_Lu32VmgpCountResources
+ *  Name: MVM_lCountVmgpResources
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -637,7 +634,7 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Counts resource table entries in a VMGP image.
  *********************************************************************************************************************/
-static uint32_t MVM_Lu32VmgpCountResources(const uint8_t *data, uint32_t res_file_offset, uint32_t res_size)
+static uint32_t MVM_lCountVmgpResources(const uint8_t *data, uint32_t res_file_offset, uint32_t res_size)
 {
   uint32_t prev = 0;
   uint32_t count = 0;
@@ -668,7 +665,7 @@ static uint32_t MVM_Lu32VmgpCountResources(const uint8_t *data, uint32_t res_fil
   } /* End of loop */
 
   return count;
-} /* End of MVM_Lu32VmgpCountResources */
+} /* End of MVM_lCountVmgpResources */
 
 /**********************************************************************************************************************
  *  Name: vm_file_str
@@ -681,20 +678,20 @@ static uint32_t MVM_Lu32VmgpCountResources(const uint8_t *data, uint32_t res_fil
  *********************************************************************************************************************/
 static const char *vm_file_str(const VMGPContext *ctx, uint32_t off)
 {
-  const char *pudtString = NULL;
+  const char *string = NULL;
 
   if (!ctx || ctx->strtab_offset + off >= ctx->size)
   {
     return NULL;
   }
 
-  pudtString = (const char *)(ctx->data + ctx->strtab_offset + off);
+  string = (const char *)(ctx->data + ctx->strtab_offset + off);
 
-  return pudtString;
+  return string;
 } /* End of vm_file_str */
 
 /**********************************************************************************************************************
- *  Name: MVM_LudtAlignPoolSize
+ *  Name: MVM_lAlignPoolSize
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -702,10 +699,10 @@ static const char *vm_file_str(const VMGPContext *ctx, uint32_t off)
  *  Returns: See function signature.
  *  Description: Aligns one size value for runtime-pool planning.
  *********************************************************************************************************************/
-static size_t MVM_LudtAlignPoolSize(size_t value)
+static size_t MVM_lAlignPoolSize(size_t value)
 {
   return (value + 3u) & ~(size_t)3u;
-} /* End of MVM_LudtAlignPoolSize */
+} /* End of MVM_lAlignPoolSize */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_VmgpLoader.c

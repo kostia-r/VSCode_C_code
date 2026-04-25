@@ -36,7 +36,7 @@
 #endif
 
 /*
- * Size of the temporary formatting buffer used by MVM_LvidLogf().
+ * Size of the temporary formatting buffer used by MVM_lLogf().
  * This limits the maximum formatted log message emitted in one call.
  */
 #ifndef MVM_LOG_BUFFER_SIZE

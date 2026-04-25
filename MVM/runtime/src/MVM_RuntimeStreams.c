@@ -42,7 +42,7 @@ static VMGPStream *alloc_stream(VMGPContext *ctx);
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
+bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
 {
   uint32_t mode = 0;
   uint32_t resid = 0;
@@ -71,7 +71,7 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
 
     if (resid != 0)
     {
-      res = MVM_pudtVmgpGetResource(ctx, resid);
+      res = MVM_GetVmgpResource(ctx, resid);
 
       if (!res)
       {
@@ -168,7 +168,7 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
       count = 0;
     }
 
-    MVM_vidMemoryWriteWatch(ctx, buf, count, "vStreamRead");
+    MVM_WatchMemoryWrite(ctx, buf, count, "vStreamRead");
     memcpy(ctx->mem + buf, ctx->mem + s->base + s->pos, count);
     s->pos += count;
     ctx->regs[VM_REG_R0] = count;
@@ -206,18 +206,18 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name)
 static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 {
   uint32_t i;
-  VMGPStream *pudtStream = NULL;
+  VMGPStream *stream = NULL;
 
   for (i = 0; i < VMGP_MAX_STREAMS; ++i)
   {
     if (ctx->streams[i].used && ctx->streams[i].handle == handle)
     {
-      pudtStream = &ctx->streams[i];
+      stream = &ctx->streams[i];
       break;
     }
   } /* End of loop */
 
-  return pudtStream;
+  return stream;
 } /* End of find_stream */
 
 /**********************************************************************************************************************
@@ -232,7 +232,7 @@ static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 static VMGPStream *alloc_stream(VMGPContext *ctx)
 {
   uint32_t i;
-  VMGPStream *pudtStream = NULL;
+  VMGPStream *stream = NULL;
 
   for (i = 0; i < VMGP_MAX_STREAMS; ++i)
   {
@@ -241,12 +241,12 @@ static VMGPStream *alloc_stream(VMGPContext *ctx)
       memset(&ctx->streams[i], 0, sizeof(ctx->streams[i]));
       ctx->streams[i].used = true;
       ctx->streams[i].handle = i;
-      pudtStream = &ctx->streams[i];
+      stream = &ctx->streams[i];
       break;
     }
   } /* End of loop */
 
-  return pudtStream;
+  return stream;
 } /* End of alloc_stream */
 
 /**********************************************************************************************************************

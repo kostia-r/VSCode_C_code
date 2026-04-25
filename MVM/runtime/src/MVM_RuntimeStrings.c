@@ -28,7 +28,7 @@
  *  Returns: See function signature.
  *  Description: Handles runtime syscall flow.
  *********************************************************************************************************************/
-bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name)
+bool MVM_HandleRuntimeStrings(VMGPContext *ctx, const char *name)
 {
   uint32_t p = 0;
   uint32_t dst = 0;
@@ -40,7 +40,7 @@ bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name)
   if (strcmp(name, "vStrLen") == 0)
   {
     p = ctx->regs[VM_REG_P0];
-    ctx->regs[VM_REG_R0] = (p < ctx->mem_size) ? MVM_Lu32RuntimeStrLen(ctx->mem + p, ctx->mem_size - p) : 0u;
+    ctx->regs[VM_REG_R0] = (p < ctx->mem_size) ? MVM_RuntimeStrLen(ctx->mem + p, ctx->mem_size - p) : 0u;
     bHandled = true;
   }
 
@@ -52,13 +52,13 @@ bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name)
     if (dst < ctx->mem_size && src < ctx->mem_size)
     {
       max_copy = ctx->mem_size - dst;
-      n = MVM_Lu32RuntimeStrLen(ctx->mem + src, ctx->mem_size - src);
+      n = MVM_RuntimeStrLen(ctx->mem + src, ctx->mem_size - src);
 
       if (n + 1 > max_copy)
       {
         n = max_copy ? max_copy - 1 : 0;
       }
-      MVM_vidMemoryWriteWatch(ctx, dst, (uint32_t)(n + 1), "vStrCpy");
+      MVM_WatchMemoryWrite(ctx, dst, (uint32_t)(n + 1), "vStrCpy");
       memmove(ctx->mem + dst, ctx->mem + src, n);
 
       if (max_copy)
