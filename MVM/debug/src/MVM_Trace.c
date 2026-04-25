@@ -47,6 +47,7 @@ void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t siz
 bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_calls)
 {
   bool bResult = false;
+  uint32_t u32Executed = 0;
 
   if (!ctx || !ctx->mem)
   {
@@ -57,8 +58,9 @@ bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_ca
 
   while (ctx->steps < max_steps && ctx->logged_calls < max_logged_calls && !ctx->halted)
   {
+    u32Executed = MVM_u32RunSteps(ctx, 1u);
 
-    if (!MVM_LbPipStep(ctx))
+    if (u32Executed == 0u)
     {
       break;
     }
@@ -72,6 +74,7 @@ bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_ca
   ctx->logged_calls,
   ctx->heap_cur,
   ctx->regs[VM_REG_R0]);
+  MVM_LvidLogf(ctx, "state=%u error=%u\n", (uint32_t)ctx->state, (uint32_t)ctx->last_error);
   bResult = true;
 
   return bResult;

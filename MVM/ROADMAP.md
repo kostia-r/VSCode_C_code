@@ -62,6 +62,10 @@ Done when:
 
 ## Phase 2: Execution Model
 
+Status: done. Public bounded execution APIs are in place, the desktop runner
+drives the VM from a non-blocking host loop, and the VM state model now covers
+ready/running/paused/waiting/exited/error transitions.
+
 Purpose: avoid a blocking VM loop that can starve an MCU scheduler.
 
 Tasks:
@@ -70,8 +74,7 @@ Tasks:
   - init/free;
   - single-step;
   - run for N steps;
-  - run for time/cycle budget;
-  - optional blocking run for desktop tools.
+  - run for time/cycle budget.
 - Move trace-only execution behind debug/trace API.
 - Add VM state model:
   - ready;
@@ -90,7 +93,7 @@ Tasks:
 Done when:
 
 - A FreeRTOS task can call the VM for a bounded amount of work and yield.
-- Desktop runner can still use a convenience blocking loop.
+- Desktop runner can drive the VM from its own non-blocking host loop.
 
 ## Phase 3: Static Memory Model
 

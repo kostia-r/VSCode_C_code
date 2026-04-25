@@ -70,6 +70,36 @@ static int host_log(void *user, const char *message)
   return fputs(message, stdout);
 }
 
+static int pump_vm_once(MophunVM *vm, uint32_t *step_budget)
+{
+  int status = 0;
+
+  if (MVM_tenuGetState(vm) == MVM_TENU_STATE_READY || MVM_tenuGetState(vm) == MVM_TENU_STATE_RUNNING)
+  {
+    if (*step_budget == 0u)
+    {
+      status = 1;
+    }
+    else
+    {
+      if (!MVM_bStep(vm))
+      {
+        status = 1;
+      }
+      else
+      {
+        --(*step_budget);
+      }
+    }
+  }
+  else
+  {
+    status = 1;
+  }
+
+  return status;
+}
+
 int main(int argc, char **argv)
 {
   size_t file_size = 0;
@@ -79,6 +109,9 @@ int main(int argc, char **argv)
   MophunPlatform platform = {0};
   uint32_t max_steps = 5000000;
   uint32_t max_logged_calls = 1000;
+  uint32_t step_budget = 0;
+  MVM_tenuState state;
+  MVM_tenuError error;
 
   if (argc < 2 || argc > 4)
   {
@@ -126,7 +159,26 @@ int main(int argc, char **argv)
 
   MVM_vidVmgpDumpSummary(vm);
   MVM_vidVmgpDumpImports(vm, 64);
-  MVM_bRunTrace(vm, max_steps, max_logged_calls);
+  MVM_vidSetWatchdogLimit(vm, 0u);
+  step_budget = max_steps;
+
+  while (pump_vm_once(vm, &step_budget) == 0)
+  {
+    if (MVM_u32GetLoggedCalls(vm) >= max_logged_calls)
+    {
+      break;
+    }
+  }
+
+  state = MVM_tenuGetState(vm);
+  error = MVM_tenuGetLastError(vm);
+  fprintf(stdout,
+          "=== stop ===\nsteps=%u pc=0x%08X logged_calls=%u state=%u error=%u\n",
+          MVM_u32GetExecutedSteps(vm),
+          MVM_u32GetProgramCounter(vm),
+          MVM_u32GetLoggedCalls(vm),
+          (unsigned)state,
+          (unsigned)error);
 
   MVM_vidFree(vm);
   free(vm_storage);

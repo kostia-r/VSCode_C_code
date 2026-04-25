@@ -34,6 +34,7 @@
 #define VMGP_MAX_STREAMS                                        (16U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
+#define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
 
 /**********************************************************************************************************************
  *  GLOBAL DATA TYPES AND STRUCTURES
@@ -113,7 +114,12 @@ struct MophunVM
   uint32_t logged_calls;            /**< Number of traced calls already logged. */
   uint32_t tick_count;              /**< Cached tick counter value. */
   uint32_t random_state;            /**< Internal pseudo-random state. */
+  uint32_t last_pc;                 /**< Previous PC value used by the watchdog. */
+  uint32_t no_progress_steps;       /**< Consecutive steps without PC progress. */
+  uint32_t watchdog_limit;          /**< Allowed no-progress step budget. */
   bool halted;                      /**< Indicates that execution has stopped. */
+  MVM_tenuState state;              /**< Current VM execution state. */
+  MVM_tenuError last_error;         /**< Last fatal execution error. */
 
   const MophunSyscall *syscalls;    /**< Registered host syscall table. */
   uint32_t syscall_count;           /**< Number of registered host syscalls. */
@@ -235,6 +241,16 @@ void MVM_LvidFreeMem(VMGPContext *ctx, void *ptr);
  * @brief Provides MVM_LvidLogf API.
  */
 void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...);
+
+/**
+ * @brief Updates the current VM execution state.
+ */
+void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state);
+
+/**
+ * @brief Records the last fatal execution error and moves the VM into error state.
+ */
+void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error);
 
 /**
  * @brief Provides MVM_LbRuntimeMemRangeOk API.

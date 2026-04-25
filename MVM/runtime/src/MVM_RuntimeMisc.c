@@ -34,6 +34,7 @@ bool MVM_bRuntimeHandleMisc(VMGPContext *ctx, const char *name)
 
   if (strcmp(name, "vTerminateVMGP") == 0)
   {
+    MVM_vidRequestExit(ctx);
     ctx->regs[VM_REG_R0] = 0;
     bHandled = true;
   }

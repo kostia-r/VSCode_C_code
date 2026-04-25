@@ -129,6 +129,10 @@ bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t siz
   ctx->size = size;
   ctx->next_stream_handle = 0x30u;
   ctx->random_state = 1u;
+  ctx->last_pc = UINT32_MAX;
+  ctx->watchdog_limit = MVM_U32_DEFAULT_WATCHDOG_LIMIT;
+  ctx->state = MVM_TENU_STATE_READY;
+  ctx->last_error = MVM_TENU_ERROR_NONE;
   bResult = true;
 
   return bResult;
@@ -163,11 +167,14 @@ bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size
 
   if (!MVM_LbInitRawWithPlatform(vm, image, image_size, platform))
   {
+    MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
+
     return false;
   }
 
   if (!MVM_bVmgpParseHeader(vm) || !MVM_bVmgpLoadPool(vm))
   {
+    MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
     MVM_LvidFreeRaw(vm);
 
     return false;
@@ -272,6 +279,46 @@ void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...)
 } /* End of MVM_LvidLogf */
 
 /**********************************************************************************************************************
+ *  Name: MVM_LvidSetState
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Updates the current VM execution state.
+ *********************************************************************************************************************/
+void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state)
+{
+  if (!ctx)
+  {
+    return;
+  }
+
+  ctx->state = state;
+} /* End of MVM_LvidSetState */
+
+/**********************************************************************************************************************
+ *  Name: MVM_LvidSetError
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Records the last fatal execution error and stops execution.
+ *********************************************************************************************************************/
+void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error)
+{
+  if (!ctx)
+  {
+    return;
+  }
+
+  ctx->last_error = error;
+  ctx->halted = true;
+  ctx->state = MVM_TENU_STATE_ERROR;
+} /* End of MVM_LvidSetError */
+
+/**********************************************************************************************************************
  *  Name: MVM_LvidFreeRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
@@ -306,6 +353,375 @@ void MVM_vidFree(MophunVM *vm)
 {
   MVM_LvidFreeRaw(vm);
 } /* End of MVM_vidFree */
+
+/**********************************************************************************************************************
+ *  Name: MVM_bStep
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Executes at most one VM instruction.
+ *********************************************************************************************************************/
+bool MVM_bStep(MophunVM *vm)
+{
+  uint32_t u32Executed = 0;
+  bool bResult = false;
+
+  u32Executed = MVM_u32RunSteps(vm, 1u);
+  bResult = (vm != NULL) && (u32Executed == 1u);
+
+  return bResult;
+} /* End of MVM_bStep */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32RunSteps
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Executes up to the requested VM instruction budget.
+ *********************************************************************************************************************/
+uint32_t MVM_u32RunSteps(MophunVM *vm, uint32_t max_steps)
+{
+  uint32_t u32Executed = 0;
+  uint32_t u32PcBefore = 0;
+
+  if (!vm)
+  {
+    return 0;
+  }
+
+  if (max_steps == 0u)
+  {
+    return 0;
+  }
+
+  if (vm->state == MVM_TENU_STATE_ERROR ||
+      vm->state == MVM_TENU_STATE_EXITED ||
+      vm->state == MVM_TENU_STATE_PAUSED ||
+      vm->state == MVM_TENU_STATE_WAITING)
+  {
+    return 0;
+  }
+
+  vm->state = MVM_TENU_STATE_RUNNING;
+
+  while (u32Executed < max_steps)
+  {
+    if (vm->halted)
+    {
+      if (vm->state != MVM_TENU_STATE_ERROR)
+      {
+        vm->state = MVM_TENU_STATE_EXITED;
+      }
+      break;
+    }
+
+    u32PcBefore = vm->pc;
+
+    if (!MVM_LbPipStep(vm))
+    {
+      if (vm->last_error == MVM_TENU_ERROR_NONE)
+      {
+        MVM_LvidSetError(vm, MVM_TENU_ERROR_EXECUTION);
+      }
+      break;
+    }
+
+    ++u32Executed;
+
+    if (vm->pc == u32PcBefore)
+    {
+      ++vm->no_progress_steps;
+    }
+    else
+    {
+      vm->no_progress_steps = 0u;
+    }
+
+    vm->last_pc = vm->pc;
+
+    if (vm->watchdog_limit != 0u && vm->no_progress_steps >= vm->watchdog_limit)
+    {
+      MVM_LvidSetError(vm, MVM_TENU_ERROR_WATCHDOG);
+      break;
+    }
+  } /* End of loop */
+
+  if (vm->state == MVM_TENU_STATE_RUNNING)
+  {
+    vm->state = vm->halted ? MVM_TENU_STATE_EXITED : MVM_TENU_STATE_READY;
+  }
+
+  return u32Executed;
+} /* End of MVM_u32RunSteps */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32RunForTime
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Executes VM instructions for up to the requested host time budget.
+ *********************************************************************************************************************/
+uint32_t MVM_u32RunForTime(MophunVM *vm, uint32_t budget_ms)
+{
+  uint32_t u32Executed = 0;
+  uint32_t u32Start = 0;
+  uint32_t u32Now = 0;
+
+  if (!vm || budget_ms == 0u)
+  {
+    return 0;
+  }
+
+  if (!vm->platform.get_ticks_ms)
+  {
+    u32Executed = MVM_u32RunSteps(vm, budget_ms);
+
+    return u32Executed;
+  }
+
+  u32Start = vm->platform.get_ticks_ms(vm->platform.user);
+  u32Now = u32Start;
+
+  while ((u32Now - u32Start) < budget_ms)
+  {
+    if (MVM_u32RunSteps(vm, 1u) == 0u)
+    {
+      break;
+    }
+
+    ++u32Executed;
+
+    if (vm->state != MVM_TENU_STATE_READY && vm->state != MVM_TENU_STATE_RUNNING)
+    {
+      break;
+    }
+
+    u32Now = vm->platform.get_ticks_ms(vm->platform.user);
+  } /* End of loop */
+
+  return u32Executed;
+} /* End of MVM_u32RunForTime */
+
+/**********************************************************************************************************************
+ *  Name: MVM_vidPause
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Pauses VM execution.
+ *********************************************************************************************************************/
+void MVM_vidPause(MophunVM *vm)
+{
+  if (!vm)
+  {
+    return;
+  }
+
+  if (vm->state == MVM_TENU_STATE_READY || vm->state == MVM_TENU_STATE_RUNNING)
+  {
+    vm->state = MVM_TENU_STATE_PAUSED;
+  }
+} /* End of MVM_vidPause */
+
+/**********************************************************************************************************************
+ *  Name: MVM_vidWait
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Moves VM execution into a host-wait state.
+ *********************************************************************************************************************/
+void MVM_vidWait(MophunVM *vm)
+{
+  if (!vm)
+  {
+    return;
+  }
+
+  if (vm->state == MVM_TENU_STATE_READY || vm->state == MVM_TENU_STATE_RUNNING)
+  {
+    vm->state = MVM_TENU_STATE_WAITING;
+  }
+} /* End of MVM_vidWait */
+
+/**********************************************************************************************************************
+ *  Name: MVM_vidResume
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Resumes VM execution.
+ *********************************************************************************************************************/
+void MVM_vidResume(MophunVM *vm)
+{
+  if (!vm)
+  {
+    return;
+  }
+
+  if (vm->state == MVM_TENU_STATE_PAUSED || vm->state == MVM_TENU_STATE_WAITING)
+  {
+    vm->state = MVM_TENU_STATE_READY;
+  }
+} /* End of MVM_vidResume */
+
+/**********************************************************************************************************************
+ *  Name: MVM_vidRequestExit
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Requests immediate VM termination.
+ *********************************************************************************************************************/
+void MVM_vidRequestExit(MophunVM *vm)
+{
+  if (!vm)
+  {
+    return;
+  }
+
+  vm->halted = true;
+  vm->state = MVM_TENU_STATE_EXITED;
+} /* End of MVM_vidRequestExit */
+
+/**********************************************************************************************************************
+ *  Name: MVM_tenuGetState
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the current VM execution state.
+ *********************************************************************************************************************/
+MVM_tenuState MVM_tenuGetState(const MophunVM *vm)
+{
+  MVM_tenuState enuState = MVM_TENU_STATE_ERROR;
+
+  enuState = vm ? vm->state : MVM_TENU_STATE_ERROR;
+
+  return enuState;
+} /* End of MVM_tenuGetState */
+
+/**********************************************************************************************************************
+ *  Name: MVM_tenuGetLastError
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the last fatal VM execution error.
+ *********************************************************************************************************************/
+MVM_tenuError MVM_tenuGetLastError(const MophunVM *vm)
+{
+  MVM_tenuError enuError = MVM_TENU_ERROR_INVALID_ARG;
+
+  enuError = vm ? vm->last_error : MVM_TENU_ERROR_INVALID_ARG;
+
+  return enuError;
+} /* End of MVM_tenuGetLastError */
+
+/**********************************************************************************************************************
+ *  Name: MVM_vidSetWatchdogLimit
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Configures the no-progress soft watchdog limit.
+ *********************************************************************************************************************/
+void MVM_vidSetWatchdogLimit(MophunVM *vm, uint32_t no_progress_steps)
+{
+  if (!vm)
+  {
+    return;
+  }
+
+  vm->watchdog_limit = no_progress_steps;
+  vm->no_progress_steps = 0u;
+  vm->last_pc = UINT32_MAX;
+} /* End of MVM_vidSetWatchdogLimit */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32GetWatchdogLimit
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the configured no-progress soft watchdog limit.
+ *********************************************************************************************************************/
+uint32_t MVM_u32GetWatchdogLimit(const MophunVM *vm)
+{
+  uint32_t u32Limit = 0;
+
+  u32Limit = vm ? vm->watchdog_limit : 0u;
+
+  return u32Limit;
+} /* End of MVM_u32GetWatchdogLimit */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32GetExecutedSteps
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the total number of executed VM instructions.
+ *********************************************************************************************************************/
+uint32_t MVM_u32GetExecutedSteps(const MophunVM *vm)
+{
+  uint32_t u32Steps = 0;
+
+  u32Steps = vm ? vm->steps : 0u;
+
+  return u32Steps;
+} /* End of MVM_u32GetExecutedSteps */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32GetProgramCounter
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the current VM program counter.
+ *********************************************************************************************************************/
+uint32_t MVM_u32GetProgramCounter(const MophunVM *vm)
+{
+  uint32_t u32Pc = 0;
+
+  u32Pc = vm ? vm->pc : 0u;
+
+  return u32Pc;
+} /* End of MVM_u32GetProgramCounter */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32GetLoggedCalls
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the number of trace calls logged so far.
+ *********************************************************************************************************************/
+uint32_t MVM_u32GetLoggedCalls(const MophunVM *vm)
+{
+  uint32_t u32LoggedCalls = 0;
+
+  u32LoggedCalls = vm ? vm->logged_calls : 0u;
+
+  return u32LoggedCalls;
+} /* End of MVM_u32GetLoggedCalls */
 
 /**********************************************************************************************************************
  *  Name: MVM_vidSetSyscalls

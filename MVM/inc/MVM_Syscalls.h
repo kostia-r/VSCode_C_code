@@ -29,6 +29,9 @@ struct MophunVM;
 
 /**
  * @brief Represents a host syscall callback.
+ *
+ * The callback may inspect or update VM execution state through the public VM
+ * control APIs when host-driven waiting, pause, or exit handling is required.
  */
 typedef uint32_t (*MophunSyscallFn)(struct MophunVM *vm, void *user);
 
