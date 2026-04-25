@@ -562,7 +562,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
       if ((ext >> 24) == 0x00)
       {
-        entry = MVM_GetVmgpPoolEntry(ctx, vm_imm24_u(ext));
+        index = vm_imm24_u(ext);
+        entry = MVM_GetVmgpPoolEntry(ctx, index);
 
         if (!entry)
         {
@@ -617,7 +618,7 @@ bool MVM_PipStep(VMGPContext *ctx)
 
       if (op == OP_LDWD)
       {
-        if (addr + 4 > ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 4u))
         {
           MVM_LOG_E(ctx, "mem-oob", "LDWd addr OOB: 0x%X\n", addr);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 4u);
@@ -653,7 +654,7 @@ bool MVM_PipStep(VMGPContext *ctx)
       }
       else if (op == OP_LDHU)
       {
-        if (addr + 2 > ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 2u))
         {
           MVM_LOG_E(ctx, "mem-oob", "LDHU addr OOB: 0x%X\n", addr);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 2u);
@@ -665,7 +666,7 @@ bool MVM_PipStep(VMGPContext *ctx)
       }
       else if (op == OP_STWD)
       {
-        if (addr + 4 > ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 4u))
         {
           MVM_LOG_E(ctx, "mem-oob", "STWd addr OOB: 0x%X\n", addr);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 4u);
@@ -678,7 +679,7 @@ bool MVM_PipStep(VMGPContext *ctx)
       }
       else if (op == OP_STHD)
       {
-        if (addr + 2 > ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 2u))
         {
           MVM_LOG_E(ctx, "mem-oob", "STHd addr OOB: 0x%X\n", addr);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 2u);
@@ -709,7 +710,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_SYSCPY:
     {
-      if (ctx->regs[rd] + ctx->regs[rt] > ctx->mem_size || ctx->regs[rs] + ctx->regs[rt] > ctx->mem_size)
+      if (!MVM_RuntimeMemRangeOk(ctx, ctx->regs[rd], ctx->regs[rt]) ||
+          !MVM_RuntimeMemRangeOk(ctx, ctx->regs[rs], ctx->regs[rt]))
       {
         return false;
       }
@@ -722,7 +724,7 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_SYSSET:
     {
-      if (ctx->regs[rd] + ctx->regs[rt] > ctx->mem_size)
+      if (!MVM_RuntimeMemRangeOk(ctx, ctx->regs[rd], ctx->regs[rt]))
       {
         return false;
       }
@@ -742,7 +744,7 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         ctx->regs[VM_REG_SP] -= 4;
 
-        if (ctx->regs[VM_REG_SP] + 4 > ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, ctx->regs[VM_REG_SP], 4u))
         {
           return false;
         }
@@ -765,7 +767,7 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         regno = first - r;
 
-        if (ctx->regs[VM_REG_SP] + 4 > ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, ctx->regs[VM_REG_SP], 4u))
         {
           return false;
         }

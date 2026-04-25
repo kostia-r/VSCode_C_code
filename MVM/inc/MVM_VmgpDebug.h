@@ -29,13 +29,17 @@
  *********************************************************************************************************************/
 
 #define VMGP_MAGIC                                              "VMGP"
+#define VMGP_HEADER_SIZE                                        (40U)
 #define VMGP_POOL_SLOT_SIZE                                     (8U)
 
 /**********************************************************************************************************************
  *  GLOBAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
 /**
- * @brief Describes the fixed VMGP file header.
+ * @brief Describes one decoded VMGP file header in memory.
+ *
+ * The on-disk header is parsed field-by-field and must not be read through
+ * native structure packing assumptions.
  */
 typedef struct VMGPHeader
 {
@@ -55,7 +59,11 @@ typedef struct VMGPHeader
 } VMGPHeader;
 
 /**
- * @brief Describes one VMGP constant-pool entry.
+ * @brief Describes one decoded VMGP constant-pool entry in memory.
+ *
+ * The on-disk pool slot format is fixed to `VMGP_POOL_SLOT_SIZE` bytes and is
+ * parsed manually. `sizeof(VMGPPoolEntry)` is intentionally not treated as a
+ * file-format ABI.
  */
 typedef struct VMGPPoolEntry
 {

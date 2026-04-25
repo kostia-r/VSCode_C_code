@@ -123,7 +123,7 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
 {
   bool bResult = false;
 
-  if (!ctx || !image || image->image_size < sizeof(VMGPHeader))
+  if (!ctx || !image || image->image_size < VMGP_HEADER_SIZE)
   {
     return false;
   }
@@ -245,7 +245,7 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm,
   MVM_Config_t config = MVM_Config;
   const MpnDevProfile_t *profile = NULL;
 
-  if (!image || image_size < sizeof(VMGPHeader))
+  if (!image || image_size < VMGP_HEADER_SIZE)
   {
     return MVM_INVALID_ARG;
   }
@@ -1040,7 +1040,7 @@ static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
   MVM_RetCode_t retCode = MVM_OK;
   const MVM_Config_t *cfg = config;
 
-  if (!vm || !image || image->image_size < sizeof(VMGPHeader) || !cfg || !cfg->image_read)
+  if (!vm || !image || image->image_size < VMGP_HEADER_SIZE || !cfg || !cfg->image_read)
   {
     return MVM_INVALID_ARG;
   }

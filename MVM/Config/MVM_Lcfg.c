@@ -15,8 +15,12 @@
 #include "MVM_BuildCfg.h"
 #include "MVM_Cfg.h"
 #include "MVM_Internal.h"
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
+#if !defined(_WIN32)
+#include <sys/types.h>
+#endif
 
 /**********************************************************************************************************************
  *  LOCAL DATA TYPES AND STRUCTURES
@@ -594,7 +598,13 @@ static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size)
     return -1;
   }
 
-  if (fseek(file, (long)offset, SEEK_SET) != 0)
+#if defined(_WIN32)
+  if (_fseeki64(file, (__int64)offset, SEEK_SET) != 0)
+#elif defined(_LARGEFILE_SOURCE) || defined(_LARGEFILE64_SOURCE) || defined(_FILE_OFFSET_BITS)
+  if (fseeko(file, (off_t)offset, SEEK_SET) != 0)
+#else
+  if (offset > (size_t)LONG_MAX || fseek(file, (long)offset, SEEK_SET) != 0)
+#endif
   {
     return -1;
   }

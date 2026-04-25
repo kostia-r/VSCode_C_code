@@ -17,6 +17,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+_Static_assert(sizeof(VMGPHeader) == VMGP_HEADER_SIZE, "VMGPHeader layout must stay aligned with decoded header size");
+
 /**********************************************************************************************************************
  *  LOCAL FUNCTIONS PROTOTYPES
  *********************************************************************************************************************/
@@ -344,9 +346,9 @@ const VMGPResource *MVM_GetVmgpResource(const VMGPContext *ctx, uint32_t resourc
  *********************************************************************************************************************/
 bool MVM_ParseVmgpHeaderRaw(VMGPContext *ctx)
 {
-  uint8_t headerBytes[sizeof(VMGPHeader)];
+  uint8_t headerBytes[VMGP_HEADER_SIZE];
 
-  if (!ctx || ctx->size < sizeof(VMGPHeader))
+  if (!ctx || ctx->size < VMGP_HEADER_SIZE)
   {
     return false;
   }
@@ -377,7 +379,7 @@ bool MVM_ParseVmgpHeaderRaw(VMGPContext *ctx)
     return false;
   }
 
-  ctx->code_file_offset = (uint32_t)sizeof(VMGPHeader);
+  ctx->code_file_offset = VMGP_HEADER_SIZE;
   ctx->data_file_offset = ctx->code_file_offset + ctx->header.code_size;
   ctx->code_offset = 0;
   ctx->data_offset = 0;
@@ -425,7 +427,7 @@ MVM_RetCode_t MVM_QueryMemReqs(const uint8_t *image,
   MpnImageSource_t source;
   MVM_Config_t config = MVM_Config;
 
-  if (!image || image_size < sizeof(VMGPHeader))
+  if (!image || image_size < VMGP_HEADER_SIZE)
   {
     return MVM_INVALID_ARG;
   }
@@ -568,7 +570,7 @@ static MVM_RetCode_t MVM_lQueryMemReqsWithConfig(const MpnImageSource_t *image,
 
   memset(requirements, 0, sizeof(*requirements));
 
-  if (!image || !config || !config->image_read || image->image_size < sizeof(VMGPHeader))
+  if (!image || !config || !config->image_read || image->image_size < VMGP_HEADER_SIZE)
   {
     return MVM_INVALID_ARG;
   }
