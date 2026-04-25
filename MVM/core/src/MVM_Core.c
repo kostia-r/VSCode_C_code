@@ -15,7 +15,6 @@
 #include "MVM_Internal.h"
 #include "MVM_BuildCfg.h"
 #include "MVM_Cfg.h"
-#include "MVM_Syscalls.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -88,41 +87,6 @@ MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
 } /* End of MVM_pudtGetVmFromStorage */
 
 /**********************************************************************************************************************
- *  Name: MVM_LbInitRaw
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Initializes VM state.
- *********************************************************************************************************************/
-bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size)
-{
-  return MVM_LbInitRawWithConfig(ctx, data, size, &MVM_kstConfig);
-} /* End of MVM_LbInitRaw */
-
-/**********************************************************************************************************************
- *  Name: MVM_LbInitRawWithPlatform
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Initializes VM state.
- *********************************************************************************************************************/
-bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t size, const MophunPlatform *platform)
-{
-  MVM_tstConfig stConfig = MVM_kstConfig;
-
-  if (platform)
-  {
-    stConfig.platform = *platform;
-  }
-
-  return MVM_LbInitRawWithConfig(ctx, data, size, &stConfig);
-} /* End of MVM_LbInitRawWithPlatform */
-
-/**********************************************************************************************************************
  *  Name: MVM_LbInitRawWithConfig
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
@@ -172,81 +136,200 @@ const MVM_tstConfig *config)
 } /* End of MVM_LbInitRawWithConfig */
 
 /**********************************************************************************************************************
- *  Name: MVM_bInit
+ *  Name: MVM_LenuMapFatalError
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Initializes VM state.
+ *  Description: Maps one internal fatal VM error to one public API return code.
  *********************************************************************************************************************/
-bool MVM_bInit(MophunVM *vm, const uint8_t *image, size_t image_size)
+static MVM_tenuReturnCode MVM_LenuMapFatalError(MVM_tenuError error, MVM_tenuReturnCode fallback)
 {
-  return MVM_bInitWithConfig(vm, image, image_size, &MVM_kstConfig);
-} /* End of MVM_bInit */
+  MVM_tenuReturnCode enuResult = fallback;
 
-/**********************************************************************************************************************
- *  Name: MVM_bInitWithPlatform
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Initializes VM state.
- *********************************************************************************************************************/
-bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size, const MophunPlatform *platform)
-{
-  MVM_tstConfig stConfig = MVM_kstConfig;
-
-  if (platform)
+  switch (error)
   {
-    stConfig.platform = *platform;
+    case MVM_TENU_ERROR_NONE:
+    {
+      enuResult = fallback;
+      break;
+    }
+
+    case MVM_TENU_ERROR_INVALID_ARG:
+    {
+      enuResult = MVM_INVALID_ARG;
+      break;
+    }
+
+    case MVM_TENU_ERROR_INIT_FAILED:
+    {
+      enuResult = MVM_INIT_FAILED;
+      break;
+    }
+
+    case MVM_TENU_ERROR_MEMORY:
+    {
+      enuResult = MVM_MEMORY_ERROR;
+      break;
+    }
+
+    case MVM_TENU_ERROR_EXECUTION:
+    {
+      enuResult = MVM_EXECUTION_ERROR;
+      break;
+    }
+
+    case MVM_TENU_ERROR_WATCHDOG:
+    {
+      enuResult = MVM_WATCHDOG_ERROR;
+      break;
+    }
+
+    default:
+    {
+      break;
+    }
   }
 
-  return MVM_bInitWithConfig(vm, image, image_size, &stConfig);
-} /* End of MVM_bInitWithPlatform */
+  return enuResult;
+} /* End of MVM_LenuMapFatalError */
 
 /**********************************************************************************************************************
- *  Name: MVM_bInitWithConfig
+ *  Name: MVM_LpcdtFindDeviceProfileByName
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Initializes VM state.
+ *  Description: Finds one configured device profile by name.
  *********************************************************************************************************************/
-bool MVM_bInitWithConfig(MophunVM *vm,
+static const MophunDeviceProfile *MVM_LpcdtFindDeviceProfileByName(const char *profile_name)
+{
+  return MVM_Cfg_pcdtFindDeviceProfileByName(&MVM_kstConfig, profile_name);
+} /* End of MVM_LpcdtFindDeviceProfileByName */
+
+/**********************************************************************************************************************
+ *  Name: MVM_LenuInitWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state using one internal integration config object.
+ *********************************************************************************************************************/
+static MVM_tenuReturnCode MVM_LenuInitWithConfig(MophunVM *vm,
 const uint8_t *image,
 size_t image_size,
 const MVM_tstConfig *config)
 {
-  bool bResult = false;
-  const MVM_tstConfig *pstConfig = NULL;
+  MVM_tenuReturnCode enuResult = MVM_OK;
+  const MVM_tstConfig *pstConfig = config;
 
-  pstConfig = config ? config : &MVM_kstConfig;
+  if (!vm || !image || image_size < sizeof(VMGPHeader) || !pstConfig)
+  {
+    return MVM_INVALID_ARG;
+  }
 
   if (!MVM_LbInitRawWithConfig(vm, image, image_size, pstConfig))
   {
     MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
 
-    return false;
+    return MVM_INIT_FAILED;
   }
 
-  if (!MVM_bVmgpParseHeader(vm) || !MVM_bVmgpLoadPool(vm))
+  if (!MVM_LbVmgpParseHeader(vm) || !MVM_LbVmgpLoadPool(vm))
   {
     if (vm->last_error == MVM_TENU_ERROR_NONE)
     {
       MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
     }
-    MVM_LvidFreeRaw(vm);
 
-    return false;
+    enuResult = MVM_LenuMapFatalError(vm->last_error, MVM_INIT_FAILED);
+
+    return enuResult;
   }
 
-  bResult = true;
+  return enuResult;
+} /* End of MVM_LenuInitWithConfig */
 
-  return bResult;
-} /* End of MVM_bInitWithConfig */
+/**********************************************************************************************************************
+ *  Name: MVM_enuInit
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state with the built-in integration config.
+ *********************************************************************************************************************/
+MVM_tenuReturnCode MVM_enuInit(MophunVM *vm,
+const uint8_t *image,
+size_t image_size,
+const char *profile_name)
+{
+  MVM_tstConfig stConfig = MVM_kstConfig;
+  const MophunDeviceProfile *pcdtProfile = NULL;
+
+  if (profile_name)
+  {
+    pcdtProfile = MVM_LpcdtFindDeviceProfileByName(profile_name);
+    if (!pcdtProfile)
+    {
+      return MVM_NOT_FOUND;
+    }
+
+    stConfig.device_profile = pcdtProfile;
+  }
+
+  return MVM_LenuInitWithConfig(vm, image, image_size, &stConfig);
+} /* End of MVM_enuInit */
+
+/**********************************************************************************************************************
+ *  Name: MVM_u32GetDeviceProfileCount
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the number of built-in device profiles.
+ *********************************************************************************************************************/
+uint32_t MVM_u32GetDeviceProfileCount(void)
+{
+  return MVM_kstConfig.device_profile_count;
+} /* End of MVM_u32GetDeviceProfileCount */
+
+/**********************************************************************************************************************
+ *  Name: MVM_pcdtGetDeviceProfile
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns one built-in device profile by index.
+ *********************************************************************************************************************/
+const MophunDeviceProfile *MVM_pcdtGetDeviceProfile(uint32_t profile_index)
+{
+  if (profile_index >= MVM_kstConfig.device_profile_count)
+  {
+    return NULL;
+  }
+
+  return &MVM_kstConfig.device_profiles[profile_index];
+} /* End of MVM_pcdtGetDeviceProfile */
+
+/**********************************************************************************************************************
+ *  Name: MVM_pcdtFindDeviceProfileByName
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Finds one built-in device profile by name.
+ *********************************************************************************************************************/
+const MophunDeviceProfile *MVM_pcdtFindDeviceProfileByName(const char *profile_name)
+{
+  return MVM_LpcdtFindDeviceProfileByName(profile_name);
+} /* End of MVM_pcdtFindDeviceProfileByName */
 
 /**********************************************************************************************************************
  *  Name: MVM_LpudtAcquireInitBuffer
@@ -394,35 +477,15 @@ void MVM_vidFree(MophunVM *vm)
 } /* End of MVM_vidFree */
 
 /**********************************************************************************************************************
- *  Name: MVM_bStep
+ *  Name: MVM_Lu32RunStepsRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Executes at most one VM instruction.
+ *  Description: Executes up to the requested VM instruction budget through the internal path.
  *********************************************************************************************************************/
-bool MVM_bStep(MophunVM *vm)
-{
-  uint32_t u32Executed = 0;
-  bool bResult = false;
-
-  u32Executed = MVM_u32RunSteps(vm, 1u);
-  bResult = (vm != NULL) && (u32Executed == 1u);
-
-  return bResult;
-} /* End of MVM_bStep */
-
-/**********************************************************************************************************************
- *  Name: MVM_u32RunSteps
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Executes up to the requested VM instruction budget.
- *********************************************************************************************************************/
-uint32_t MVM_u32RunSteps(MophunVM *vm, uint32_t max_steps)
+uint32_t MVM_Lu32RunStepsRaw(VMGPContext *vm, uint32_t max_steps)
 {
   uint32_t u32Executed = 0;
   uint32_t u32PcBefore = 0;
@@ -495,10 +558,80 @@ uint32_t MVM_u32RunSteps(MophunVM *vm, uint32_t max_steps)
   }
 
   return u32Executed;
-} /* End of MVM_u32RunSteps */
+} /* End of MVM_Lu32RunStepsRaw */
 
 /**********************************************************************************************************************
- *  Name: MVM_u32RunForTime
+ *  Name: MVM_enuStep
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Executes at most one VM instruction.
+ *********************************************************************************************************************/
+MVM_tenuReturnCode MVM_enuStep(MophunVM *vm)
+{
+  uint32_t u32Executed = 0;
+
+  if (!vm)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  u32Executed = MVM_Lu32RunStepsRaw(vm, 1u);
+  if (u32Executed == 1u)
+  {
+    return MVM_OK;
+  }
+
+  if (vm->state == MVM_TENU_STATE_PAUSED ||
+      vm->state == MVM_TENU_STATE_WAITING ||
+      vm->state == MVM_TENU_STATE_EXITED)
+  {
+    return MVM_BAD_STATE;
+  }
+
+  return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+} /* End of MVM_enuStep */
+
+/**********************************************************************************************************************
+ *  Name: MVM_enuRunSteps
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Executes up to the requested VM instruction budget.
+ *********************************************************************************************************************/
+MVM_tenuReturnCode MVM_enuRunSteps(MophunVM *vm, uint32_t max_steps, uint32_t *executed_steps)
+{
+  uint32_t u32Executed = 0;
+
+  if (!vm || !executed_steps || max_steps == 0u)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  u32Executed = MVM_Lu32RunStepsRaw(vm, max_steps);
+  *executed_steps = u32Executed;
+
+  if (u32Executed > 0u)
+  {
+    return MVM_OK;
+  }
+
+  if (vm->state == MVM_TENU_STATE_PAUSED ||
+      vm->state == MVM_TENU_STATE_WAITING ||
+      vm->state == MVM_TENU_STATE_EXITED)
+  {
+    return MVM_BAD_STATE;
+  }
+
+  return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+} /* End of MVM_enuRunSteps */
+
+/**********************************************************************************************************************
+ *  Name: MVM_enuRunForTime
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -506,22 +639,36 @@ uint32_t MVM_u32RunSteps(MophunVM *vm, uint32_t max_steps)
  *  Returns: See function signature.
  *  Description: Executes VM instructions for up to the requested host time budget.
  *********************************************************************************************************************/
-uint32_t MVM_u32RunForTime(MophunVM *vm, uint32_t budget_ms)
+MVM_tenuReturnCode MVM_enuRunForTime(MophunVM *vm, uint32_t budget_ms, uint32_t *executed_steps)
 {
   uint32_t u32Executed = 0;
   uint32_t u32Start = 0;
   uint32_t u32Now = 0;
 
-  if (!vm || budget_ms == 0u)
+  if (!vm || !executed_steps || budget_ms == 0u)
   {
-    return 0;
+    return MVM_INVALID_ARG;
   }
+
+  *executed_steps = 0u;
 
   if (!vm->platform.get_ticks_ms)
   {
-    u32Executed = MVM_u32RunSteps(vm, budget_ms);
+    *executed_steps = MVM_Lu32RunStepsRaw(vm, budget_ms);
 
-    return u32Executed;
+    if (*executed_steps > 0u)
+    {
+      return MVM_OK;
+    }
+
+    if (vm->state == MVM_TENU_STATE_PAUSED ||
+        vm->state == MVM_TENU_STATE_WAITING ||
+        vm->state == MVM_TENU_STATE_EXITED)
+    {
+      return MVM_BAD_STATE;
+    }
+
+    return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
   }
 
   u32Start = vm->platform.get_ticks_ms(vm->platform.user);
@@ -529,7 +676,7 @@ uint32_t MVM_u32RunForTime(MophunVM *vm, uint32_t budget_ms)
 
   while ((u32Now - u32Start) < budget_ms)
   {
-    if (MVM_u32RunSteps(vm, 1u) == 0u)
+    if (MVM_Lu32RunStepsRaw(vm, 1u) == 0u)
     {
       break;
     }
@@ -544,11 +691,25 @@ uint32_t MVM_u32RunForTime(MophunVM *vm, uint32_t budget_ms)
     u32Now = vm->platform.get_ticks_ms(vm->platform.user);
   } /* End of loop */
 
-  return u32Executed;
-} /* End of MVM_u32RunForTime */
+  *executed_steps = u32Executed;
+
+  if (u32Executed > 0u)
+  {
+    return MVM_OK;
+  }
+
+  if (vm->state == MVM_TENU_STATE_PAUSED ||
+      vm->state == MVM_TENU_STATE_WAITING ||
+      vm->state == MVM_TENU_STATE_EXITED)
+  {
+    return MVM_BAD_STATE;
+  }
+
+  return MVM_LenuMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
+} /* End of MVM_enuRunForTime */
 
 /**********************************************************************************************************************
- *  Name: MVM_vidPause
+ *  Name: MVM_enuPause
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -556,21 +717,25 @@ uint32_t MVM_u32RunForTime(MophunVM *vm, uint32_t budget_ms)
  *  Returns: See function signature.
  *  Description: Pauses VM execution.
  *********************************************************************************************************************/
-void MVM_vidPause(MophunVM *vm)
+MVM_tenuReturnCode MVM_enuPause(MophunVM *vm)
 {
   if (!vm)
   {
-    return;
+    return MVM_INVALID_ARG;
   }
 
   if (vm->state == MVM_TENU_STATE_READY || vm->state == MVM_TENU_STATE_RUNNING)
   {
     vm->state = MVM_TENU_STATE_PAUSED;
+
+    return MVM_OK;
   }
-} /* End of MVM_vidPause */
+
+  return MVM_BAD_STATE;
+} /* End of MVM_enuPause */
 
 /**********************************************************************************************************************
- *  Name: MVM_vidWait
+ *  Name: MVM_enuWait
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -578,21 +743,25 @@ void MVM_vidPause(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Moves VM execution into a host-wait state.
  *********************************************************************************************************************/
-void MVM_vidWait(MophunVM *vm)
+MVM_tenuReturnCode MVM_enuWait(MophunVM *vm)
 {
   if (!vm)
   {
-    return;
+    return MVM_INVALID_ARG;
   }
 
   if (vm->state == MVM_TENU_STATE_READY || vm->state == MVM_TENU_STATE_RUNNING)
   {
     vm->state = MVM_TENU_STATE_WAITING;
+
+    return MVM_OK;
   }
-} /* End of MVM_vidWait */
+
+  return MVM_BAD_STATE;
+} /* End of MVM_enuWait */
 
 /**********************************************************************************************************************
- *  Name: MVM_vidResume
+ *  Name: MVM_enuResume
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -600,29 +769,33 @@ void MVM_vidWait(MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Resumes VM execution.
  *********************************************************************************************************************/
-void MVM_vidResume(MophunVM *vm)
+MVM_tenuReturnCode MVM_enuResume(MophunVM *vm)
 {
   if (!vm)
   {
-    return;
+    return MVM_INVALID_ARG;
   }
 
   if (vm->state == MVM_TENU_STATE_PAUSED || vm->state == MVM_TENU_STATE_WAITING)
   {
     vm->state = MVM_TENU_STATE_READY;
+
+    return MVM_OK;
   }
-} /* End of MVM_vidResume */
+
+  return MVM_BAD_STATE;
+} /* End of MVM_enuResume */
 
 /**********************************************************************************************************************
- *  Name: MVM_vidRequestExit
+ *  Name: MVM_LvidRequestExitRaw
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Requests immediate VM termination.
+ *  Description: Requests immediate VM termination through the internal path.
  *********************************************************************************************************************/
-void MVM_vidRequestExit(MophunVM *vm)
+void MVM_LvidRequestExitRaw(VMGPContext *vm)
 {
   if (!vm)
   {
@@ -631,7 +804,28 @@ void MVM_vidRequestExit(MophunVM *vm)
 
   vm->halted = true;
   vm->state = MVM_TENU_STATE_EXITED;
-} /* End of MVM_vidRequestExit */
+} /* End of MVM_LvidRequestExitRaw */
+
+/**********************************************************************************************************************
+ *  Name: MVM_enuRequestExit
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Requests immediate VM termination.
+ *********************************************************************************************************************/
+MVM_tenuReturnCode MVM_enuRequestExit(MophunVM *vm)
+{
+  if (!vm)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  MVM_LvidRequestExitRaw(vm);
+
+  return MVM_OK;
+} /* End of MVM_enuRequestExit */
 
 /**********************************************************************************************************************
  *  Name: MVM_tenuGetState
@@ -670,7 +864,7 @@ MVM_tenuError MVM_tenuGetLastError(const MophunVM *vm)
 } /* End of MVM_tenuGetLastError */
 
 /**********************************************************************************************************************
- *  Name: MVM_vidSetWatchdogLimit
+ *  Name: MVM_enuSetWatchdogLimit
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -678,17 +872,19 @@ MVM_tenuError MVM_tenuGetLastError(const MophunVM *vm)
  *  Returns: See function signature.
  *  Description: Configures the no-progress soft watchdog limit.
  *********************************************************************************************************************/
-void MVM_vidSetWatchdogLimit(MophunVM *vm, uint32_t no_progress_steps)
+MVM_tenuReturnCode MVM_enuSetWatchdogLimit(MophunVM *vm, uint32_t no_progress_steps)
 {
   if (!vm)
   {
-    return;
+    return MVM_INVALID_ARG;
   }
 
   vm->watchdog_limit = no_progress_steps;
   vm->no_progress_steps = 0u;
   vm->last_pc = UINT32_MAX;
-} /* End of MVM_vidSetWatchdogLimit */
+
+  return MVM_OK;
+} /* End of MVM_enuSetWatchdogLimit */
 
 /**********************************************************************************************************************
  *  Name: MVM_u32GetWatchdogLimit
@@ -761,26 +957,6 @@ uint32_t MVM_u32GetLoggedCalls(const MophunVM *vm)
 
   return u32LoggedCalls;
 } /* End of MVM_u32GetLoggedCalls */
-
-/**********************************************************************************************************************
- *  Name: MVM_vidSetSyscalls
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Provides VM component logic.
- *********************************************************************************************************************/
-void MVM_vidSetSyscalls(MophunVM *vm, const MophunSyscall *syscalls, uint32_t count)
-{
-  if (!vm)
-  {
-    return;
-  }
-
-  vm->syscalls = syscalls;
-  vm->syscall_count = count;
-} /* End of MVM_vidSetSyscalls */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_Core.c

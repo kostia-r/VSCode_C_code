@@ -246,7 +246,7 @@ static uint32_t MVM_Lu32PlatformTerminate(MophunVM *vm, void *user)
 {
   (void)user;
 
-  MVM_vidRequestExit(vm);
+  MVM_LvidRequestExitRaw(vm);
 
   return 0u;
 } /* End of MVM_Lu32PlatformTerminate */

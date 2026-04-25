@@ -53,6 +53,21 @@ typedef enum MVM_tenuState
 } MVM_tenuState;
 
 /**
+ * @brief Describes public API return codes.
+ */
+typedef enum MVM_tenuReturnCode
+{
+  MVM_OK = 0,          /**< Operation completed successfully. */
+  MVM_INVALID_ARG,     /**< One or more API arguments are invalid. */
+  MVM_BAD_STATE,       /**< The requested API cannot run in the current VM state. */
+  MVM_NOT_FOUND,       /**< A requested named resource or profile was not found. */
+  MVM_INIT_FAILED,     /**< VM initialization failed. */
+  MVM_MEMORY_ERROR,    /**< Runtime memory configuration is missing or too small. */
+  MVM_EXECUTION_ERROR, /**< VM execution failed. */
+  MVM_WATCHDOG_ERROR,  /**< The VM watchdog detected stalled execution. */
+} MVM_tenuReturnCode;
+
+/**
  * @brief Describes the last fatal execution error reported by the VM.
  */
 typedef enum MVM_tenuError
@@ -103,26 +118,6 @@ typedef struct MophunSyscall
   MophunSyscallFn fn; /**< Host callback that implements the named syscall. */
   void *user;         /**< Opaque host context passed to the syscall callback. */
 } MophunSyscall;
-
-/**
- * @brief Describes one complete host integration instance for the VM.
- *
- * This object gathers every platform-specific integration point in one place:
- * host callbacks, device profiles, syscall bindings, runtime arena, and common
- * execution policy defaults.
- */
-typedef struct MVM_tstConfig
-{
-  MophunPlatform platform;                   /**< Host callback table used by the VM core. */
-  const MophunDeviceProfile *device_profiles; /**< Catalog of device profiles offered by this integration. */
-  uint32_t device_profile_count;             /**< Number of entries in the device profile catalog. */
-  const MophunDeviceProfile *device_profile; /**< Active device profile exposed to guest imports. */
-  const MophunSyscall *syscalls;             /**< Host syscall table visible to the runtime dispatcher. */
-  uint32_t syscall_count;                    /**< Number of entries in the syscall table. */
-  void *runtime_pool;                        /**< Backing arena used for VM state, RAM, and decoded metadata. */
-  size_t runtime_pool_size;                  /**< Total size of the runtime arena in bytes. */
-  uint32_t watchdog_limit;                   /**< Default no-progress watchdog budget in VM steps. */
-} MVM_tstConfig;
 
 /**********************************************************************************************************************
  *  END of header file guard

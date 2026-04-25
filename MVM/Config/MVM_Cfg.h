@@ -5,7 +5,7 @@
  *             File:  MVM_Cfg.h
  *           Module:  MVM_Config
  *           Target:  Portable C
- *      Description:  Integration-time VM configuration macros, callback adapters, and exported default config object.
+ *      Description:  Internal integration-time VM configuration macros, callback adapters, and built-in config object.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -80,11 +80,27 @@ typedef struct MVM_tstLogArgAdapter
   void *arg;                                   /**< Foreign user pointer passed to the host logger. */
 } MVM_tstLogArgAdapter;
 
+/**
+ * @brief Describes one complete internal integration instance for the VM.
+ */
+typedef struct MVM_tstConfig
+{
+  MophunPlatform platform;                    /**< Host callback table used by the VM core. */
+  const MophunDeviceProfile *device_profiles; /**< Catalog of device profiles offered by this integration. */
+  uint32_t device_profile_count;              /**< Number of entries in the device profile catalog. */
+  const MophunDeviceProfile *device_profile;  /**< Active device profile exposed to guest imports. */
+  const MophunSyscall *syscalls;              /**< Host syscall table visible to the runtime dispatcher. */
+  uint32_t syscall_count;                     /**< Number of entries in the syscall table. */
+  void *runtime_pool;                         /**< Backing arena used for VM state, RAM, and decoded metadata. */
+  size_t runtime_pool_size;                   /**< Total size of the runtime arena in bytes. */
+  uint32_t watchdog_limit;                    /**< Default no-progress watchdog budget in VM steps. */
+} MVM_tstConfig;
+
 /**********************************************************************************************************************
  *  GLOBAL MACROS
  *********************************************************************************************************************/
 
-/* Total size of the static runtime arena owned by MVM_kstConfig. */
+/* Total size of the static runtime arena owned by the built-in integration config. */
 #ifndef MVM_CFG_RUNTIME_POOL_SIZE
 #define MVM_CFG_RUNTIME_POOL_SIZE                               (1024U * 1024U)
 #endif
@@ -267,7 +283,7 @@ static inline const MophunDeviceProfile *MVM_Cfg_pcdtFindDeviceProfileByName(con
  *********************************************************************************************************************/
 
 /**
- * @brief Default integration object used by MVM_bInit().
+ * @brief Built-in integration object used internally by MVM_enuInit().
  */
 extern const MVM_tstConfig MVM_kstConfig;
 

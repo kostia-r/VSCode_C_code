@@ -317,7 +317,7 @@ const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t res
  *  Returns: See function signature.
  *  Description: Parses VMGP image data.
  *********************************************************************************************************************/
-bool MVM_bVmgpParseHeader(VMGPContext *ctx)
+bool MVM_LbVmgpParseHeader(VMGPContext *ctx)
 {
   if (!ctx || !ctx->data || ctx->size < sizeof(VMGPHeader))
   {
@@ -361,10 +361,24 @@ bool MVM_bVmgpParseHeader(VMGPContext *ctx)
   }
 
   return true;
+} /* End of MVM_LbVmgpParseHeader */
+
+/**********************************************************************************************************************
+ *  Name: MVM_bVmgpParseHeader
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Public wrapper for VMGP header parsing.
+ *********************************************************************************************************************/
+bool MVM_bVmgpParseHeader(VMGPContext *ctx)
+{
+  return MVM_LbVmgpParseHeader(ctx);
 } /* End of MVM_bVmgpParseHeader */
 
 /**********************************************************************************************************************
- *  Name: MVM_bQueryMemoryRequirements
+ *  Name: MVM_enuQueryMemoryRequirements
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -372,7 +386,9 @@ bool MVM_bVmgpParseHeader(VMGPContext *ctx)
  *  Returns: See function signature.
  *  Description: Queries static memory requirements for a VMGP image.
  *********************************************************************************************************************/
-bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_tstMemoryRequirements *requirements)
+MVM_tenuReturnCode MVM_enuQueryMemoryRequirements(const uint8_t *image,
+size_t image_size,
+MVM_tstMemoryRequirements *requirements)
 {
   VMGPContext ctx;
   uint32_t resource_count = 0;
@@ -380,23 +396,23 @@ bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_t
 
   if (!requirements)
   {
-    return false;
+    return MVM_INVALID_ARG;
   }
 
   memset(requirements, 0, sizeof(*requirements));
 
   if (!image || image_size < sizeof(VMGPHeader))
   {
-    return false;
+    return MVM_INVALID_ARG;
   }
 
   memset(&ctx, 0, sizeof(ctx));
   ctx.data = image;
   ctx.size = image_size;
 
-  if (!MVM_bVmgpParseHeader(&ctx))
+  if (!MVM_LbVmgpParseHeader(&ctx))
   {
-    return false;
+    return MVM_INIT_FAILED;
   }
 
   resource_count = MVM_Lu32VmgpCountResources(ctx.data, ctx.res_file_offset, ctx.header.res_size);
@@ -424,8 +440,8 @@ bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_t
   requirements->heap_bytes = VM_HEAP_EXTRA;
   requirements->stack_bytes = ctx.stack_top - ctx.heap_limit;
 
-  return true;
-} /* End of MVM_bQueryMemoryRequirements */
+  return MVM_OK;
+} /* End of MVM_enuQueryMemoryRequirements */
 
 /**********************************************************************************************************************
  *  Name: MVM_bVmgpLoadPool
@@ -436,7 +452,7 @@ bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_t
  *  Returns: See function signature.
  *  Description: Loads VMGP image data.
  *********************************************************************************************************************/
-bool MVM_bVmgpLoadPool(VMGPContext *ctx)
+bool MVM_LbVmgpLoadPool(VMGPContext *ctx)
 {
   uint32_t i;
   uint32_t off = 0;
@@ -477,6 +493,20 @@ bool MVM_bVmgpLoadPool(VMGPContext *ctx)
   }
 
   return true;
+} /* End of MVM_LbVmgpLoadPool */
+
+/**********************************************************************************************************************
+ *  Name: MVM_bVmgpLoadPool
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Public wrapper for VMGP pool loading.
+ *********************************************************************************************************************/
+bool MVM_bVmgpLoadPool(VMGPContext *ctx)
+{
+  return MVM_LbVmgpLoadPool(ctx);
 } /* End of MVM_bVmgpLoadPool */
 
 /**********************************************************************************************************************

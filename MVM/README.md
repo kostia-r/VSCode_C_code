@@ -52,10 +52,10 @@ config files:
 The default integration path is now:
 
 - size the runtime pool with `MVM_CFG_RUNTIME_POOL_SIZE`;
-- optionally inspect one image with `MVM_bQueryMemoryRequirements()`;
-- initialize the VM with `MVM_bInit()`.
-- optionally clone `MVM_kstConfig` and select another device profile before
-  calling `MVM_bInitWithConfig()`.
+- optionally inspect one image with `MVM_enuQueryMemoryRequirements()`;
+- initialize the VM with `MVM_enuInit()`.
+- optionally validate or enumerate built-in device profiles through the public
+  profile query helpers before calling `MVM_enuInit()`.
 - replace the default callback bindings or import stubs in `Config/MVM_Lcfg.c`
   when porting to a real platform backend.
 
@@ -74,7 +74,7 @@ signature mismatches, for example:
 For stricter firmware builds, define `MVM_ENABLE_DEFAULT_LOGGER=0` from the
 parent build. The VM library no longer allocates dynamic memory internally.
 Instead, it carves guest RAM, pool metadata, and resource metadata from the
-runtime pool exported by `MVM_kstConfig`. Host code must still supply opaque VM
+runtime pool owned by the built-in integration config. Host code must still supply opaque VM
 storage.
 
 `MophunVM` is opaque to host code. Allocate storage using

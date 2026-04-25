@@ -19,8 +19,7 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include "MVM_Vm.h"
-#include "MVM_Syscalls.h"
+#include "MVM_Cfg.h"
 #include "MVM_VmgpDebug.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -195,6 +194,16 @@ uint32_t MVM_u32VmgpResolvePoolValue(const VMGPContext *ctx, const VMGPPoolEntry
 const VMGPResource *MVM_pudtVmgpGetResource(const VMGPContext *ctx, uint32_t resource_id);
 
 /**
+ * @brief Parses one VMGP header through the internal loader path.
+ */
+bool MVM_LbVmgpParseHeader(VMGPContext *ctx);
+
+/**
+ * @brief Loads one VMGP pool through the internal loader path.
+ */
+bool MVM_LbVmgpLoadPool(VMGPContext *ctx);
+
+/**
  * @brief Provides MVM_vidMemoryWriteWatch API.
  */
 void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag);
@@ -203,19 +212,6 @@ void MVM_vidMemoryWriteWatch(const VMGPContext *ctx, uint32_t addr, uint32_t siz
  * @brief Handles a VM runtime import group.
  */
 bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index);
-
-/**
- * @brief Initializes VM state.
- */
-bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size);
-
-/**
- * @brief Initializes VM state.
- */
-bool MVM_LbInitRawWithPlatform(VMGPContext *ctx,
-const uint8_t *data,
-size_t size,
-const MophunPlatform *platform);
 
 /**
  * @brief Initializes VM state with one integration config object.
@@ -246,6 +242,11 @@ bool MVM_LbPipStep(VMGPContext *ctx);
 void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size);
 
 /**
+ * @brief Executes up to one internal VM instruction budget.
+ */
+uint32_t MVM_Lu32RunStepsRaw(VMGPContext *ctx, uint32_t max_steps);
+
+/**
  * @brief Provides MVM_LvidLogf API.
  */
 void MVM_LvidLogf(const VMGPContext *ctx, const char *fmt, ...);
@@ -259,6 +260,11 @@ void MVM_LvidSetState(VMGPContext *ctx, MVM_tenuState state);
  * @brief Records the last fatal execution error and moves the VM into error state.
  */
 void MVM_LvidSetError(VMGPContext *ctx, MVM_tenuError error);
+
+/**
+ * @brief Requests immediate VM termination through the internal control path.
+ */
+void MVM_LvidRequestExitRaw(VMGPContext *ctx);
 
 /**
  * @brief Provides MVM_LbRuntimeMemRangeOk API.

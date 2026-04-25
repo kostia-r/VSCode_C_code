@@ -27,7 +27,7 @@ treated as a frozen specification.
   - `MVM_pudtGetVmFromStorage()`
 - Platform callbacks exist for logging, ticks, and random.
 - Runtime syscalls are split by domain.
-- Host syscall override registration exists through `MVM_vidSetSyscalls()`.
+- Host/platform bindings are now centralized in `Config/` instead of being overridden through a public syscall registration API.
 - Trace and VMGP debug APIs are separate from the core API.
 
 ## Phase 1: Naming And Code Style

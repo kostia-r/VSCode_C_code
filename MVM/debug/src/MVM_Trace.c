@@ -58,7 +58,7 @@ bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_ca
 
   while (ctx->steps < max_steps && ctx->logged_calls < max_logged_calls && !ctx->halted)
   {
-    u32Executed = MVM_u32RunSteps(ctx, 1u);
+    u32Executed = MVM_Lu32RunStepsRaw(ctx, 1u);
 
     if (u32Executed == 0u)
     {

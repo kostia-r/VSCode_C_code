@@ -34,7 +34,7 @@ Return type prefixes:
 Examples:
 
 ```c
-MVM_bInit(...)
+MVM_enuInit(...)
 MVM_vidFree(...)
 MVM_udtGetStorageSize(...)
 MVM_Lu32ReadOpcode(...)
@@ -153,7 +153,7 @@ MVM_Trace.h
 Use explicit closing comments for high-level and control-flow blocks:
 
 ```c
-} /* End of MVM_bInit */
+} /* End of MVM_enuInit */
 } /* End of case OP_CALLL */
 } /* End of switch */
 } /* End of loop */
