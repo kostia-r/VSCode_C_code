@@ -52,12 +52,21 @@ config files:
 The default integration path is now:
 
 - size the runtime pool with `MVM_CFG_RUNTIME_POOL_SIZE`;
-- optionally inspect one image with `MVM_QueryMemReqs()`;
-- initialize the VM with `MVM_Init()`.
+- optionally inspect one image with `MVM_QueryMemReqs()` or
+  `MVM_QueryMemReqsFromSource()`;
+- initialize the VM with `MVM_Init()` or `MVM_InitFromSource()`.
 - optionally validate or enumerate built-in device profiles through the public
   profile query helpers before calling `MVM_Init()`.
 - replace the default callback bindings or import stubs in `Config/MVM_Lcfg.c`
   when porting to a real platform backend.
+
+Phase 4 source-backed loading is now available through `MpnImageSource_t`.
+The VM can read code, resources, pool entries, and string-table data directly
+from a host-backed image source such as a file, flash window, or external
+storage driver. The image backend callbacks themselves now live in `Config/`,
+so host code selects only the concrete image instance at runtime. Full-memory
+buffer mode is still supported through the simpler `MVM_Init()` and
+`MVM_QueryMemReqs()` wrappers.
 
 The platform owns:
 
@@ -76,6 +85,10 @@ parent build. The VM library no longer allocates dynamic memory internally.
 Instead, it carves guest RAM, pool metadata, and resource metadata from the
 runtime pool owned by the built-in integration config. Host code must still supply opaque VM
 storage.
+
+Resource payloads are no longer mirrored into guest RAM by default. Runtime
+stream reads and LZ decompression now fetch resource data through the configured
+image backend, which keeps RAM usage lower on embedded targets.
 
 `MpnVM_t` is opaque to host code. Allocate storage using
 `MVM_GetStorageSize()` and align it to `MVM_GetStorageAlign()`, then pass

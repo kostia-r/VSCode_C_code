@@ -129,16 +129,21 @@ Done when:
 
 ## Phase 4: Image And Resource Provider
 
+Status: done. The VM now accepts source-backed images, fetches code/pool/string
+table data through compile-time configured image-backend callbacks, and reads
+resource streams directly from the backing image without mirroring the full
+resource section into guest RAM.
+
 Purpose: avoid requiring the entire `.mpn` file in RAM.
 
 Tasks:
 
-- Define image provider callbacks:
+- Define image source/backend callbacks:
   - read file/image range;
   - read resource range;
   - optional map/unmap range;
   - optional cache hints.
-- Refactor loader/runtime streams to use provider callbacks.
+- Refactor loader/runtime streams to use image-backend callbacks.
 - Support full-image RAM mode for desktop.
 - Support small window/cache mode for MCU.
 - Make cache buffer size configurable.
@@ -381,8 +386,8 @@ Current rough model:
 - VM context: several KB.
 - Pool/resources: depends on game.
 - Guest memory currently includes data, bss, resources, heap extra, stack extra.
-- Current PoC budget is roughly hundreds of KB because resources and image data
-  are memory-heavy.
+- Current source-backed build keeps guest RAM focused on `.data`, `.bss`, heap,
+  and stack, while code/resources are read from the image source on demand.
 
 Measurements to add:
 
@@ -396,10 +401,9 @@ Measurements to add:
 1. Apply naming/style conventions.
 2. Add bounded execution API and VM state model.
 3. Replace dynamic allocation path with full static memory config.
-4. Add image/resource provider to avoid full `.mpn` RAM copy.
-5. Add level-gated logger and event callbacks.
-6. Build SDK syscall catalog and default stubs.
-7. Add T310 device profile.
-8. Build Windows platform backend.
-9. Run game corpus and fill missing APIs.
-10. Start minimal MCU port.
+4. Add level-gated logger and event callbacks.
+5. Build SDK syscall catalog and default stubs.
+6. Add T310 device profile.
+7. Build Windows platform backend.
+8. Run game corpus and fill missing APIs.
+9. Start minimal MCU port.

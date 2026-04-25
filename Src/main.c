@@ -22,60 +22,63 @@ typedef struct AppOptions
 } AppOptions;
 
 /**
- * @brief Loads one VMGP image into a host buffer.
+ * @brief Describes one file-backed image source.
  */
-static uint8_t *load_file(const char *path, size_t *out_size)
+typedef struct FileImageSource
 {
-  FILE *f;
-  long sz;
-  uint8_t *buf;
-  size_t read_sz;
+  FILE *file;
+  size_t size;
+} FileImageSource;
 
-  f = fopen(path, "rb");
-  if (!f)
+/**
+ * @brief Opens one image file for source-backed access.
+ */
+static int open_image_source(const char *path, FileImageSource *provider)
+{
+  long size;
+
+  provider->file = fopen(path, "rb");
+  if (!provider->file)
   {
     fprintf(stderr, "Failed to open: %s\n", path);
 
-    return NULL;
+    return 0;
   }
 
-  if (fseek(f, 0, SEEK_END) != 0)
+  if (fseek(provider->file, 0, SEEK_END) != 0)
   {
-    fclose(f);
+    fclose(provider->file);
+    provider->file = NULL;
 
-    return NULL;
+    return 0;
   }
 
-  sz = ftell(f);
-  if (sz < 0)
+  size = ftell(provider->file);
+  if (size < 0)
   {
-    fclose(f);
+    fclose(provider->file);
+    provider->file = NULL;
 
-    return NULL;
+    return 0;
   }
 
-  rewind(f);
-  buf = (uint8_t *)malloc((size_t)sz);
-  if (!buf)
+  rewind(provider->file);
+  provider->size = (size_t)size;
+
+  return 1;
+}
+
+/**
+ * @brief Closes one file-backed image source.
+ */
+static void close_image_source(FileImageSource *provider)
+{
+  if (provider && provider->file)
   {
-    fclose(f);
-
-    return NULL;
+    fclose(provider->file);
+    provider->file = NULL;
+    provider->size = 0u;
   }
-
-  read_sz = fread(buf, 1, (size_t)sz, f);
-  fclose(f);
-
-  if (read_sz != (size_t)sz)
-  {
-    free(buf);
-
-    return NULL;
-  }
-
-  *out_size = (size_t)sz;
-
-  return buf;
 }
 
 /**
@@ -292,16 +295,16 @@ static void print_stop_summary(MpnVM_t *vm)
 int main(int argc, char **argv)
 {
   AppOptions options;
-  size_t file_size;
-  uint8_t *file_data;
+  FileImageSource file_provider;
+  MpnImageSource_t image_source;
   void *vm_storage;
   MpnVM_t *vm;
   MVM_MemReqs_t memory_requirements;
   MVM_RetCode_t retVal;
   int exit_code;
 
-  file_size = 0u;
-  file_data = NULL;
+  file_provider = (FileImageSource){0};
+  image_source = (MpnImageSource_t){0};
   vm_storage = NULL;
   vm = NULL;
   memory_requirements = (MVM_MemReqs_t){0};
@@ -321,16 +324,19 @@ int main(int argc, char **argv)
     return exit_code;
   }
 
-  /* This sample integration keeps the VMGP image in a host buffer and passes
-   * that buffer to the VM initialization path.
+  /* This sample integration opens the VMGP image through a file-backed image
+   * source descriptor. The actual read callbacks are compiled into Config/,
+   * so the runner only chooses which image instance to execute.
    */
-  file_data = load_file(options.image_path, &file_size);
-  if (!file_data)
+  if (!open_image_source(options.image_path, &file_provider))
   {
     fprintf(stderr, "Could not load file.\n");
 
     return exit_code;
   }
+
+  image_source.user = file_provider.file;
+  image_source.image_size = file_provider.size;
 
   /* The host owns raw VM storage and asks the library to construct a VM
    * instance inside that storage block.
@@ -340,7 +346,7 @@ int main(int argc, char **argv)
   if (!vm)
   {
     fprintf(stderr, "Could not allocate VM storage.\n");
-    free(file_data);
+    close_image_source(&file_provider);
     free(vm_storage);
 
     return exit_code;
@@ -349,21 +355,21 @@ int main(int argc, char **argv)
   /* Query image-driven runtime memory needs before init so the integration can
    * validate its configured runtime pool capacity.
    */
-  retVal = MVM_QueryMemReqs(file_data, file_size, &memory_requirements);
+  retVal = MVM_QueryMemReqsFromSource(&image_source, &memory_requirements);
   if (MVM_OK != retVal)
   {
     fprintf(stderr, "Could not query VM memory requirements. ret=%u\n", (unsigned)retVal);
     MVM_Free(vm);
     free(vm_storage);
-    free(file_data);
+    close_image_source(&file_provider);
 
     return exit_code;
   }
 
-  /* Initialize the VM through the simple public API. The host only provides
-   * VM storage, the VMGP image, and the optional device profile name.
+  /* Initialize the VM through the source-based public API. The host only
+   * provides VM storage, the image source, and the optional device profile.
    */
-  retVal = MVM_Init(vm, file_data, file_size, options.profile_name);
+  retVal = MVM_InitFromSource(vm, &image_source, options.profile_name);
   if (MVM_OK != retVal)
   {
     fprintf(stderr,
@@ -373,7 +379,7 @@ int main(int argc, char **argv)
             (unsigned)MVM_GetLastError(vm));
     MVM_Free(vm);
     free(vm_storage);
-    free(file_data);
+    close_image_source(&file_provider);
 
     return exit_code;
   }
@@ -387,7 +393,7 @@ int main(int argc, char **argv)
   exit_code = 0;
   MVM_Free(vm);
   free(vm_storage);
-  free(file_data);
+  close_image_source(&file_provider);
 
   return exit_code;
 }

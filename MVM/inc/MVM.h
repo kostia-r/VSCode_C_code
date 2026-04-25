@@ -43,6 +43,11 @@ size_t MVM_GetStorageAlign(void);
 MpnVM_t *MVM_GetVmFromStorage(void *storage, size_t storage_size);
 
 /**
+ * @brief Initializes VM state from one image source using the built-in integration config.
+ */
+MVM_RetCode_t MVM_InitFromSource(MpnVM_t *vm, const MpnImageSource_t *image, const char *profile_name);
+
+/**
  * @brief Initializes VM state with the built-in integration config.
  */
 MVM_RetCode_t MVM_Init(MpnVM_t *vm, const uint8_t *image, size_t image_size, const char *profile_name);
@@ -51,6 +56,11 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm, const uint8_t *image, size_t image_size, con
  * @brief Releases VM resources.
  */
 void MVM_Free(MpnVM_t *vm);
+
+/**
+ * @brief Queries the static memory required for a source-backed VMGP image.
+ */
+MVM_RetCode_t MVM_QueryMemReqsFromSource(const MpnImageSource_t *image, MVM_MemReqs_t *requirements);
 
 /**
  * @brief Queries the static memory required for a VMGP image.

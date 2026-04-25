@@ -68,6 +68,11 @@ static uint32_t MVM_lPlatformGetRandom(MpnVM_t *vm, void *user);
  */
 static uint32_t MVM_lPlatformGetCaps(MpnVM_t *vm, void *user);
 
+/**
+ * @brief Reads one byte range from one file-backed image source.
+ */
+static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size);
+
 /**********************************************************************************************************************
  *  LOCAL DATA
  *********************************************************************************************************************/
@@ -170,6 +175,11 @@ const MVM_Config_t MVM_Config =
     .log = NULL
 #endif
   },
+
+  /* Compile-time image backend used to read the selected VM *.mpn file source. */
+  .image_read = MVM_lReadFileImage,
+  .image_map = NULL,
+  .image_unmap = NULL,
 
   /* Full device-profile catalog exposed by this integration. */
   .device_profiles = MVM_lDevProfiles,
@@ -397,6 +407,37 @@ static uint32_t MVM_lPlatformGetCaps(MpnVM_t *vm, void *user)
 
   return result;
 } /* End of MVM_lPlatformGetCaps */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lReadFileImage
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Reads one byte range from one file-backed image source.
+ *********************************************************************************************************************/
+static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size)
+{
+  FILE *file = (FILE *)user;
+
+  if (!file || !dst)
+  {
+    return -1;
+  }
+
+  if (fseek(file, (long)offset, SEEK_SET) != 0)
+  {
+    return -1;
+  }
+
+  if (fread(dst, 1u, size, file) != size)
+  {
+    return -1;
+  }
+
+  return 0;
+} /* End of MVM_lReadFileImage */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_Lcfg.c

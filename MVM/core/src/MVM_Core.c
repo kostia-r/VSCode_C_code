@@ -37,9 +37,13 @@ static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name
  * @brief Initializes VM state using one internal integration config object.
  */
 static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
-                                         const uint8_t *image,
-                                         size_t image_size,
+                                         const MpnImageSource_t *image,
                                          const MVM_Config_t *config);
+
+/**
+ * @brief Reads one byte range from a memory-backed VM image.
+ */
+static int MVM_lReadMemoryImage(void *user, size_t offset, void *dst, size_t size);
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
@@ -117,14 +121,16 @@ MpnVM_t *MVM_GetVmFromStorage(void *storage, size_t storage_size)
  *  Returns: See function signature.
  *  Description: Initializes VM state.
  *********************************************************************************************************************/
-bool MVM_InitRawWithConfig(VMGPContext *ctx,
-                           const uint8_t *data,
-                           size_t size,
-                           const MVM_Config_t *config)
+bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, const MVM_Config_t *config)
 {
   bool bResult = false;
 
-  if (!ctx || !data || size < sizeof(VMGPHeader))
+  if (!ctx || !image || image->image_size < sizeof(VMGPHeader))
+  {
+    return false;
+  }
+
+  if (config && !config->image_read)
   {
     return false;
   }
@@ -134,6 +140,9 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx,
   if (config)
   {
     ctx->platform = config->platform;
+    ctx->image_read = config->image_read;
+    ctx->image_map = config->image_map;
+    ctx->image_unmap = config->image_unmap;
     ctx->device_profile = config->device_profile;
     ctx->syscalls = config->syscalls;
     ctx->syscall_count = config->syscall_count;
@@ -141,8 +150,14 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx,
     ctx->runtime_pool_size = config->runtime_pool_size;
     ctx->watchdog_limit = config->watchdog_limit;
   }
-  ctx->data = data;
-  ctx->size = size;
+  else
+  {
+    ctx->image_read = NULL;
+    ctx->image_map = NULL;
+    ctx->image_unmap = NULL;
+  }
+  ctx->image = *image;
+  ctx->size = image->image_size;
   ctx->next_stream_handle = 0x30u;
   ctx->random_state = 1u;
   ctx->last_pc = UINT32_MAX;
@@ -158,6 +173,63 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx,
 } /* End of MVM_InitRawWithConfig */
 
 /**********************************************************************************************************************
+ *  Name: MVM_ReadImageRange
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Reads one byte range from the active image source through the configured backend.
+ *********************************************************************************************************************/
+bool MVM_ReadImageRange(const VMGPContext *ctx, size_t offset, void *dst, size_t size)
+{
+  if (!ctx || !ctx->image_read || !dst)
+  {
+    return false;
+  }
+
+  if (size == 0u)
+  {
+    return true;
+  }
+
+  if (offset > ctx->size || size > (ctx->size - offset))
+  {
+    return false;
+  }
+
+  return ctx->image_read(ctx->image.user, offset, dst, size) == 0;
+} /* End of MVM_ReadImageRange */
+
+/**********************************************************************************************************************
+ *  Name: MVM_InitFromSource
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state through one image source.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_InitFromSource(MpnVM_t *vm, const MpnImageSource_t *image, const char *profile_name)
+{
+  MVM_Config_t config = MVM_Config;
+  const MpnDevProfile_t *profile = NULL;
+
+  if (profile_name)
+  {
+    profile = MVM_lFindDevProfileByName(profile_name);
+    if (!profile)
+    {
+      return MVM_NOT_FOUND;
+    }
+
+    config.device_profile = profile;
+  }
+
+  return MVM_lInitWithConfig(vm, image, &config);
+} /* End of MVM_InitFromSource */
+
+/**********************************************************************************************************************
  *  Name: MVM_Init
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
@@ -171,21 +243,36 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm,
                        size_t image_size,
                        const char *profile_name)
 {
-  MVM_Config_t stConfig = MVM_Config;
-  const MpnDevProfile_t *pcdtProfile = NULL;
+  MpnImageSource_t source;
+  MVM_Config_t config = MVM_Config;
+  const MpnDevProfile_t *profile = NULL;
+
+  if (!image || image_size < sizeof(VMGPHeader))
+  {
+    return MVM_INVALID_ARG;
+  }
 
   if (profile_name)
   {
-    pcdtProfile = MVM_lFindDevProfileByName(profile_name);
-    if (!pcdtProfile)
+    profile = MVM_lFindDevProfileByName(profile_name);
+
+    if (!profile)
     {
       return MVM_NOT_FOUND;
     }
 
-    stConfig.device_profile = pcdtProfile;
+    config.device_profile = profile;
   }
 
-  return MVM_lInitWithConfig(vm, image, image_size, &stConfig);
+  config.image_read = MVM_lReadMemoryImage;
+  config.image_map = NULL;
+  config.image_unmap = NULL;
+
+  memset(&source, 0, sizeof(source));
+  source.user = (void *)image;
+  source.image_size = image_size;
+
+  return MVM_lInitWithConfig(vm, &source, &config);
 } /* End of MVM_Init */
 
 /**********************************************************************************************************************
@@ -950,19 +1037,18 @@ static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name
  *  Description: Initializes VM state using one internal integration config object.
  *********************************************************************************************************************/
 static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
-                                         const uint8_t *image,
-                                         size_t image_size,
+                                         const MpnImageSource_t *image,
                                          const MVM_Config_t *config)
 {
   MVM_RetCode_t retCode = MVM_OK;
   const MVM_Config_t *cfg = config;
 
-  if (!vm || !image || image_size < sizeof(VMGPHeader) || !cfg)
+  if (!vm || !image || image->image_size < sizeof(VMGPHeader) || !cfg || !cfg->image_read)
   {
     return MVM_INVALID_ARG;
   }
 
-  if (!MVM_InitRawWithConfig(vm, image, image_size, cfg))
+  if (!MVM_InitRawWithConfig(vm, image, cfg))
   {
     MVM_SetErrorRaw(vm, MVM_E_INIT_FAILED);
 
@@ -983,6 +1069,29 @@ static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
 
   return retCode;
 } /* End of MVM_lInitWithConfig */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lReadMemoryImage
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Reads one byte range from a memory-backed VM image.
+ *********************************************************************************************************************/
+static int MVM_lReadMemoryImage(void *user, size_t offset, void *dst, size_t size)
+{
+  const uint8_t *image = (const uint8_t *)user;
+
+  if (!image || !dst)
+  {
+    return -1;
+  }
+
+  memcpy(dst, image + offset, size);
+
+  return 0;
+} /* End of MVM_lReadMemoryImage */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_Core.c

@@ -1125,12 +1125,19 @@ bool MVM_PipStep(VMGPContext *ctx)
  *********************************************************************************************************************/
 static bool fetch_code_word(const VMGPContext *ctx, uint32_t pc, uint32_t *out)
 {
+  uint8_t bytes[4];
+
   if (!ctx || !out || pc + 4 > ctx->header.code_size)
   {
     return false;
   }
 
-  *out = vm_read_u32_le(ctx->data + ctx->code_file_offset + pc);
+  if (!MVM_ReadImageRange(ctx, ctx->code_file_offset + pc, bytes, sizeof(bytes)))
+  {
+    return false;
+  }
+
+  *out = vm_read_u32_le(bytes);
 
   return true;
 } /* End of fetch_code_word */

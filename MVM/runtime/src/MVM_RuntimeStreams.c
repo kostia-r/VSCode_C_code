@@ -81,13 +81,13 @@ bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
         return true;
       }
 
-      s->base = ctx->res_offset + res->offset;
+      s->file_offset = ctx->res_file_offset + res->offset;
       s->size = res->size;
       s->resource_id = resid;
     }
     else
     {
-      s->base = ctx->res_offset;
+      s->file_offset = ctx->res_file_offset;
       s->size = ctx->header.res_size;
     }
 
@@ -163,13 +163,14 @@ bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
       count = (uint32_t)(ctx->mem_size - buf);
     }
 
-    if ((size_t)s->base + s->pos + count > ctx->mem_size)
+    if (!MVM_ReadImageRange(ctx, s->file_offset + s->pos, ctx->mem + buf, count))
     {
-      count = 0;
+      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+      return true;
     }
 
     MVM_WatchMemoryWrite(ctx, buf, count, "vStreamRead");
-    memcpy(ctx->mem + buf, ctx->mem + s->base + s->pos, count);
     s->pos += count;
     ctx->regs[VM_REG_R0] = count;
     bHandled = true;

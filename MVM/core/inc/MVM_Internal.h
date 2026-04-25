@@ -63,7 +63,7 @@ typedef struct VMGPStream
 {
   bool used;                /**< Indicates whether the slot is active. */
   uint32_t handle;          /**< External stream handle. */
-  uint32_t base;            /**< VM memory base address of the stream data. */
+  size_t file_offset;       /**< Backing image offset of the stream data. */
   uint32_t size;            /**< Stream size in bytes. */
   uint32_t pos;             /**< Current read position in bytes. */
   uint32_t resource_id;     /**< Backing resource identifier. */
@@ -77,8 +77,12 @@ struct MpnVM_t
   MpnPlatform_t platform;          /**< Host integration callbacks. */
   const MpnDevProfile_t *device_profile; /**< Selected device profile exposed to platform wrappers. */
 
-  const uint8_t *data;              /**< Pointer to the loaded VM image. */
-  size_t size;                      /**< Loaded VM image size in bytes. */
+  MpnImageSource_t image;           /**< Active VM image source descriptor. */
+  MpnImageReadFn_t image_read;      /**< Configured image-backend range-read callback. */
+  MpnImageMapFn_t image_map;        /**< Configured image-backend map callback. */
+  MpnImageUnmapFn_t image_unmap;    /**< Configured image-backend unmap callback. */
+  size_t size;                      /**< Total VM image size in bytes. */
+  uint8_t *strtab;                  /**< Cached string table used for import lookup. */
 
   VMGPHeader header;                /**< Parsed VMGP file header. */
   bool header_valid;                /**< Indicates whether the header parsed successfully. */
@@ -204,6 +208,11 @@ bool MVM_ParseVmgpHeaderRaw(VMGPContext *ctx);
 bool MVM_LoadVmgpPoolRaw(VMGPContext *ctx);
 
 /**
+ * @brief Reads one byte range from the active VM image source.
+ */
+bool MVM_ReadImageRange(const VMGPContext *ctx, size_t offset, void *dst, size_t size);
+
+/**
  * @brief Traces one VM memory write.
  */
 void MVM_WatchMemoryWrite(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag);
@@ -216,10 +225,7 @@ bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index);
 /**
  * @brief Initializes VM state with one integration config object.
  */
-bool MVM_InitRawWithConfig(VMGPContext *ctx,
-const uint8_t *data,
-size_t size,
-const MVM_Config_t *config);
+bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, const MVM_Config_t *config);
 
 /**
  * @brief Releases VM resources.

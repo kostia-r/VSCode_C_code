@@ -24,9 +24,14 @@
  */
 typedef struct LZBitStream
 {
-  const uint8_t *data; /**< Packed bit-stream buffer. */
-  uint32_t size;       /**< Buffer size in bytes. */
-  uint32_t bit_pos;    /**< Current read position in bits. */
+  const uint8_t *data;     /**< Optional memory-backed packed bit-stream buffer. */
+  const VMGPContext *ctx;  /**< Optional source-backed VM context. */
+  size_t file_offset;      /**< File offset of the packed bit stream. */
+  uint32_t size;           /**< Buffer size in bytes. */
+  uint32_t bit_pos;        /**< Current read position in bits. */
+  uint32_t cached_index;   /**< Cached source byte index. */
+  uint8_t cached_value;    /**< Cached source byte value. */
+  bool cache_valid;        /**< Indicates whether one source byte is cached. */
 } LZBitStream;
 
 /**********************************************************************************************************************
@@ -50,15 +55,28 @@ static bool lz_bits_valid(const LZBitStream *bs);
 static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count);
 
 /**
+ * @brief Reads one byte from an LZ bit stream source.
+ */
+static bool lz_read_byte(LZBitStream *bs, uint32_t byte_index, uint8_t *value);
+
+/**
  * @brief Expands compressed LZ resource payload.
  */
-static uint32_t lz_decompress_content(const uint8_t *src, uint32_t src_size, uint8_t *dst,
-                                      uint32_t dst_size, uint8_t extended_offset_bits, uint8_t max_offset_bits);
+static uint32_t lz_decompress_content(LZBitStream *bs,
+                                      uint8_t *dst,
+                                      uint32_t dst_size,
+                                      uint8_t extended_offset_bits,
+                                      uint8_t max_offset_bits);
 
 /**
  * @brief Finds an active VM resource stream by handle.
  */
 static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle);
+
+/**
+ * @brief Reads one byte range from one open resource stream.
+ */
+static bool read_stream_bytes(const VMGPContext *ctx, const VMGPStream *stream, uint32_t pos, void *dst, uint32_t size);
 
 /**
  * @brief Handles the vDecompHdr runtime import.
@@ -190,6 +208,7 @@ static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count)
   uint32_t i;
   uint32_t byte_index = 0;
   uint32_t bit_index = 0;
+  uint8_t byte = 0;
 
   for (i = 0; i < count; ++i)
   {
@@ -199,7 +218,14 @@ static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count)
     {
       byte_index = bs->bit_pos >> 3;
       bit_index = 7u - (bs->bit_pos & 7u);
-      result |= (uint32_t)((bs->data[byte_index] >> bit_index) & 1u);
+
+      if (!lz_read_byte(bs, byte_index, &byte))
+      {
+        bs->bit_pos = bs->size * 8u;
+        break;
+      }
+
+      result |= (uint32_t)((byte >> bit_index) & 1u);
       bs->bit_pos++;
     }
   } /* End of loop */
@@ -216,14 +242,56 @@ static uint32_t lz_read_bits(LZBitStream *bs, uint32_t count)
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
-static uint32_t lz_decompress_content(const uint8_t *src,
-                                      uint32_t src_size,
+static bool lz_read_byte(LZBitStream *bs, uint32_t byte_index, uint8_t *value)
+{
+  bool valid = false;
+
+  if (!bs || !value || byte_index >= bs->size)
+  {
+    return false;
+  }
+
+  if (bs->data)
+  {
+    *value = bs->data[byte_index];
+
+    return true;
+  }
+
+  if (bs->cache_valid && bs->cached_index == byte_index)
+  {
+    *value = bs->cached_value;
+
+    return true;
+  }
+
+  valid = bs->ctx && MVM_ReadImageRange(bs->ctx, bs->file_offset + byte_index, &bs->cached_value, 1u);
+
+  if (valid)
+  {
+    bs->cached_index = byte_index;
+    bs->cache_valid = true;
+    *value = bs->cached_value;
+  }
+
+  return valid;
+} /* End of lz_read_byte */
+
+/**********************************************************************************************************************
+ *  Name: lz_decompress_content
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Provides VM component logic.
+ *********************************************************************************************************************/
+static uint32_t lz_decompress_content(LZBitStream *bs,
                                       uint8_t *dst,
                                       uint32_t dst_size,
                                       uint8_t extended_offset_bits,
                                       uint8_t max_offset_bits)
 {
-  LZBitStream bs;
   uint32_t dst_pos = 0;
   uint32_t v2 = 0;
   uint32_t copy_len = 0;
@@ -231,35 +299,31 @@ static uint32_t lz_decompress_content(const uint8_t *src,
   uint32_t i = 0;
   uint32_t from = 0;
 
-  bs.data = src;
-  bs.size = src_size;
-  bs.bit_pos = 0;
-
-  while (dst_pos < dst_size && lz_bits_valid(&bs))
+  while (dst_pos < dst_size && lz_bits_valid(bs))
   {
-    if (lz_read_bits(&bs, 1) == 1)
+    if (lz_read_bits(bs, 1) == 1)
     {
       v2 = 0;
       copy_len = 2;
       back_offset = 0;
 
-      while (v2 < max_offset_bits && lz_read_bits(&bs, 1) == 1)
+      while (v2 < max_offset_bits && lz_read_bits(bs, 1) == 1)
       {
         v2++;
       } /* End of loop */
 
       if (v2 != 0)
       {
-        copy_len = (lz_read_bits(&bs, v2) | (1u << v2)) + 1u;
+        copy_len = (lz_read_bits(bs, v2) | (1u << v2)) + 1u;
       }
 
       if (copy_len == 2)
       {
-        back_offset = lz_read_bits(&bs, 8) + 2u;
+        back_offset = lz_read_bits(bs, 8) + 2u;
       }
       else
       {
-        back_offset = lz_read_bits(&bs, extended_offset_bits) + copy_len;
+        back_offset = lz_read_bits(bs, extended_offset_bits) + copy_len;
       }
 
       for (i = 0; i < copy_len && dst_pos < dst_size; ++i)
@@ -271,7 +335,7 @@ static uint32_t lz_decompress_content(const uint8_t *src,
     }
     else
     {
-      dst[dst_pos++] = (uint8_t)(lz_read_bits(&bs, 8) & 0xFFu);
+      dst[dst_pos++] = (uint8_t)(lz_read_bits(bs, 8) & 0xFFu);
     }
   } /* End of loop */
 
@@ -303,6 +367,30 @@ static VMGPStream *find_stream(VMGPContext *ctx, uint32_t handle)
 
   return stream;
 } /* End of find_stream */
+
+/**********************************************************************************************************************
+ *  Name: read_stream_bytes
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Reads one byte range from one open resource stream.
+ *********************************************************************************************************************/
+static bool read_stream_bytes(const VMGPContext *ctx, const VMGPStream *stream, uint32_t pos, void *dst, uint32_t size)
+{
+  if (!ctx || !stream || !dst)
+  {
+    return false;
+  }
+
+  if (pos > stream->size || size > (stream->size - pos))
+  {
+    return false;
+  }
+
+  return MVM_ReadImageRange(ctx, stream->file_offset + pos, dst, size);
+} /* End of read_stream_bytes */
 
 /**********************************************************************************************************************
  *  Name: handle_decomp_hdr
@@ -379,6 +467,9 @@ static bool handle_decompress(VMGPContext *ctx)
   uint32_t dst_limit = 0;
   uint32_t heap_limit = 0;
   uint32_t consumed = 0;
+  uint8_t header[22];
+  const uint8_t *header_ptr = NULL;
+  LZBitStream bit_stream;
 
   if (src != 0)
   {
@@ -390,24 +481,33 @@ static bool handle_decompress(VMGPContext *ctx)
     }
     base = ctx->mem + src;
     available = (uint32_t)(ctx->mem_size - src);
+    header_ptr = base;
   }
 
   else
   {
     s = find_stream(ctx, stream_handle);
 
-    if (!s || !MVM_RuntimeMemRangeOk(ctx, s->base + s->pos, 22))
+    if (!s || s->pos > s->size || 22u > (s->size - s->pos))
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
       return true;
     }
+
+    if (!read_stream_bytes(ctx, s, s->pos, header, sizeof(header)))
+    {
+      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+      return true;
+    }
+
     stream_base_pos = s->pos;
-    base = ctx->mem + s->base + s->pos;
     available = s->size - s->pos;
+    header_ptr = header;
   }
 
-  if (!lz_read_header(base, available, &extended_offset_bits, &max_offset_bits, &out_size, &packed_size))
+  if (!lz_read_header(header_ptr, available, &extended_offset_bits, &max_offset_bits, &out_size, &packed_size))
   {
     copy_size = available;
     dst_limit = 0;
@@ -438,7 +538,16 @@ static bool handle_decompress(VMGPContext *ctx)
 
     if (copy_size > 0)
     {
-      memcpy(ctx->mem + dst, base, copy_size);
+      if (base)
+      {
+        memcpy(ctx->mem + dst, base, copy_size);
+      }
+      else if (!read_stream_bytes(ctx, s, stream_base_pos, ctx->mem + dst, copy_size))
+      {
+        ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+        return true;
+      }
     }
 
     if (s)
@@ -468,8 +577,20 @@ static bool handle_decompress(VMGPContext *ctx)
     packed_size = available - 22u;
   }
 
-  produced = lz_decompress_content(base + 22u,
-                                   packed_size,
+  memset(&bit_stream, 0, sizeof(bit_stream));
+  bit_stream.size = packed_size;
+
+  if (base)
+  {
+    bit_stream.data = base + 22u;
+  }
+  else
+  {
+    bit_stream.ctx = ctx;
+    bit_stream.file_offset = s->file_offset + stream_base_pos + 22u;
+  }
+
+  produced = lz_decompress_content(&bit_stream,
                                    ctx->mem + dst,
                                    out_size,
                                    extended_offset_bits,

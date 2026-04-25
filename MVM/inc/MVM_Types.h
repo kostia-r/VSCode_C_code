@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 typedef struct MpnDevProfile_t MpnDevProfile_t;
+typedef struct MpnImageSource_t MpnImageSource_t;
 
 /**********************************************************************************************************************
  *  GLOBAL DATA TYPES AND STRUCTURES
@@ -38,6 +39,30 @@ typedef struct MpnPlatform_t
   uint32_t (*get_random)(void *user);           /**< Returns one host-provided random value. */
   int (*log)(void *user, const char *message);  /**< Writes one diagnostic message through the host logger. */
 } MpnPlatform_t;
+
+/**
+ * @brief Reads one byte range from a VM image source.
+ */
+typedef int (*MpnImageReadFn_t)(void *user, size_t offset, void *dst, size_t size);
+
+/**
+ * @brief Optionally maps one byte range from a VM image source.
+ */
+typedef const uint8_t *(*MpnImageMapFn_t)(void *user, size_t offset, size_t size);
+
+/**
+ * @brief Optionally unmaps one previously mapped VM image range.
+ */
+typedef void (*MpnImageUnmapFn_t)(void *user, const uint8_t *view, size_t size);
+
+/**
+ * @brief Describes one VM image source selected for the current run.
+ */
+struct MpnImageSource_t
+{
+  void *user;                      /**< Opaque host context passed to the configured image backend. */
+  size_t image_size;               /**< Total size of the VM image in bytes. */
+};
 
 /**
  * @brief Describes the current execution state of the VM.
@@ -93,7 +118,7 @@ typedef struct MVM_MemReqs_t
   uint32_t resource_count;       /**< Number of resource records described by the image. */
   uint32_t static_data_bytes;    /**< Size of the initialized guest data section. */
   uint32_t bss_bytes;            /**< Size of the zero-initialized guest BSS section. */
-  uint32_t resource_bytes;       /**< Guest RAM budget reserved for loaded resource payloads. */
+  uint32_t resource_bytes;       /**< Guest RAM budget reserved for mirrored resource payloads, if any. */
   uint32_t heap_bytes;           /**< Guest heap budget included in the RAM requirement. */
   uint32_t stack_bytes;          /**< Guest stack budget included in the RAM requirement. */
 } MVM_MemReqs_t;
