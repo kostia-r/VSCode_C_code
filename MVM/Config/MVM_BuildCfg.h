@@ -2,52 +2,53 @@
  *  FILE DESCRIPTION
  *  -------------------------------------------------------------------------------------------------------------------
  *          Project:  Mophun
- *             File:  MVM_RuntimeMisc.c
- *           Module:  MVM_Runtime
+ *             File:  MVM_BuildCfg.h
+ *           Module:  MVM_Config
  *           Target:  Portable C
- *      Description:  Runtime handlers for miscellaneous guest imports and stubs.
+ *      Description:  Internal build-time switches used by the VM implementation and default integration layer.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  INCLUDES
+ *  Header file guard
  *********************************************************************************************************************/
 
-#include "MVM_Internal.h"
-#include <string.h>
+#ifndef MVM_BUILD_CFG_H
+#define MVM_BUILD_CFG_H
 
 /**********************************************************************************************************************
- *  GLOBAL FUNCTIONS
+ *  GLOBAL MACROS
  *********************************************************************************************************************/
 
+/*
+ * Maximum number of simultaneously tracked VM resource streams.
+ * This affects the size of the internal stream table in the VM context.
+ */
+#ifndef MVM_DEFAULT_MAX_STREAMS
+#define MVM_DEFAULT_MAX_STREAMS                                 (16U)
+#endif
+
+/*
+ * Enables the built-in fallback logger used by the default integration config.
+ * Set to 0 for targets that require all logging to be provided by the host.
+ */
+#ifndef MVM_ENABLE_DEFAULT_LOGGER
+#define MVM_ENABLE_DEFAULT_LOGGER                               (1U)
+#endif
+
+/*
+ * Size of the temporary formatting buffer used by MVM_LvidLogf().
+ * This limits the maximum formatted log message emitted in one call.
+ */
+#ifndef MVM_LOG_BUFFER_SIZE
+#define MVM_LOG_BUFFER_SIZE                                     (256U)
+#endif
+
 /**********************************************************************************************************************
- *  Name: MVM_bRuntimeHandleMisc
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Handles runtime syscall flow.
+ *  END of header file guard
  *********************************************************************************************************************/
-bool MVM_bRuntimeHandleMisc(VMGPContext *ctx, const char *name)
-{
-  bool bHandled = false;
 
-  if (strcmp(name, "vTerminateVMGP") == 0)
-  {
-    MVM_vidRequestExit(ctx);
-    ctx->regs[VM_REG_R0] = 0;
-    bHandled = true;
-  }
-
-  else if (strcmp(name, "DbgPrintf") == 0 || strcmp(name, "vPrint") == 0)
-  {
-    ctx->regs[VM_REG_R0] = 0;
-    bHandled = true;
-  }
-
-  return bHandled;
-} /* End of MVM_bRuntimeHandleMisc */
+#endif
 
 /**********************************************************************************************************************
- *  END OF FILE MVM_RuntimeMisc.c
+ *  END OF FILE MVM_BuildCfg.h
  *********************************************************************************************************************/

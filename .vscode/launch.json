@@ -2,12 +2,88 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug",
+      "name": "Debug: Default Game",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}\\${workspaceFolderBasename}.exe",
       "args": [
         "${workspaceFolder}\\mpn\\45596_decrypted.mpn"
+      ],
+      "stopAtEntry": true,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:\\mingw64\\bin\\gdb.exe",
+      "preLaunchTask": "Build",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "Debug: Default Game (SE_T310)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\${workspaceFolderBasename}.exe",
+      "args": [
+        "${workspaceFolder}\\mpn\\45596_decrypted.mpn",
+        "SE_T310"
+      ],
+      "stopAtEntry": true,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:\\mingw64\\bin\\gdb.exe",
+      "preLaunchTask": "Build",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "Debug: Default Game (SE_T310, short trace)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\${workspaceFolderBasename}.exe",
+      "args": [
+        "${workspaceFolder}\\mpn\\45596_decrypted.mpn",
+        "SE_T310",
+        "1000",
+        "10"
+      ],
+      "stopAtEntry": true,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:\\mingw64\\bin\\gdb.exe",
+      "preLaunchTask": "Build",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "Debug: Custom Game/Profile",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\${workspaceFolderBasename}.exe",
+      "args": [
+        "${input:mvmMpnPath}",
+        "${input:mvmProfileName}",
+        "${input:mvmMaxSteps}",
+        "${input:mvmMaxLoggedCalls}"
       ],
       "stopAtEntry": true,
       "cwd": "${workspaceFolder}",
@@ -31,8 +107,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": true,
-      "cwd": "c:/Users/krudenko/Desktop/Mophun/Mophun/VM/runtime/src",
-      "program": "c:/Users/krudenko/Desktop/Mophun/Mophun/VM/runtime/src/build/Debug/outDebug",
+      "cwd": "c:/Users/krudenko/Desktop/Mophun/Mophun/Src",
+      "program": "c:/Users/krudenko/Desktop/Mophun/Mophun/Src/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "C:/mingw64/bin/gdb.exe",
       "setupCommands": [
@@ -42,6 +118,32 @@
           "ignoreFailures": true
         }
       ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "mvmMpnPath",
+      "type": "promptString",
+      "description": "Path to the decrypted MPN image",
+      "default": "${workspaceFolder}\\mpn\\45596_decrypted.mpn"
+    },
+    {
+      "id": "mvmProfileName",
+      "type": "promptString",
+      "description": "Device profile name",
+      "default": "SE_T310"
+    },
+    {
+      "id": "mvmMaxSteps",
+      "type": "promptString",
+      "description": "Maximum VM steps",
+      "default": "1000000"
+    },
+    {
+      "id": "mvmMaxLoggedCalls",
+      "type": "promptString",
+      "description": "Maximum logged calls",
+      "default": "1000"
     }
   ]
 }

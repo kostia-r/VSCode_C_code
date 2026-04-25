@@ -41,6 +41,11 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx);
  */
 static const char *vm_file_str(const VMGPContext *ctx, uint32_t off);
 
+/**
+ * @brief Aligns one size value for runtime-pool planning.
+ */
+static size_t MVM_LudtAlignPoolSize(size_t value);
+
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
  *********************************************************************************************************************/
@@ -371,6 +376,7 @@ bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_t
 {
   VMGPContext ctx;
   uint32_t resource_count = 0;
+  size_t udtRuntimePoolBytes = 0;
 
   if (!requirements)
   {
@@ -403,6 +409,13 @@ bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_t
   requirements->guest_memory_bytes = ctx.mem_size;
   requirements->pool_entries_bytes = (size_t)ctx.header.pool_slots * sizeof(VMGPPoolEntry);
   requirements->resource_entries_bytes = (size_t)resource_count * sizeof(VMGPResource);
+  udtRuntimePoolBytes = MVM_LudtAlignPoolSize(0u);
+  udtRuntimePoolBytes += requirements->pool_entries_bytes;
+  udtRuntimePoolBytes = MVM_LudtAlignPoolSize(udtRuntimePoolBytes);
+  udtRuntimePoolBytes += requirements->resource_entries_bytes;
+  udtRuntimePoolBytes = MVM_LudtAlignPoolSize(udtRuntimePoolBytes);
+  udtRuntimePoolBytes += requirements->guest_memory_bytes;
+  requirements->runtime_pool_bytes = udtRuntimePoolBytes;
   requirements->pool_entry_count = ctx.header.pool_slots;
   requirements->resource_count = resource_count;
   requirements->static_data_bytes = ctx.header.data_size;
@@ -434,8 +447,6 @@ bool MVM_bVmgpLoadPool(VMGPContext *ctx)
   }
 
   ctx->pool = (VMGPPoolEntry *)MVM_LpudtAcquireInitBuffer(ctx,
-                                                          ctx->memory_config.pool_entries,
-                                                          ctx->memory_config.pool_entries_size,
                                                           (size_t)ctx->header.pool_slots * sizeof(VMGPPoolEntry));
 
   if (!ctx->pool)
@@ -518,8 +529,6 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
   }
 
   ctx->resources = (VMGPResource *)MVM_LpudtAcquireInitBuffer(ctx,
-                                                              ctx->memory_config.resource_entries,
-                                                              ctx->memory_config.resource_entries_size,
                                                               (size_t)count * sizeof(VMGPResource));
 
   if (!ctx->resources)
@@ -565,10 +574,7 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
   ctx->stack_top = ctx->heap_limit + VM_STACK_EXTRA;
   ctx->mem_size = ctx->stack_top + 0x100u;
 
-  ctx->mem = (uint8_t *)MVM_LpudtAcquireInitBuffer(ctx,
-                                                   ctx->memory_config.guest_memory,
-                                                   ctx->memory_config.guest_memory_size,
-                                                   ctx->mem_size);
+  ctx->mem = (uint8_t *)MVM_LpudtAcquireInitBuffer(ctx, ctx->mem_size);
 
   if (!ctx->mem)
   {
@@ -656,6 +662,20 @@ static const char *vm_file_str(const VMGPContext *ctx, uint32_t off)
 
   return pudtString;
 } /* End of vm_file_str */
+
+/**********************************************************************************************************************
+ *  Name: MVM_LudtAlignPoolSize
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Aligns one size value for runtime-pool planning.
+ *********************************************************************************************************************/
+static size_t MVM_LudtAlignPoolSize(size_t value)
+{
+  return (value + 3u) & ~(size_t)3u;
+} /* End of MVM_LudtAlignPoolSize */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_VmgpLoader.c

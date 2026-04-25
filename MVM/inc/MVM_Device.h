@@ -19,6 +19,7 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
+#include <stddef.h>
 #include <stdint.h>
 
 /**********************************************************************************************************************
@@ -26,16 +27,17 @@
  *********************************************************************************************************************/
 
 /**
- * @brief Describes the target device capabilities exposed to VM code.
+ * @brief Describes one target device profile exposed to VM code.
  */
 typedef struct MophunDeviceProfile
 {
+  const char *name;       /**< Human-readable profile name used by host-side profile selection. */
   uint16_t screen_width;  /**< Display width in pixels. */
   uint16_t screen_height; /**< Display height in pixels. */
-  uint16_t color_mode;    /**< Encoded display color mode. */
-  uint16_t sound_flags;   /**< Encoded audio capability flags. */
-  uint16_t system_flags;  /**< Encoded system capability flags. */
-  uint32_t device_id;     /**< Device identifier reported to the VM. */
+  uint16_t color_mode;    /**< Encoded display color mode reported by device capability imports. */
+  uint16_t sound_flags;   /**< Encoded sound capability flags reported to guest code. */
+  uint16_t system_flags;  /**< Encoded system capability flags reported to guest code. */
+  uint32_t device_id;     /**< Stable device identifier reported to the guest runtime. */
 } MophunDeviceProfile;
 
 /**********************************************************************************************************************

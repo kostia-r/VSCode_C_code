@@ -13,17 +13,24 @@ if not exist "%EXE%" (
     exit /b 1
 )
 
-if "%~1"=="" (
-    if not exist "%DEFAULT_MPN%" (
-        echo MPN file not found: %DEFAULT_MPN%
-        popd
-        exit /b 1
-    )
+if "%~1"=="" goto run_default
 
-    "%EXE%" "%DEFAULT_MPN%"
-) else (
-    "%EXE%" %*
+if exist "%~1" goto run_explicit
+
+:run_default
+if not exist "%DEFAULT_MPN%" (
+    echo MPN file not found: %DEFAULT_MPN%
+    popd
+    exit /b 1
 )
+
+"%EXE%" "%DEFAULT_MPN%" %1 %2 %3
+goto finish
+
+:run_explicit
+"%EXE%" %*
+
+:finish
 set "STATUS=%ERRORLEVEL%"
 
 popd

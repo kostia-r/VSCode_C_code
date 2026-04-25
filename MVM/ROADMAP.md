@@ -25,7 +25,7 @@ treated as a frozen specification.
   - `MVM_udtGetStorageSize()`
   - `MVM_udtGetStorageAlign()`
   - `MVM_pudtGetVmFromStorage()`
-- Platform callbacks exist for allocation, free, logging, ticks, and random.
+- Platform callbacks exist for logging, ticks, and random.
 - Runtime syscalls are split by domain.
 - Host syscall override registration exists through `MVM_vidSetSyscalls()`.
 - Trace and VMGP debug APIs are separate from the core API.
@@ -97,16 +97,16 @@ Done when:
 
 ## Phase 3: Static Memory Model
 
-Status: done. The VM can now report memory requirements before init, accept
-host-supplied buffers for guest RAM/pool/resources, and fail deterministically
-with a memory error when static buffers are undersized or missing.
+Status: done. The VM can now report memory requirements before init, use one
+host-owned runtime pool supplied through the integration config, and fail
+deterministically with a memory error when that pool is undersized or missing.
 
 Purpose: make RAM usage deterministic and remove hidden allocation from firmware
 builds.
 
 Tasks:
 
-- Define `MVM_MemoryConfig`.
+- Define the runtime-pool-backed integration memory model.
 - Separate memory areas:
   - VM context storage;
   - guest RAM;

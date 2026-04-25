@@ -13,7 +13,8 @@
  *********************************************************************************************************************/
 
 #include "MVM_Internal.h"
-#include "MVM_Config.h"
+#include "MVM_BuildCfg.h"
+#include "MVM_Cfg.h"
 #include "MVM_Syscalls.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -97,7 +98,7 @@ MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
  *********************************************************************************************************************/
 bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size)
 {
-  return MVM_LbInitRawWithPlatformAndMemory(ctx, data, size, NULL, NULL);
+  return MVM_LbInitRawWithConfig(ctx, data, size, &MVM_kstConfig);
 } /* End of MVM_LbInitRaw */
 
 /**********************************************************************************************************************
@@ -111,11 +112,18 @@ bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size)
  *********************************************************************************************************************/
 bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t size, const MophunPlatform *platform)
 {
-  return MVM_LbInitRawWithPlatformAndMemory(ctx, data, size, platform, NULL);
+  MVM_tstConfig stConfig = MVM_kstConfig;
+
+  if (platform)
+  {
+    stConfig.platform = *platform;
+  }
+
+  return MVM_LbInitRawWithConfig(ctx, data, size, &stConfig);
 } /* End of MVM_LbInitRawWithPlatform */
 
 /**********************************************************************************************************************
- *  Name: MVM_LbInitRawWithPlatformAndMemory
+ *  Name: MVM_LbInitRawWithConfig
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
@@ -123,11 +131,10 @@ bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t siz
  *  Returns: See function signature.
  *  Description: Initializes VM state.
  *********************************************************************************************************************/
-bool MVM_LbInitRawWithPlatformAndMemory(VMGPContext *ctx,
+bool MVM_LbInitRawWithConfig(VMGPContext *ctx,
 const uint8_t *data,
 size_t size,
-const MophunPlatform *platform,
-const MVM_tstMemoryConfig *memory_config)
+const MVM_tstConfig *config)
 {
   bool bResult = false;
 
@@ -138,26 +145,31 @@ const MVM_tstMemoryConfig *memory_config)
 
   memset(ctx, 0, sizeof(*ctx));
 
-  if (platform)
+  if (config)
   {
-    ctx->platform = *platform;
-  }
-  if (memory_config)
-  {
-    ctx->memory_config = *memory_config;
+    ctx->platform = config->platform;
+    ctx->device_profile = config->device_profile;
+    ctx->syscalls = config->syscalls;
+    ctx->syscall_count = config->syscall_count;
+    ctx->runtime_pool = (uint8_t *)config->runtime_pool;
+    ctx->runtime_pool_size = config->runtime_pool_size;
+    ctx->watchdog_limit = config->watchdog_limit;
   }
   ctx->data = data;
   ctx->size = size;
   ctx->next_stream_handle = 0x30u;
   ctx->random_state = 1u;
   ctx->last_pc = UINT32_MAX;
-  ctx->watchdog_limit = MVM_U32_DEFAULT_WATCHDOG_LIMIT;
+  if (!config)
+  {
+    ctx->watchdog_limit = MVM_U32_DEFAULT_WATCHDOG_LIMIT;
+  }
   ctx->state = MVM_TENU_STATE_READY;
   ctx->last_error = MVM_TENU_ERROR_NONE;
   bResult = true;
 
   return bResult;
-} /* End of MVM_LbInitRawWithPlatformAndMemory */
+} /* End of MVM_LbInitRawWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_bInit
@@ -170,7 +182,7 @@ const MVM_tstMemoryConfig *memory_config)
  *********************************************************************************************************************/
 bool MVM_bInit(MophunVM *vm, const uint8_t *image, size_t image_size)
 {
-  return MVM_bInitWithPlatformAndMemory(vm, image, image_size, NULL, NULL);
+  return MVM_bInitWithConfig(vm, image, image_size, &MVM_kstConfig);
 } /* End of MVM_bInit */
 
 /**********************************************************************************************************************
@@ -184,7 +196,14 @@ bool MVM_bInit(MophunVM *vm, const uint8_t *image, size_t image_size)
  *********************************************************************************************************************/
 bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size, const MophunPlatform *platform)
 {
-  return MVM_bInitWithPlatformAndMemory(vm, image, image_size, platform, NULL);
+  MVM_tstConfig stConfig = MVM_kstConfig;
+
+  if (platform)
+  {
+    stConfig.platform = *platform;
+  }
+
+  return MVM_bInitWithConfig(vm, image, image_size, &stConfig);
 } /* End of MVM_bInitWithPlatform */
 
 /**********************************************************************************************************************
@@ -196,29 +215,17 @@ bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size
  *  Returns: See function signature.
  *  Description: Initializes VM state.
  *********************************************************************************************************************/
-bool MVM_bInitWithConfig(MophunVM *vm, const uint8_t *image, size_t image_size, const MVM_tstMemoryConfig *memory_config)
-{
-  return MVM_bInitWithPlatformAndMemory(vm, image, image_size, NULL, memory_config);
-} /* End of MVM_bInitWithConfig */
-
-/**********************************************************************************************************************
- *  Name: MVM_bInitWithPlatformAndMemory
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Initializes VM state.
- *********************************************************************************************************************/
-bool MVM_bInitWithPlatformAndMemory(MophunVM *vm,
+bool MVM_bInitWithConfig(MophunVM *vm,
 const uint8_t *image,
 size_t image_size,
-const MophunPlatform *platform,
-const MVM_tstMemoryConfig *memory_config)
+const MVM_tstConfig *config)
 {
   bool bResult = false;
+  const MVM_tstConfig *pstConfig = NULL;
 
-  if (!MVM_LbInitRawWithPlatformAndMemory(vm, image, image_size, platform, memory_config))
+  pstConfig = config ? config : &MVM_kstConfig;
+
+  if (!MVM_LbInitRawWithConfig(vm, image, image_size, pstConfig))
   {
     MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
 
@@ -239,7 +246,7 @@ const MVM_tstMemoryConfig *memory_config)
   bResult = true;
 
   return bResult;
-} /* End of MVM_bInitWithPlatformAndMemory */
+} /* End of MVM_bInitWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_LpudtAcquireInitBuffer
@@ -250,32 +257,33 @@ const MVM_tstMemoryConfig *memory_config)
  *  Returns: See function signature.
  *  Description: Acquires one initialization buffer from static config.
  *********************************************************************************************************************/
-void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx,
-void *buffer,
-size_t buffer_size,
-size_t required_size)
+void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size)
 {
+  size_t udtAlignedOffset = 0;
+  size_t udtEndOffset = 0;
   void *pudtMem = NULL;
 
-  if (required_size == 0u)
+  if (!ctx || required_size == 0u)
   {
     return NULL;
   }
 
-  (void)ctx;
-
-  if (buffer)
+  if (!ctx->runtime_pool || ctx->runtime_pool_size == 0u)
   {
-    if (buffer_size < required_size)
-    {
-      return NULL;
-    }
-
-    memset(buffer, 0, required_size);
-    pudtMem = buffer;
-
-    return pudtMem;
+    return NULL;
   }
+
+  udtAlignedOffset = (ctx->runtime_pool_used + 3u) & ~(size_t)3u;
+  udtEndOffset = udtAlignedOffset + required_size;
+
+  if (udtEndOffset < udtAlignedOffset || udtEndOffset > ctx->runtime_pool_size)
+  {
+    return NULL;
+  }
+
+  pudtMem = ctx->runtime_pool + udtAlignedOffset;
+  memset(pudtMem, 0, required_size);
+  ctx->runtime_pool_used = udtEndOffset;
 
   return pudtMem;
 } /* End of MVM_LpudtAcquireInitBuffer */

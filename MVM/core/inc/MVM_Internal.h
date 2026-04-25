@@ -75,7 +75,8 @@ typedef struct VMGPStream
  */
 struct MophunVM
 {
-  MophunPlatform platform;           /**< Host integration callbacks. */
+  MophunPlatform platform;          /**< Host integration callbacks. */
+  const MophunDeviceProfile *device_profile; /**< Selected device profile exposed to platform wrappers. */
 
   const uint8_t *data;              /**< Pointer to the loaded VM image. */
   size_t size;                      /**< Loaded VM image size in bytes. */
@@ -97,6 +98,10 @@ struct MophunVM
   VMGPPoolEntry *pool;              /**< Loaded constant-pool entries. */
   VMGPResource *resources;          /**< Loaded resource metadata table. */
   uint32_t resource_count;          /**< Number of loaded resources. */
+
+  uint8_t *runtime_pool;            /**< Backing runtime arena used during init. */
+  size_t runtime_pool_size;         /**< Total runtime arena size in bytes. */
+  size_t runtime_pool_used;         /**< Number of runtime arena bytes consumed. */
 
   uint8_t *mem;                     /**< Backing VM memory buffer. */
   size_t mem_size;                  /**< Total VM memory size in bytes. */
@@ -120,7 +125,6 @@ struct MophunVM
   bool halted;                      /**< Indicates that execution has stopped. */
   MVM_tenuState state;              /**< Current VM execution state. */
   MVM_tenuError last_error;         /**< Last fatal execution error. */
-  MVM_tstMemoryConfig memory_config; /**< Host-supplied static memory buffers. */
 
   const MophunSyscall *syscalls;    /**< Registered host syscall table. */
   uint32_t syscall_count;           /**< Number of registered host syscalls. */
@@ -214,13 +218,12 @@ size_t size,
 const MophunPlatform *platform);
 
 /**
- * @brief Initializes VM state with host platform callbacks and memory buffers.
+ * @brief Initializes VM state with one integration config object.
  */
-bool MVM_LbInitRawWithPlatformAndMemory(VMGPContext *ctx,
+bool MVM_LbInitRawWithConfig(VMGPContext *ctx,
 const uint8_t *data,
 size_t size,
-const MophunPlatform *platform,
-const MVM_tstMemoryConfig *memory_config);
+const MVM_tstConfig *config);
 
 /**
  * @brief Releases VM resources.
@@ -238,12 +241,9 @@ bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_ca
 bool MVM_LbPipStep(VMGPContext *ctx);
 
 /**
- * @brief Acquires one initialization buffer from static config.
+ * @brief Acquires one initialization buffer from the runtime arena.
  */
-void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx,
-void *buffer,
-size_t buffer_size,
-size_t required_size);
+void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx, size_t required_size);
 
 /**
  * @brief Provides MVM_LvidLogf API.
@@ -278,11 +278,6 @@ bool MVM_bRuntimeHandleStream(VMGPContext *ctx, const char *name);
 /**
  * @brief Handles a VM runtime import group.
  */
-bool MVM_bRuntimeHandleCaps(VMGPContext *ctx, const char *name);
-
-/**
- * @brief Handles a VM runtime import group.
- */
 bool MVM_bRuntimeHandleDecompress(VMGPContext *ctx, const char *name);
 
 /**
@@ -293,17 +288,7 @@ bool MVM_bRuntimeHandleHeap(VMGPContext *ctx, const char *name);
 /**
  * @brief Handles a VM runtime import group.
  */
-bool MVM_bRuntimeHandleTimeRandom(VMGPContext *ctx, const char *name);
-
-/**
- * @brief Handles a VM runtime import group.
- */
 bool MVM_bRuntimeHandleStrings(VMGPContext *ctx, const char *name);
-
-/**
- * @brief Handles a VM runtime import group.
- */
-bool MVM_bRuntimeHandleMisc(VMGPContext *ctx, const char *name);
 
 /**********************************************************************************************************************
  *  GLOBAL INLINE FUNCTIONS

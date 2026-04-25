@@ -45,12 +45,9 @@ bool MVM_bRuntimeHandleImportCall(VMGPContext *ctx, uint32_t pool_index)
 
   bHandled = MVM_LbRuntimeTryHostSyscall(ctx, name) ||
              MVM_bRuntimeHandleStream(ctx, name) ||
-             MVM_bRuntimeHandleCaps(ctx, name) ||
              MVM_bRuntimeHandleDecompress(ctx, name) ||
              MVM_bRuntimeHandleHeap(ctx, name) ||
-             MVM_bRuntimeHandleTimeRandom(ctx, name) ||
-             MVM_bRuntimeHandleStrings(ctx, name) ||
-             MVM_bRuntimeHandleMisc(ctx, name);
+             MVM_bRuntimeHandleStrings(ctx, name);
 
   if (!bHandled)
   {

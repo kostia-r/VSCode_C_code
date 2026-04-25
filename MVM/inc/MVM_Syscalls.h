@@ -5,7 +5,7 @@
  *             File:  MVM_Syscalls.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Public host syscall callback and registration declarations.
+ *      Description:  Public host syscall API wrapper and registration declarations.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -19,31 +19,8 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
+#include "MVM_Types.h"
 #include <stdint.h>
-
-/**********************************************************************************************************************
- *  GLOBAL DATA TYPES AND STRUCTURES
- *********************************************************************************************************************/
-
-struct MophunVM;
-
-/**
- * @brief Represents a host syscall callback.
- *
- * The callback may inspect or update VM execution state through the public VM
- * control APIs when host-driven waiting, pause, or exit handling is required.
- */
-typedef uint32_t (*MophunSyscallFn)(struct MophunVM *vm, void *user);
-
-/**
- * @brief Describes one host syscall binding.
- */
-typedef struct MophunSyscall
-{
-  const char *name;   /**< Exported syscall name. */
-  MophunSyscallFn fn; /**< Callback implementation. */
-  void *user;         /**< User context passed to the callback. */
-} MophunSyscall;
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS PROTOTYPES
@@ -52,7 +29,7 @@ typedef struct MophunSyscall
 /**
  * @brief Provides MVM_vidSetSyscalls API.
  */
-void MVM_vidSetSyscalls(struct MophunVM *vm, const MophunSyscall *syscalls, uint32_t count);
+void MVM_vidSetSyscalls(MophunVM *vm, const MophunSyscall *syscalls, uint32_t count);
 
 /**********************************************************************************************************************
  *  END of header file guard

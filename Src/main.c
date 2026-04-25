@@ -1,7 +1,9 @@
 #include "MVM_Vm.h"
+#include "MVM_Cfg.h"
 #include "MVM_Trace.h"
 #include "MVM_VmgpDebug.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -52,12 +54,6 @@ static uint8_t *load_file(const char *path, size_t *out_size)
   return buf;
 }
 
-static int host_log(void *user, const char *message)
-{
-  (void)user;
-  return fputs(message, stdout);
-}
-
 static int pump_vm_once(MophunVM *vm, uint32_t *step_budget)
 {
   int status = 0;
@@ -88,37 +84,85 @@ static int pump_vm_once(MophunVM *vm, uint32_t *step_budget)
   return status;
 }
 
+static int is_numeric_arg(const char *value)
+{
+  const unsigned char *p = (const unsigned char *)value;
+
+  if (!value || !*value)
+  {
+    return 0;
+  }
+
+  while (*p != '\0')
+  {
+    if (!isdigit(*p))
+    {
+      return 0;
+    }
+    ++p;
+  }
+
+  return 1;
+}
+
 int main(int argc, char **argv)
 {
   size_t file_size = 0;
   uint8_t *file_data;
   void *vm_storage;
-  void *guest_memory = NULL;
-  void *pool_entries = NULL;
-  void *resource_entries = NULL;
   MophunVM *vm;
-  MophunPlatform platform = {0};
+  MVM_tstConfig stConfig = MVM_kstConfig;
   MVM_tstMemoryRequirements memory_requirements = {0};
-  MVM_tstMemoryConfig memory_config = {0};
+  const MophunDeviceProfile *pstSelectedProfile = NULL;
+  const char *profile_name = NULL;
   uint32_t max_steps = 5000000;
   uint32_t max_logged_calls = 1000;
   uint32_t step_budget = 0;
+  uint32_t i = 0u;
+  int arg_index = 0;
   MVM_tenuState state;
   MVM_tenuError error;
 
-  if (argc < 2 || argc > 4)
+  if (argc < 2 || argc > 5)
   {
-    fprintf(stderr, "Usage: %s <decrypted.mpn> [max_steps] [max_logged_calls]\n", argv[0]);
+    fprintf(stderr, "Usage: %s <decrypted.mpn> [profile_name] [max_steps] [max_logged_calls]\n", argv[0]);
     return 1;
   }
 
-  if (argc >= 3)
+  arg_index = 2;
+  if (argc > arg_index && !is_numeric_arg(argv[arg_index]))
   {
-    max_steps = (uint32_t)strtoul(argv[2], NULL, 0);
+    profile_name = argv[arg_index];
+    pstSelectedProfile = MVM_Cfg_pcdtFindDeviceProfileByName(&stConfig, profile_name);
+    if (!pstSelectedProfile)
+    {
+      fprintf(stderr, "Unknown device profile: %s\n", profile_name);
+      fprintf(stderr, "Available profiles:");
+
+      for (i = 0u; i < stConfig.device_profile_count; ++i)
+      {
+        if (stConfig.device_profiles[i].name)
+        {
+          fprintf(stderr, " %s", stConfig.device_profiles[i].name);
+        }
+      }
+      fprintf(stderr, "\n");
+
+      return 1;
+    }
+
+    stConfig.device_profile = pstSelectedProfile;
+    ++arg_index;
   }
-  if (argc >= 4)
+
+  if (argc > arg_index)
   {
-    max_logged_calls = (uint32_t)strtoul(argv[3], NULL, 0);
+    max_steps = (uint32_t)strtoul(argv[arg_index], NULL, 0);
+    ++arg_index;
+  }
+  if (argc > arg_index)
+  {
+    max_logged_calls = (uint32_t)strtoul(argv[arg_index], NULL, 0);
   }
 
   file_data = load_file(argv[1], &file_size);
@@ -147,41 +191,13 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  guest_memory = calloc(1u, memory_requirements.guest_memory_bytes);
-  pool_entries = calloc(1u, memory_requirements.pool_entries_bytes);
-  resource_entries = memory_requirements.resource_entries_bytes != 0u
-                   ? calloc(1u, memory_requirements.resource_entries_bytes)
-                   : NULL;
-
-  if (!guest_memory ||
-      !pool_entries ||
-      (memory_requirements.resource_entries_bytes != 0u && !resource_entries))
+  if (!MVM_bInitWithConfig(vm, file_data, file_size, &stConfig))
   {
-    fprintf(stderr, "Could not allocate static VM memory buffers.\n");
-    free(resource_entries);
-    free(pool_entries);
-    free(guest_memory);
-    free(file_data);
-    free(vm_storage);
-
-    return 1;
-  }
-
-  memory_config.guest_memory = guest_memory;
-  memory_config.guest_memory_size = memory_requirements.guest_memory_bytes;
-  memory_config.pool_entries = pool_entries;
-  memory_config.pool_entries_size = memory_requirements.pool_entries_bytes;
-  memory_config.resource_entries = resource_entries;
-  memory_config.resource_entries_size = memory_requirements.resource_entries_bytes;
-
-  platform.log = host_log;
-
-  if (!MVM_bInitWithPlatformAndMemory(vm, file_data, file_size, &platform, &memory_config))
-  {
-    fprintf(stderr, "Failed to initialize VMGP context.\n");
-    free(resource_entries);
-    free(pool_entries);
-    free(guest_memory);
+    fprintf(stderr,
+            "Failed to initialize VMGP context. required_pool=%llu configured_pool=%llu error=%u\n",
+            (unsigned long long)memory_requirements.runtime_pool_bytes,
+            (unsigned long long)stConfig.runtime_pool_size,
+            (unsigned)MVM_tenuGetLastError(vm));
     free(file_data);
     free(vm_storage);
 
@@ -212,9 +228,6 @@ int main(int argc, char **argv)
           (unsigned)error);
 
   MVM_vidFree(vm);
-  free(resource_entries);
-  free(pool_entries);
-  free(guest_memory);
   free(vm_storage);
   free(file_data);
   return 0;

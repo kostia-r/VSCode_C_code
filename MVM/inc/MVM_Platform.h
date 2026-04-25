@@ -5,7 +5,7 @@
  *             File:  MVM_Platform.h
  *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Public host platform service callbacks used by the VM runtime.
+ *      Description:  Legacy compatibility wrapper for public host platform service types.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -19,22 +19,17 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include <stdint.h>
+#include "MVM_Types.h"
 
 /**********************************************************************************************************************
- *  GLOBAL DATA TYPES AND STRUCTURES
+ *  GLOBAL DATA PROTOTYPES
  *********************************************************************************************************************/
 
-/**
- * @brief Provides host services used by the VM.
+/*
+ * Compatibility header only.
+ * New code should include MVM_Types.h for MophunPlatform or MVM_Vm.h for the
+ * general VM API surface.
  */
-typedef struct MophunPlatform
-{
-  void *user;                                   /**< Opaque host context passed to callbacks. */
-  uint32_t (*get_ticks_ms)(void *user);         /**< Returns the host tick count in milliseconds. */
-  uint32_t (*get_random)(void *user);           /**< Returns a host-generated random value. */
-  int (*log)(void *user, const char *message);  /**< Writes a diagnostic message. */
-} MophunPlatform;
 
 /**********************************************************************************************************************
  *  END of header file guard
