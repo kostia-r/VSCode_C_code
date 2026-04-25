@@ -32,12 +32,49 @@ typedef struct MpnImageSource_t MpnImageSource_t;
 /**
  * @brief Describes host services exposed to the VM core.
  */
+typedef enum MVM_LogLevel_t
+{
+  MVM_LOG_LEVEL_ERROR = 0,   /**< Fatal or user-visible failure. */
+  MVM_LOG_LEVEL_WARNING,     /**< Recoverable problem or unsupported path. */
+  MVM_LOG_LEVEL_INFO,        /**< High-level lifecycle information. */
+  MVM_LOG_LEVEL_DEBUG,       /**< Detailed debug diagnostics. */
+  MVM_LOG_LEVEL_TRACE,       /**< Very chatty step/trace diagnostics. */
+} MVM_LogLevel_t;
+
+/**
+ * @brief Describes VM events emitted through the host event callback.
+ */
+typedef enum MVM_Event_t
+{
+  MVM_EVENT_IMPORT_CALL = 0,     /**< Guest import dispatch started. */
+  MVM_EVENT_MISSING_SYSCALL,     /**< No runtime handler was found for one import. */
+  MVM_EVENT_INVALID_OPCODE,      /**< The interpreter hit one unsupported opcode. */
+  MVM_EVENT_MEMORY_OOB,          /**< One guest memory access went out of bounds. */
+  MVM_EVENT_RESOURCE_OPENED,     /**< One resource stream was opened. */
+  MVM_EVENT_RESOURCE_READ,       /**< One resource stream read completed. */
+  MVM_EVENT_FRAME_READY,         /**< One frame became ready for presentation. */
+  MVM_EVENT_SOUND_REQUESTED,     /**< The guest requested one platform sound action. */
+  MVM_EVENT_VM_PAUSED,           /**< VM moved into the paused state. */
+  MVM_EVENT_VM_RESUMED,          /**< VM resumed execution after pause/wait. */
+  MVM_EVENT_VM_WAITING,          /**< VM moved into the waiting state. */
+  MVM_EVENT_VM_EXITED,           /**< VM exited normally. */
+  MVM_EVENT_VM_ERROR,            /**< VM entered the fatal error state. */
+} MVM_Event_t;
+
 typedef struct MpnPlatform_t
 {
-  void *user;                                   /**< Opaque host context passed to all platform callbacks. */
-  uint32_t (*get_ticks_ms)(void *user);         /**< Returns a monotonic host tick value in milliseconds. */
-  uint32_t (*get_random)(void *user);           /**< Returns one host-provided random value. */
-  int (*log)(void *user, const char *message);  /**< Writes one diagnostic message through the host logger. */
+  void *user;  /**< Opaque host context passed to all platform callbacks. */
+  uint32_t (*get_ticks_ms)(void *user);  /**< Returns a monotonic host tick value in milliseconds. */
+  uint32_t (*get_random)(void *user);    /**< Returns one host-provided random value. */
+  int (*log)(void *user,
+             MVM_LogLevel_t level,
+             const char *module,
+             const char *event,
+             const char *message);       /**< Writes one diagnostic message with metadata through the host logger. */
+  void (*event)(void *user,
+                MVM_Event_t event,
+                uint32_t arg0,
+                uint32_t arg1);          /**< Delivers one structured VM event to the host. */
 } MpnPlatform_t;
 
 /**

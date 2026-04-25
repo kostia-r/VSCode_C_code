@@ -71,6 +71,7 @@ buffer mode is still supported through the simpler `MVM_Init()` and
 The platform owns:
 
 - log output;
+- optional structured VM event consumption;
 - optional tick and random providers.
 
 `Config/MVM_Cfg.h` already includes reusable callback adapters for common
@@ -79,6 +80,30 @@ signature mismatches, for example:
 - host tick APIs that return raw ticks instead of milliseconds;
 - host tick/random APIs that do not accept the VM `user` pointer;
 - host loggers that return `void` instead of an integer status.
+
+Phase 5 logger/event plumbing is now available through `MpnPlatform_t`:
+
+- `log(user, level, module, event, message)` receives structured metadata for
+  each emitted message;
+- `event(user, event_id, arg0, arg1)` receives lightweight VM events without
+  having to parse text logs;
+- VM logging sites are routed through level-gated macros, and messages above
+  `MVM_MAX_LOG_LEVEL` compile out completely.
+
+The first structured events currently cover:
+
+- VM paused, resumed, waiting, exited, and fatal-error transitions;
+- import dispatch start and missing-syscall fallback;
+- invalid opcode and guest memory out-of-bounds faults;
+- resource open and resource read activity;
+- frame-ready notifications from `vFlipScreen`;
+- sound requests from `vPlayResource`.
+
+The built-in platform wrappers in `Config/MVM_Lcfg.c` also emit trace/debug
+logs for callback traffic such as `vGetCaps`, `vGetTickCount`, random services,
+generic platform stubs, frame presentation, and sound requests. This makes it
+possible to trace VM-to-platform interaction through the same logger path
+instead of mixing in ad-hoc prints.
 
 For stricter firmware builds, define `MVM_ENABLE_DEFAULT_LOGGER=0` from the
 parent build. The VM library no longer allocates dynamic memory internally.

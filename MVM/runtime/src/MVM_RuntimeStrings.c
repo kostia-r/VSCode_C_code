@@ -41,6 +41,11 @@ bool MVM_HandleRuntimeStrings(VMGPContext *ctx, const char *name)
   {
     p = ctx->regs[VM_REG_P0];
     ctx->regs[VM_REG_R0] = (p < ctx->mem_size) ? MVM_RuntimeStrLen(ctx->mem + p, ctx->mem_size - p) : 0u;
+    MVM_LOG_D(ctx,
+                  "str-len",
+                  "vStrLen(src=%08X) -> %u\n",
+                  p,
+                  ctx->regs[VM_REG_R0]);
     bHandled = true;
   }
 
@@ -68,6 +73,13 @@ bool MVM_HandleRuntimeStrings(VMGPContext *ctx, const char *name)
     }
 
     ctx->regs[VM_REG_R0] = dst;
+    MVM_LOG_D(ctx,
+                  "str-cpy",
+                  "vStrCpy(dst=%08X src=%08X copied=%u) -> %08X\n",
+                  dst,
+                  src,
+                  (uint32_t)n,
+                  ctx->regs[VM_REG_R0]);
     bHandled = true;
   }
 

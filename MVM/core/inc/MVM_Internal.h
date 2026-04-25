@@ -20,6 +20,7 @@
  *********************************************************************************************************************/
 
 #include "MVM_Cfg.h"
+#include "MVM_BuildCfg.h"
 #include "MVM_VmgpDebug.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -138,6 +139,8 @@ struct MpnVM_t
  */
 typedef MpnVM_t VMGPContext;
 
+#include "MVM_Log.h"
+
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS PROTOTYPES
  *********************************************************************************************************************/
@@ -248,9 +251,9 @@ void *MVM_AcquireInitBuffer(VMGPContext *ctx, size_t required_size);
 uint32_t MVM_RunStepsRaw(VMGPContext *ctx, uint32_t max_steps);
 
 /**
- * @brief Writes one formatted log line through the platform hook.
+ * @brief Emits one structured VM event through the platform hook.
  */
-void MVM_Logf(const VMGPContext *ctx, const char *fmt, ...);
+void MVM_EmitEvent(const VMGPContext *ctx, MVM_Event_t event, uint32_t arg0, uint32_t arg1);
 
 /**
  * @brief Updates the current VM execution state.

@@ -43,6 +43,14 @@
 #define MVM_LOG_BUFFER_SIZE                                     (256U)
 #endif
 
+/*
+ * Compile-time maximum log level compiled into the VM.
+ * 0=error, 1=warning, 2=info, 3=debug, 4=trace.
+ */
+#ifndef MVM_MAX_LOG_LEVEL
+#define MVM_MAX_LOG_LEVEL                                       (3U)
+#endif
+
 /**********************************************************************************************************************
  *  END of header file guard
  *********************************************************************************************************************/

@@ -436,6 +436,13 @@ static bool handle_decomp_hdr(VMGPContext *ctx)
   }
 
   ctx->regs[VM_REG_R0] = uncompressed_size;
+  MVM_LOG_D(ctx,
+                "decomp-hdr",
+                "vDecompHdr(info=%08X hdr=%08X) -> raw=%u packed=%u\n",
+                info,
+                hdr,
+                uncompressed_size,
+                compressed_size);
 
   return true;
 } /* End of handle_decomp_hdr */
@@ -561,6 +568,13 @@ static bool handle_decompress(VMGPContext *ctx)
     }
 
     ctx->regs[VM_REG_R0] = copy_size;
+    MVM_LOG_D(ctx,
+                  "decompress-copy",
+                  "vDecompress(src=%08X dst=%08X stream=%u) raw-copy=%u\n",
+                  src,
+                  dst,
+                  stream_handle,
+                  copy_size);
 
     return true;
   }
@@ -608,6 +622,15 @@ static bool handle_decompress(VMGPContext *ctx)
   }
 
   ctx->regs[VM_REG_R0] = produced;
+  MVM_LOG_D(ctx,
+                "decompress-lz",
+                "vDecompress(src=%08X dst=%08X stream=%u packed=%u raw=%u) -> %u\n",
+                src,
+                dst,
+                stream_handle,
+                packed_size,
+                out_size,
+                produced);
 
   return true;
 } /* End of handle_decompress */

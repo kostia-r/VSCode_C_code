@@ -55,12 +55,26 @@ bool MVM_HandleRuntimeHeap(VMGPContext *ctx, const char *name)
       ctx->heap_cur = addr + size;
     }
 
+    MVM_LOG_D(ctx,
+                  "heap-newptr",
+                  "vNewPtr(size=%u aligned=%08X) -> %08X heap_cur=%08X\n",
+                  size,
+                  addr,
+                  ctx->regs[VM_REG_R0],
+                  ctx->heap_cur);
+
     bHandled = true;
   }
 
   else if (strcmp(name, "vDisposePtr") == 0 || strcmp(name, "vMemFree") == 0)
   {
     ctx->regs[VM_REG_R0] = 0;
+    MVM_LOG_D(ctx,
+                  "heap-free",
+                  "%s(ptr=%08X) -> %08X\n",
+                  name,
+                  ctx->regs[VM_REG_P0],
+                  ctx->regs[VM_REG_R0]);
 
     bHandled = true;
   }

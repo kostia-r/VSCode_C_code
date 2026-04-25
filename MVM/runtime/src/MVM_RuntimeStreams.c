@@ -92,6 +92,14 @@ bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
     }
 
     s->pos = 0;
+    MVM_EmitEvent(ctx, MVM_EVENT_RESOURCE_OPENED, resid, s->handle);
+    MVM_LOG_D(ctx,
+                  "stream-open",
+                  "vStreamOpen(mode=%08X resid=%u) -> handle=%u size=%u\n",
+                  mode,
+                  resid,
+                  s->handle,
+                  s->size);
     ctx->regs[VM_REG_R0] = s->handle;
     bHandled = true;
   }
@@ -135,6 +143,13 @@ bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
 
     s->pos = (uint32_t)pos;
     ctx->regs[VM_REG_R0] = s->pos;
+    MVM_LOG_D(ctx,
+                  "stream-seek",
+                  "vStreamSeek(handle=%u where=%d whence=%u) -> %u\n",
+                  ctx->regs[VM_REG_P0],
+                  where,
+                  whence,
+                  ctx->regs[VM_REG_R0]);
     bHandled = true;
   }
 
@@ -172,6 +187,15 @@ bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
 
     MVM_WatchMemoryWrite(ctx, buf, count, "vStreamRead");
     s->pos += count;
+    MVM_EmitEvent(ctx, MVM_EVENT_RESOURCE_READ, s->resource_id, count);
+    MVM_LOG_D(ctx,
+                  "stream-read",
+                  "vStreamRead(handle=%u buf=%08X count=%u) -> %u pos=%u\n",
+                  ctx->regs[VM_REG_P0],
+                  buf,
+                  ctx->regs[VM_REG_P2],
+                  count,
+                  s->pos);
     ctx->regs[VM_REG_R0] = count;
     bHandled = true;
   }
@@ -185,6 +209,11 @@ bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name)
       memset(s, 0, sizeof(*s));
     }
     ctx->regs[VM_REG_R0] = 0;
+    MVM_LOG_D(ctx,
+                  "stream-close",
+                  "vStreamClose(handle=%u) -> %u\n",
+                  ctx->regs[VM_REG_P0],
+                  ctx->regs[VM_REG_R0]);
     bHandled = true;
   }
 

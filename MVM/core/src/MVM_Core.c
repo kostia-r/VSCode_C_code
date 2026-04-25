@@ -15,8 +15,6 @@
 #include "MVM_Internal.h"
 #include "MVM_BuildCfg.h"
 #include "MVM_Cfg.h"
-#include <stdarg.h>
-#include <stdio.h>
 #include <string.h>
 
 /**********************************************************************************************************************
@@ -363,36 +361,30 @@ void *MVM_AcquireInitBuffer(VMGPContext *ctx, size_t required_size)
 } /* End of MVM_AcquireInitBuffer */
 
 /**********************************************************************************************************************
- *  Name: MVM_Logf
+ *  Name: MVM_EmitEvent
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Emits diagnostic trace output.
+ *  Description: Emits one structured VM event through the platform hook.
  *********************************************************************************************************************/
-void MVM_Logf(const VMGPContext *ctx, const char *fmt, ...)
+void MVM_EmitEvent(const VMGPContext *ctx, MVM_Event_t event, uint32_t arg0, uint32_t arg1)
 {
-  char buffer[MVM_LOG_BUFFER_SIZE];
-  va_list ap;
-
-  va_start(ap, fmt);
-  vsnprintf(buffer, sizeof(buffer), fmt, ap);
-  va_end(ap);
-
-  if (ctx && ctx->platform.log)
+  if (!ctx)
   {
-    ctx->platform.log(ctx->platform.user, buffer);
-
     return;
   }
 
-#if MVM_ENABLE_DEFAULT_LOGGER
-  fputs(buffer, stdout);
-#else
-  (void)ctx;
+#if (MVM_MAX_LOG_LEVEL >= 3U)
+  MVM_LOG_EVT(ctx, event, arg0, arg1);
 #endif
-} /* End of MVM_Logf */
+
+  if (ctx->platform.event)
+  {
+    ctx->platform.event(ctx->platform.user, event, arg0, arg1);
+  }
+} /* End of MVM_EmitEvent */
 
 /**********************************************************************************************************************
  *  Name: MVM_SetStateRaw
@@ -432,6 +424,7 @@ void MVM_SetErrorRaw(VMGPContext *ctx, MVM_Err_t error)
   ctx->last_error = error;
   ctx->halted = true;
   ctx->state = MVM_STATE_ERROR;
+  MVM_EmitEvent(ctx, MVM_EVENT_VM_ERROR, (uint32_t)error, ctx->pc);
 } /* End of MVM_SetErrorRaw */
 
 /**********************************************************************************************************************
@@ -718,6 +711,7 @@ MVM_RetCode_t MVM_Pause(MpnVM_t *vm)
   if (vm->state == MVM_STATE_READY || vm->state == MVM_STATE_RUNNING)
   {
     vm->state = MVM_STATE_PAUSED;
+    MVM_EmitEvent(vm, MVM_EVENT_VM_PAUSED, vm->pc, 0u);
 
     return MVM_OK;
   }
@@ -744,6 +738,7 @@ MVM_RetCode_t MVM_Wait(MpnVM_t *vm)
   if (vm->state == MVM_STATE_READY || vm->state == MVM_STATE_RUNNING)
   {
     vm->state = MVM_STATE_WAITING;
+    MVM_EmitEvent(vm, MVM_EVENT_VM_WAITING, vm->pc, 0u);
 
     return MVM_OK;
   }
@@ -770,6 +765,7 @@ MVM_RetCode_t MVM_Resume(MpnVM_t *vm)
   if (vm->state == MVM_STATE_PAUSED || vm->state == MVM_STATE_WAITING)
   {
     vm->state = MVM_STATE_READY;
+    MVM_EmitEvent(vm, MVM_EVENT_VM_RESUMED, vm->pc, 0u);
 
     return MVM_OK;
   }
@@ -795,6 +791,7 @@ void MVM_RequestExitRaw(VMGPContext *vm)
 
   vm->halted = true;
   vm->state = MVM_STATE_EXITED;
+  MVM_EmitEvent(vm, MVM_EVENT_VM_EXITED, vm->pc, 0u);
 } /* End of MVM_RequestExitRaw */
 
 /**********************************************************************************************************************

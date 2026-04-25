@@ -68,7 +68,10 @@ typedef struct MVM_RandomArgAdapter_t
  */
 typedef struct MVM_LogNoArgAdapter_t
 {
-  void (*log)(const char *message); /**< Host logger with no user argument and no return code. */
+  void (*log)(MVM_LogLevel_t level,
+              const char *module,
+              const char *event,
+              const char *message); /**< Host logger with no user argument and no return code. */
 } MVM_LogNoArgAdapter_t;
 
 /**
@@ -76,7 +79,11 @@ typedef struct MVM_LogNoArgAdapter_t
  */
 typedef struct MVM_LogArgAdapter_t
 {
-  void (*log)(void *arg, const char *message); /**< Host logger using a foreign user pointer. */
+  void (*log)(void *arg,
+              MVM_LogLevel_t level,
+              const char *module,
+              const char *event,
+              const char *message);            /**< Host logger using a foreign user pointer. */
   void *arg;                                   /**< Foreign user pointer passed to the host logger. */
 } MVM_LogArgAdapter_t;
 
@@ -111,6 +118,11 @@ typedef struct MVM_Config_t
 /* Default soft-watchdog budget. Zero keeps the watchdog disabled. */
 #ifndef MVM_CFG_DEFAULT_WATCHDOG_LIMIT
 #define MVM_CFG_DEFAULT_WATCHDOG_LIMIT                          (0U)
+#endif
+
+/* Short logger context label used by the built-in default logger. */
+#ifndef MVM_CFG_LOG_CONTEXT_NAME
+#define MVM_CFG_LOG_CONTEXT_NAME                                ("MVM")
 #endif
 
 /**********************************************************************************************************************
@@ -196,7 +208,11 @@ static inline uint32_t MVM_Cfg_lAdaptRandomArg(void *user)
 /**
  * @brief Adapts a no-argument host logger to MpnPlatform_t.log.
  */
-static inline int MVM_Cfg_lAdaptLogNoArg(void *user, const char *message)
+static inline int MVM_Cfg_lAdaptLogNoArg(void *user,
+                                         MVM_LogLevel_t level,
+                                         const char *module,
+                                         const char *event,
+                                         const char *message)
 {
   const MVM_LogNoArgAdapter_t *adapter = (const MVM_LogNoArgAdapter_t *)user;
 
@@ -205,7 +221,7 @@ static inline int MVM_Cfg_lAdaptLogNoArg(void *user, const char *message)
     return 0;
   }
 
-  adapter->log(message);
+  adapter->log(level, module, event, message);
 
   return 0;
 }
@@ -213,7 +229,11 @@ static inline int MVM_Cfg_lAdaptLogNoArg(void *user, const char *message)
 /**
  * @brief Adapts a foreign-argument host logger to MpnPlatform_t.log.
  */
-static inline int MVM_Cfg_lAdaptLogArg(void *user, const char *message)
+static inline int MVM_Cfg_lAdaptLogArg(void *user,
+                                       MVM_LogLevel_t level,
+                                       const char *module,
+                                       const char *event,
+                                       const char *message)
 {
   const MVM_LogArgAdapter_t *adapter = (const MVM_LogArgAdapter_t *)user;
 
@@ -222,7 +242,7 @@ static inline int MVM_Cfg_lAdaptLogArg(void *user, const char *message)
     return 0;
   }
 
-  adapter->log(adapter->arg, message);
+  adapter->log(adapter->arg, level, module, event, message);
 
   return 0;
 }

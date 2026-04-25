@@ -21,6 +21,7 @@ MVM_INC := \
 MVM_SRC := \
   $(MVM_ROOT)/Config/MVM_Lcfg.c \
   $(MVM_ROOT)/core/src/MVM_Core.c \
+  $(MVM_ROOT)/core/src/MVM_Log.c \
   $(MVM_ROOT)/debug/src/MVM_Trace.c \
   $(MVM_ROOT)/debug/src/MVM_VmgpDebug.c \
   $(MVM_ROOT)/loader/src/MVM_VmgpLoader.c \

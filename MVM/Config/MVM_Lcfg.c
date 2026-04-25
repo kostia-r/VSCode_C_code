@@ -15,6 +15,7 @@
 #include "MVM_BuildCfg.h"
 #include "MVM_Cfg.h"
 #include "MVM_Internal.h"
+#include <stdarg.h>
 #include <stdio.h>
 
 /**********************************************************************************************************************
@@ -34,14 +35,26 @@ typedef struct MVM_DefRuntimePool_t
  *********************************************************************************************************************/
 
 /**
- * @brief Writes one diagnostic message through the default platform logger.
+ * @brief Logs one platform-wrapper trace message through the VM logger.
  */
-static int MVM_lDefaultLog(void *user, const char *message);
+#if (MVM_MAX_LOG_LEVEL >= 2U)
+static void MVM_lLogPlatformCall(MpnVM_t *vm, MVM_LogLevel_t level, const char *event, const char *fmt, ...);
+#endif
 
 /**
  * @brief Handles platform-owned imports that complete with a zero result.
  */
 static uint32_t MVM_lPlatformRetZero(MpnVM_t *vm, void *user);
+
+/**
+ * @brief Handles the platform-owned frame-present import.
+ */
+static uint32_t MVM_lPlatformFlipScreen(MpnVM_t *vm, void *user);
+
+/**
+ * @brief Handles the platform-owned sound-request import.
+ */
+static uint32_t MVM_lPlatformPlayResource(MpnVM_t *vm, void *user);
 
 /**
  * @brief Handles the platform-owned VM termination import.
@@ -72,6 +85,45 @@ static uint32_t MVM_lPlatformGetCaps(MpnVM_t *vm, void *user);
  * @brief Reads one byte range from one file-backed image source.
  */
 static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size);
+
+/**********************************************************************************************************************
+ *  LOCAL MACROS
+ *********************************************************************************************************************/
+
+#if (MVM_MAX_LOG_LEVEL >= 0U)
+#define MVM_CFG_LOG_E(vm, event, fmt, ...) \
+  MVM_lLogPlatformCall((vm), MVM_LOG_LEVEL_ERROR, (event), (fmt), ##__VA_ARGS__)
+#else
+#define MVM_CFG_LOG_E(vm, event, fmt, ...)                        ((void)0)
+#endif
+
+#if (MVM_MAX_LOG_LEVEL >= 1U)
+#define MVM_CFG_LOG_W(vm, event, fmt, ...) \
+  MVM_lLogPlatformCall((vm), MVM_LOG_LEVEL_WARNING, (event), (fmt), ##__VA_ARGS__)
+#else
+#define MVM_CFG_LOG_W(vm, event, fmt, ...)                        ((void)0)
+#endif
+
+#if (MVM_MAX_LOG_LEVEL >= 2U)
+#define MVM_CFG_LOG_I(vm, event, fmt, ...) \
+  MVM_lLogPlatformCall((vm), MVM_LOG_LEVEL_INFO, (event), (fmt), ##__VA_ARGS__)
+#else
+#define MVM_CFG_LOG_I(vm, event, fmt, ...)                        ((void)0)
+#endif
+
+#if (MVM_MAX_LOG_LEVEL >= 3U)
+#define MVM_CFG_LOG_D(vm, event, fmt, ...) \
+  MVM_lLogPlatformCall((vm), MVM_LOG_LEVEL_DEBUG, (event), (fmt), ##__VA_ARGS__)
+#else
+#define MVM_CFG_LOG_D(vm, event, fmt, ...)                        ((void)0)
+#endif
+
+#if (MVM_MAX_LOG_LEVEL >= 4U)
+#define MVM_CFG_LOG_T(vm, event, fmt, ...) \
+  MVM_lLogPlatformCall((vm), MVM_LOG_LEVEL_TRACE, (event), (fmt), ##__VA_ARGS__)
+#else
+#define MVM_CFG_LOG_T(vm, event, fmt, ...)                        ((void)0)
+#endif
 
 /**********************************************************************************************************************
  *  LOCAL DATA
@@ -108,47 +160,47 @@ static const MpnDevProfile_t MVM_lDevProfiles[] =
 static const MpnSyscall_t MVM_lPlatformSyscalls[] =
 {
   /* Platform query and control imports implemented by this integration layer. */
-  { .name = "vGetCaps", .fn = MVM_lPlatformGetCaps, .user = NULL },
-  { .name = "vGetTickCount", .fn = MVM_lPlatformGetTickCount, .user = NULL },
-  { .name = "vSetRandom", .fn = MVM_lPlatformSetRandom, .user = NULL },
-  { .name = "vGetRandom", .fn = MVM_lPlatformGetRandom, .user = NULL },
-  { .name = "vTerminateVMGP", .fn = MVM_lPlatformTerminate, .user = NULL },
+  { .name = "vGetCaps", .fn = MVM_lPlatformGetCaps, .user = "vGetCaps" },
+  { .name = "vGetTickCount", .fn = MVM_lPlatformGetTickCount, .user = "vGetTickCount" },
+  { .name = "vSetRandom", .fn = MVM_lPlatformSetRandom, .user = "vSetRandom" },
+  { .name = "vGetRandom", .fn = MVM_lPlatformGetRandom, .user = "vGetRandom" },
+  { .name = "vTerminateVMGP", .fn = MVM_lPlatformTerminate, .user = "vTerminateVMGP" },
 
   /* Default platform stubs for graphics, audio, UI, and control imports. */
-  { .name = "DbgPrintf", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vPrint", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vClearScreen", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vDrawLine", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vDrawObject", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vFillRect", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vFlipScreen", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vGetButtonData", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vGetPaletteEntry", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vMapDispose", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vMapGetAttribute", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vMapInit", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vMapSetTile", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vMapSetXY", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vMsgBox", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vPlayResource", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetActiveFont", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetBackColor", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetClipWindow", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetForeColor", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetPalette", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetPaletteEntry", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSetTransferMode", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSpriteBoxCollision", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSpriteCollision", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSpriteDispose", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSpriteInit", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSpriteSet", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vStreamWrite", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vSysCtl", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vTestKey", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vUpdateMap", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vUpdateSprite", .fn = MVM_lPlatformRetZero, .user = NULL },
-  { .name = "vitoa", .fn = MVM_lPlatformRetZero, .user = NULL }
+  { .name = "DbgPrintf", .fn = MVM_lPlatformRetZero, .user = "DbgPrintf" },
+  { .name = "vPrint", .fn = MVM_lPlatformRetZero, .user = "vPrint" },
+  { .name = "vClearScreen", .fn = MVM_lPlatformRetZero, .user = "vClearScreen" },
+  { .name = "vDrawLine", .fn = MVM_lPlatformRetZero, .user = "vDrawLine" },
+  { .name = "vDrawObject", .fn = MVM_lPlatformRetZero, .user = "vDrawObject" },
+  { .name = "vFillRect", .fn = MVM_lPlatformRetZero, .user = "vFillRect" },
+  { .name = "vFlipScreen", .fn = MVM_lPlatformFlipScreen, .user = "vFlipScreen" },
+  { .name = "vGetButtonData", .fn = MVM_lPlatformRetZero, .user = "vGetButtonData" },
+  { .name = "vGetPaletteEntry", .fn = MVM_lPlatformRetZero, .user = "vGetPaletteEntry" },
+  { .name = "vMapDispose", .fn = MVM_lPlatformRetZero, .user = "vMapDispose" },
+  { .name = "vMapGetAttribute", .fn = MVM_lPlatformRetZero, .user = "vMapGetAttribute" },
+  { .name = "vMapInit", .fn = MVM_lPlatformRetZero, .user = "vMapInit" },
+  { .name = "vMapSetTile", .fn = MVM_lPlatformRetZero, .user = "vMapSetTile" },
+  { .name = "vMapSetXY", .fn = MVM_lPlatformRetZero, .user = "vMapSetXY" },
+  { .name = "vMsgBox", .fn = MVM_lPlatformRetZero, .user = "vMsgBox" },
+  { .name = "vPlayResource", .fn = MVM_lPlatformPlayResource, .user = "vPlayResource" },
+  { .name = "vSetActiveFont", .fn = MVM_lPlatformRetZero, .user = "vSetActiveFont" },
+  { .name = "vSetBackColor", .fn = MVM_lPlatformRetZero, .user = "vSetBackColor" },
+  { .name = "vSetClipWindow", .fn = MVM_lPlatformRetZero, .user = "vSetClipWindow" },
+  { .name = "vSetForeColor", .fn = MVM_lPlatformRetZero, .user = "vSetForeColor" },
+  { .name = "vSetPalette", .fn = MVM_lPlatformRetZero, .user = "vSetPalette" },
+  { .name = "vSetPaletteEntry", .fn = MVM_lPlatformRetZero, .user = "vSetPaletteEntry" },
+  { .name = "vSetTransferMode", .fn = MVM_lPlatformRetZero, .user = "vSetTransferMode" },
+  { .name = "vSpriteBoxCollision", .fn = MVM_lPlatformRetZero, .user = "vSpriteBoxCollision" },
+  { .name = "vSpriteCollision", .fn = MVM_lPlatformRetZero, .user = "vSpriteCollision" },
+  { .name = "vSpriteDispose", .fn = MVM_lPlatformRetZero, .user = "vSpriteDispose" },
+  { .name = "vSpriteInit", .fn = MVM_lPlatformRetZero, .user = "vSpriteInit" },
+  { .name = "vSpriteSet", .fn = MVM_lPlatformRetZero, .user = "vSpriteSet" },
+  { .name = "vStreamWrite", .fn = MVM_lPlatformRetZero, .user = "vStreamWrite" },
+  { .name = "vSysCtl", .fn = MVM_lPlatformRetZero, .user = "vSysCtl" },
+  { .name = "vTestKey", .fn = MVM_lPlatformRetZero, .user = "vTestKey" },
+  { .name = "vUpdateMap", .fn = MVM_lPlatformRetZero, .user = "vUpdateMap" },
+  { .name = "vUpdateSprite", .fn = MVM_lPlatformRetZero, .user = "vUpdateSprite" },
+  { .name = "vitoa", .fn = MVM_lPlatformRetZero, .user = "vitoa" }
 };
 
 /**********************************************************************************************************************
@@ -170,10 +222,11 @@ const MVM_Config_t MVM_Config =
 
     /* Host logger callback used by trace/debug output. */
 #if MVM_ENABLE_DEFAULT_LOGGER
-    .log = MVM_lDefaultLog
+    .log = MVM_DefaultLog,
 #else
-    .log = NULL
+    .log = NULL,
 #endif
+    .event = NULL
   },
 
   /* Compile-time image backend used to read the selected VM *.mpn file source. */
@@ -211,20 +264,33 @@ const MVM_Config_t MVM_Config =
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
- *  Name: MVM_lDefaultLog
+ *  Name: MVM_lLogPlatformCall
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Writes one diagnostic message through the default platform logger.
+ *  Description: Logs one platform-wrapper trace message through the VM logger.
  *********************************************************************************************************************/
-static int MVM_lDefaultLog(void *user, const char *message)
+#if (MVM_MAX_LOG_LEVEL >= 2U)
+static void MVM_lLogPlatformCall(MpnVM_t *vm, MVM_LogLevel_t level, const char *event, const char *fmt, ...)
 {
-  (void)user;
+  VMGPContext *ctx = (VMGPContext *)vm;
+  char buffer[MVM_LOG_BUFFER_SIZE];
+  va_list ap;
 
-  return fputs(message, stdout);
-} /* End of MVM_lDefaultLog */
+  if (!ctx)
+  {
+    return;
+  }
+
+  va_start(ap, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, ap);
+  va_end(ap);
+
+  MVM_LOG_RAW(ctx, level, event, "%s", buffer);
+} /* End of MVM_lLogPlatformCall */
+#endif
 
 /**********************************************************************************************************************
  *  Name: MVM_lPlatformRetZero
@@ -237,11 +303,77 @@ static int MVM_lDefaultLog(void *user, const char *message)
  *********************************************************************************************************************/
 static uint32_t MVM_lPlatformRetZero(MpnVM_t *vm, void *user)
 {
-  (void)vm;
-  (void)user;
+  const char *import_name = (const char *)user;
+  (void)import_name;
+
+  MVM_CFG_LOG_D(vm,
+                "platform-import",
+                "%s(p0=%08X p1=%08X p2=%08X p3=%08X) -> 0\n",
+                import_name ? import_name : "platform-import",
+                vm ? vm->regs[VM_REG_P0] : 0u,
+                vm ? vm->regs[VM_REG_P1] : 0u,
+                vm ? vm->regs[VM_REG_P2] : 0u,
+                vm ? vm->regs[VM_REG_P3] : 0u);
 
   return 0u;
 } /* End of MVM_lPlatformRetZero */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lPlatformFlipScreen
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Handles the platform-owned frame-present import.
+ *********************************************************************************************************************/
+static uint32_t MVM_lPlatformFlipScreen(MpnVM_t *vm, void *user)
+{
+  const char *import_name = (const char *)user;
+  (void)import_name;
+
+  MVM_CFG_LOG_D(vm,
+                "frame-ready",
+                "%s(p0=%08X p1=%08X p2=%08X p3=%08X)\n",
+                import_name ? import_name : "vFlipScreen",
+                vm ? vm->regs[VM_REG_P0] : 0u,
+                vm ? vm->regs[VM_REG_P1] : 0u,
+                vm ? vm->regs[VM_REG_P2] : 0u,
+                vm ? vm->regs[VM_REG_P3] : 0u);
+  MVM_EmitEvent((VMGPContext *)vm, MVM_EVENT_FRAME_READY, vm ? vm->regs[VM_REG_P0] : 0u, vm ? vm->pc : 0u);
+
+  return 0u;
+} /* End of MVM_lPlatformFlipScreen */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lPlatformPlayResource
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Handles the platform-owned sound-request import.
+ *********************************************************************************************************************/
+static uint32_t MVM_lPlatformPlayResource(MpnVM_t *vm, void *user)
+{
+  const char *import_name = (const char *)user;
+  (void)import_name;
+
+  MVM_CFG_LOG_I(vm,
+                "sound-request",
+                "%s(resource=%08X p1=%08X p2=%08X p3=%08X)\n",
+                import_name ? import_name : "vPlayResource",
+                vm ? vm->regs[VM_REG_P0] : 0u,
+                vm ? vm->regs[VM_REG_P1] : 0u,
+                vm ? vm->regs[VM_REG_P2] : 0u,
+                vm ? vm->regs[VM_REG_P3] : 0u);
+  MVM_EmitEvent((VMGPContext *)vm,
+                MVM_EVENT_SOUND_REQUESTED,
+                vm ? vm->regs[VM_REG_P0] : 0u,
+                vm ? vm->regs[VM_REG_P1] : 0u);
+
+  return 0u;
+} /* End of MVM_lPlatformPlayResource */
 
 /**********************************************************************************************************************
  *  Name: MVM_lPlatformTerminate
@@ -254,7 +386,13 @@ static uint32_t MVM_lPlatformRetZero(MpnVM_t *vm, void *user)
  *********************************************************************************************************************/
 static uint32_t MVM_lPlatformTerminate(MpnVM_t *vm, void *user)
 {
-  (void)user;
+  const char *import_name = (const char *)user;
+  (void)import_name;
+
+  MVM_CFG_LOG_I(vm,
+                "terminate",
+                "%s()\n",
+                import_name ? import_name : "vTerminateVMGP");
 
   MVM_RequestExitRaw(vm);
 
@@ -273,8 +411,8 @@ static uint32_t MVM_lPlatformTerminate(MpnVM_t *vm, void *user)
 static uint32_t MVM_lPlatformGetTickCount(MpnVM_t *vm, void *user)
 {
   VMGPContext *ctx = (VMGPContext *)vm;
-
-  (void)user;
+  const char *import_name = (const char *)user;
+  (void)import_name;
 
   if (!ctx)
   {
@@ -289,6 +427,12 @@ static uint32_t MVM_lPlatformGetTickCount(MpnVM_t *vm, void *user)
   {
     ctx->tick_count += 16u;
   }
+
+  MVM_CFG_LOG_D(vm,
+                "tick",
+                "%s() -> %08X\n",
+                import_name ? import_name : "vGetTickCount",
+                ctx->tick_count);
 
   return ctx->tick_count;
 } /* End of MVM_lPlatformGetTickCount */
@@ -305,8 +449,8 @@ static uint32_t MVM_lPlatformGetTickCount(MpnVM_t *vm, void *user)
 static uint32_t MVM_lPlatformSetRandom(MpnVM_t *vm, void *user)
 {
   VMGPContext *ctx = (VMGPContext *)vm;
-
-  (void)user;
+  const char *import_name = (const char *)user;
+  (void)import_name;
 
   if (!ctx)
   {
@@ -314,6 +458,11 @@ static uint32_t MVM_lPlatformSetRandom(MpnVM_t *vm, void *user)
   }
 
   ctx->random_state = ctx->regs[VM_REG_P0] ? ctx->regs[VM_REG_P0] : 1u;
+  MVM_CFG_LOG_D(vm,
+                "random-seed",
+                "%s(seed=%08X)\n",
+                import_name ? import_name : "vSetRandom",
+                ctx->random_state);
 
   return 0u;
 } /* End of MVM_lPlatformSetRandom */
@@ -330,8 +479,9 @@ static uint32_t MVM_lPlatformSetRandom(MpnVM_t *vm, void *user)
 static uint32_t MVM_lPlatformGetRandom(MpnVM_t *vm, void *user)
 {
   VMGPContext *ctx = (VMGPContext *)vm;
-
-  (void)user;
+  const char *import_name = (const char *)user;
+  uint32_t value = 0u;
+  (void)import_name;
 
   if (!ctx)
   {
@@ -340,12 +490,21 @@ static uint32_t MVM_lPlatformGetRandom(MpnVM_t *vm, void *user)
 
   if (ctx->platform.get_random)
   {
-    return ctx->platform.get_random(ctx->platform.user);
+    value = ctx->platform.get_random(ctx->platform.user);
+  }
+  else
+  {
+    ctx->random_state = ctx->random_state * 1103515245u + 12345u;
+    value = (ctx->random_state >> 16) & 0xFFFFu;
   }
 
-  ctx->random_state = ctx->random_state * 1103515245u + 12345u;
+  MVM_CFG_LOG_D(vm,
+                "random-value",
+                "%s() -> %08X\n",
+                import_name ? import_name : "vGetRandom",
+                value);
 
-  return (ctx->random_state >> 16) & 0xFFFFu;
+  return value;
 } /* End of MVM_lPlatformGetRandom */
 
 /**********************************************************************************************************************
@@ -361,11 +520,11 @@ static uint32_t MVM_lPlatformGetCaps(MpnVM_t *vm, void *user)
 {
   VMGPContext *ctx = (VMGPContext *)vm;
   const MpnDevProfile_t *profile = NULL;
+  const char *import_name = (const char *)user;
+  (void)import_name;
   uint32_t query = 0;
   uint32_t out = 0;
   uint32_t result = 0;
-
-  (void)user;
 
   if (!ctx || !ctx->device_profile)
   {
@@ -404,6 +563,15 @@ static uint32_t MVM_lPlatformGetCaps(MpnVM_t *vm, void *user)
     vm_write_u32_le(ctx->mem + out + 8u, 0u);
     result = 1u;
   }
+
+  MVM_CFG_LOG_D(vm,
+                "caps",
+                "%s(query=%u out=%08X profile=%s) -> %u\n",
+                import_name ? import_name : "vGetCaps",
+                query,
+                out,
+                profile->name ? profile->name : "<unnamed>",
+                result);
 
   return result;
 } /* End of MVM_lPlatformGetCaps */

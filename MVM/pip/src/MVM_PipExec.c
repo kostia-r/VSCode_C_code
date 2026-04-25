@@ -139,7 +139,9 @@ static const char *opcode_name(uint8_t op);
 /**
  * @brief Reads the first stack argument for trace output.
  */
+#if (MVM_MAX_LOG_LEVEL >= 4U)
 static uint32_t stack_arg0(const VMGPContext *ctx);
+#endif
 
 /**
  * @brief Logs a VM CALLl instruction target.
@@ -193,7 +195,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
   if (!fetch_code_word(ctx, ctx->pc, &w))
   {
-    MVM_Logf(ctx, "pc out of code: 0x%08X\n", ctx->pc);
+    MVM_LOG_E(ctx, "pc-oob", "pc out of code: 0x%08X\n", ctx->pc);
+    MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, ctx->pc, 4u);
     return false;
   }
 
@@ -240,7 +243,7 @@ bool MVM_PipStep(VMGPContext *ctx)
     {
       if (ctx->regs[rt] == 0)
       {
-        MVM_Logf(ctx, "DIVU by zero at pc=0x%X\n", ctx->pc);
+        MVM_LOG_E(ctx, "divu-zero", "DIVU by zero at pc=0x%X\n", ctx->pc);
 
         return false;
       }
@@ -539,7 +542,7 @@ bool MVM_PipStep(VMGPContext *ctx)
 
         if (imm == 0)
         {
-          MVM_Logf(ctx, "DIVi by zero at pc=0x%X\n", ctx->pc);
+          MVM_LOG_E(ctx, "divi-zero", "DIVi by zero at pc=0x%X\n", ctx->pc);
 
           return false;
         }
@@ -563,7 +566,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
         if (!entry)
         {
-          MVM_Logf(ctx, "LDI pool index OOB at pc=0x%X\n", ctx->pc);
+          MVM_LOG_E(ctx, "pool-oob", "LDI pool index OOB at pc=0x%X\n", ctx->pc);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, index, ctx->pc);
 
           return false;
         }
@@ -605,7 +609,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
       if ((ext >> 24) == 0x00 && !entry)
       {
-        MVM_Logf(ctx, "%s pool index OOB at pc=0x%X\n", opcode_name(op), ctx->pc);
+        MVM_LOG_E(ctx, "pool-oob", "%s pool index OOB at pc=0x%X\n", opcode_name(op), ctx->pc);
+        MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, index, ctx->pc);
 
         return false;
       }
@@ -614,7 +619,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr + 4 > ctx->mem_size)
         {
-          MVM_Logf(ctx, "LDWd addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "LDWd addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 4u);
 
           return false;
         }
@@ -625,7 +631,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr >= ctx->mem_size)
         {
-          MVM_Logf(ctx, "LDBd addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "LDBd addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 1u);
 
           return false;
         }
@@ -636,7 +643,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr >= ctx->mem_size)
         {
-          MVM_Logf(ctx, "LDBU addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "LDBU addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 1u);
 
           return false;
         }
@@ -647,7 +655,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr + 2 > ctx->mem_size)
         {
-          MVM_Logf(ctx, "LDHU addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "LDHU addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 2u);
 
           return false;
         }
@@ -658,7 +667,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr + 4 > ctx->mem_size)
         {
-          MVM_Logf(ctx, "STWd addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "STWd addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 4u);
 
           return false;
         }
@@ -670,7 +680,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr + 2 > ctx->mem_size)
         {
-          MVM_Logf(ctx, "STHd addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "STHd addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 2u);
 
           return false;
         }
@@ -682,7 +693,8 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (addr >= ctx->mem_size)
         {
-          MVM_Logf(ctx, "STBd addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx, "mem-oob", "STBd addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 1u);
 
           return false;
         }
@@ -820,7 +832,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
       if (!entry)
       {
-        MVM_Logf(ctx, "CALLl pool index OOB at pc=0x%X\n", ctx->pc);
+        MVM_LOG_E(ctx, "pool-oob", "CALLl pool index OOB at pc=0x%X\n", ctx->pc);
+        MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, index, ctx->pc);
 
         return false;
       }
@@ -1091,15 +1104,17 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     default:
     {
-      MVM_Logf(ctx,
-      "unhandled opcode 0x%02X (%s) at pc=0x%08X raw=%08X b1=%u b2=%u b3=%u\n",
-      op,
-      opcode_name(op),
-      ctx->pc,
-      w,
-      b1,
-      b2,
-      b3);
+      MVM_LOG_E(ctx,
+                    "invalid-opcode",
+                    "unhandled opcode 0x%02X (%s) at pc=0x%08X raw=%08X b1=%u b2=%u b3=%u\n",
+                    op,
+                    opcode_name(op),
+                    ctx->pc,
+                    w,
+                    b1,
+                    b2,
+                    b3);
+      MVM_EmitEvent(ctx, MVM_EVENT_INVALID_OPCODE, op, ctx->pc);
 
       return false;
     } /* End of default */
@@ -1745,6 +1760,7 @@ static const char *opcode_name(uint8_t op)
  *  Returns: See function signature.
  *  Description: Provides VM component logic.
  *********************************************************************************************************************/
+#if (MVM_MAX_LOG_LEVEL >= 4U)
 static uint32_t stack_arg0(const VMGPContext *ctx)
 {
   uint32_t arg0 = 0;
@@ -1753,6 +1769,7 @@ static uint32_t stack_arg0(const VMGPContext *ctx)
 
   return arg0;
 } /* End of stack_arg0 */
+#endif
 
 /**********************************************************************************************************************
  *  Name: log_vm_call
@@ -1765,34 +1782,42 @@ static uint32_t stack_arg0(const VMGPContext *ctx)
  *********************************************************************************************************************/
 static void log_vm_call(VMGPContext *ctx, uint32_t call_site, uint32_t index, const VMGPPoolEntry *e)
 {
+#if (MVM_MAX_LOG_LEVEL >= 4U)
   if (e->type == 0x02)
   {
-    MVM_Logf(ctx,
-    "[vm-call %02u] pc=0x%08X CALLl pool[%u] import=%s sp=%08X stk0=%08X p0=%08X p1=%08X p2=%08X p3=%08X r0=%08X\n",
-    ctx->logged_calls + 1,
-    call_site,
-    index,
-    MVM_GetVmgpImportName(ctx, index),
-    ctx->regs[VM_REG_SP],
-    stack_arg0(ctx),
-    ctx->regs[VM_REG_P0],
-    ctx->regs[VM_REG_P1],
-    ctx->regs[VM_REG_P2],
-    ctx->regs[VM_REG_P3],
-    ctx->regs[VM_REG_R0]);
+    MVM_LOG_T(ctx,
+                  "vm-call",
+                  "[vm-call %02u] pc=0x%08X CALLl pool[%u] import=%s sp=%08X stk0=%08X p0=%08X p1=%08X p2=%08X p3=%08X r0=%08X\n",
+                  ctx->logged_calls + 1,
+                  call_site,
+                  index,
+                  MVM_GetVmgpImportName(ctx, index),
+                  ctx->regs[VM_REG_SP],
+                  stack_arg0(ctx),
+                  ctx->regs[VM_REG_P0],
+                  ctx->regs[VM_REG_P1],
+                  ctx->regs[VM_REG_P2],
+                  ctx->regs[VM_REG_P3],
+                  ctx->regs[VM_REG_R0]);
   }
   else
   {
-    MVM_Logf(ctx,
-    "[vm-call %02u] pc=0x%08X CALLl pool[%u] type=0x%02X(%s) value=0x%08X aux=0x%06X\n",
-    ctx->logged_calls + 1,
-    call_site,
-    index,
-    e->type,
-    MVM_GetVmgpPoolTypeName(e->type),
-    e->value,
-    e->aux24);
+    MVM_LOG_T(ctx,
+                  "vm-call",
+                  "[vm-call %02u] pc=0x%08X CALLl pool[%u] type=0x%02X(%s) value=0x%08X aux=0x%06X\n",
+                  ctx->logged_calls + 1,
+                  call_site,
+                  index,
+                  e->type,
+                  MVM_GetVmgpPoolTypeName(e->type),
+                  e->value,
+                  e->aux24);
   }
+#else
+  (void)call_site;
+  (void)index;
+  (void)e;
+#endif
 
   ctx->logged_calls++;
 } /* End of log_vm_call */
@@ -1808,17 +1833,22 @@ static void log_vm_call(VMGPContext *ctx, uint32_t call_site, uint32_t index, co
  *********************************************************************************************************************/
 static void log_syscall(VMGPContext *ctx, uint8_t op)
 {
+#if (MVM_MAX_LOG_LEVEL >= 4U)
   uint32_t argc = (op == OP_SYSCALL0) ? 0u : (uint32_t)(op - OP_SYSCALL0);
-  MVM_Logf(ctx,
-  "[syscall %02u] pc=0x%08X %s argc=%u p0=%08X p1=%08X p2=%08X p3=%08X\n",
-  ctx->logged_calls + 1,
-  ctx->pc,
-  opcode_name(op),
-  argc,
-  ctx->regs[VM_REG_P0],
-  ctx->regs[VM_REG_P1],
-  ctx->regs[VM_REG_P2],
-  ctx->regs[VM_REG_P3]);
+  MVM_LOG_T(ctx,
+                "syscall",
+                "[syscall %02u] pc=0x%08X %s argc=%u p0=%08X p1=%08X p2=%08X p3=%08X\n",
+                ctx->logged_calls + 1,
+                ctx->pc,
+                opcode_name(op),
+                argc,
+                ctx->regs[VM_REG_P0],
+                ctx->regs[VM_REG_P1],
+                ctx->regs[VM_REG_P2],
+                ctx->regs[VM_REG_P3]);
+#else
+  (void)op;
+#endif
   ctx->logged_calls++;
 } /* End of log_syscall */
 

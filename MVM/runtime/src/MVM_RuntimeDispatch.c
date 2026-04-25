@@ -42,6 +42,8 @@ bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index)
   const char *name = MVM_GetVmgpImportName(ctx, pool_index);
   bool bHandled = false;
 
+  MVM_EmitEvent(ctx, MVM_EVENT_IMPORT_CALL, pool_index, 0u);
+
   bHandled = MVM_lTryHostSyscall(ctx, name) ||
              MVM_HandleRuntimeStream(ctx, name) ||
              MVM_HandleRuntimeDecompress(ctx, name) ||
@@ -50,6 +52,8 @@ bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index)
 
   if (!bHandled)
   {
+    MVM_LOG_W(ctx, "missing-syscall", "unhandled import pool[%u] name=%s\n", pool_index, name ? name : "<null>");
+    MVM_EmitEvent(ctx, MVM_EVENT_MISSING_SYSCALL, pool_index, 0u);
     ctx->regs[VM_REG_R0] = 0;
   }
 

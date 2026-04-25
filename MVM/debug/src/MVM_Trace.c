@@ -81,7 +81,7 @@ static bool MVM_lRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_log
     return false;
   }
 
-  MVM_Logf(ctx, "=== execution trace (first %u MVM/system calls) ===\n", max_logged_calls);
+  MVM_LOG_T(ctx, "trace-start", "=== execution trace (first %u MVM/system calls) ===\n", max_logged_calls);
 
   while (ctx->steps < max_steps && ctx->logged_calls < max_logged_calls && !ctx->halted)
   {
@@ -93,15 +93,16 @@ static bool MVM_lRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_log
     }
   } /* End of loop */
 
-  MVM_Logf(ctx, "=== stop ===\n");
-  MVM_Logf(ctx,
-               "steps=%u pc=0x%08X logged_calls=%u heap_cur=0x%08X r0=0x%08X\n",
-               ctx->steps,
-               ctx->pc,
-               ctx->logged_calls,
-               ctx->heap_cur,
-               ctx->regs[VM_REG_R0]);
-  MVM_Logf(ctx, "state=%u error=%u\n", (uint32_t)ctx->state, (uint32_t)ctx->last_error);
+  MVM_LOG_T(ctx, "trace-stop", "=== stop ===\n");
+  MVM_LOG_T(ctx,
+                "trace-stop",
+                "steps=%u pc=0x%08X logged_calls=%u heap_cur=0x%08X r0=0x%08X\n",
+                ctx->steps,
+                ctx->pc,
+                ctx->logged_calls,
+                ctx->heap_cur,
+                ctx->regs[VM_REG_R0]);
+  MVM_LOG_T(ctx, "trace-stop", "state=%u error=%u\n", (uint32_t)ctx->state, (uint32_t)ctx->last_error);
   bResult = true;
 
   return bResult;

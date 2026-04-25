@@ -156,6 +156,12 @@ Done when:
 
 ## Phase 5: Logger And Events
 
+Status: done. The VM now uses level-gated logging macros with a compile-time
+max log level, the platform logger receives level/module/event/message
+metadata, and structured VM events are emitted for lifecycle transitions,
+import dispatch, missing syscalls, invalid opcodes, memory faults, resource
+open/read activity, frame-ready notifications, and sound requests.
+
 Purpose: make diagnostics usable without paying runtime cost when disabled.
 
 Tasks:
