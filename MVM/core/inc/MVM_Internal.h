@@ -120,6 +120,7 @@ struct MophunVM
   bool halted;                      /**< Indicates that execution has stopped. */
   MVM_tenuState state;              /**< Current VM execution state. */
   MVM_tenuError last_error;         /**< Last fatal execution error. */
+  MVM_tstMemoryConfig memory_config; /**< Host-supplied static memory buffers. */
 
   const MophunSyscall *syscalls;    /**< Registered host syscall table. */
   uint32_t syscall_count;           /**< Number of registered host syscalls. */
@@ -213,6 +214,15 @@ size_t size,
 const MophunPlatform *platform);
 
 /**
+ * @brief Initializes VM state with host platform callbacks and memory buffers.
+ */
+bool MVM_LbInitRawWithPlatformAndMemory(VMGPContext *ctx,
+const uint8_t *data,
+size_t size,
+const MophunPlatform *platform,
+const MVM_tstMemoryConfig *memory_config);
+
+/**
  * @brief Releases VM resources.
  */
 void MVM_LvidFreeRaw(VMGPContext *ctx);
@@ -228,14 +238,12 @@ bool MVM_LbRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_logged_ca
 bool MVM_LbPipStep(VMGPContext *ctx);
 
 /**
- * @brief Provides MVM_LpudtCalloc API.
+ * @brief Acquires one initialization buffer from static config.
  */
-void *MVM_LpudtCalloc(VMGPContext *ctx, size_t count, size_t size);
-
-/**
- * @brief Releases VM resources.
- */
-void MVM_LvidFreeMem(VMGPContext *ctx, void *ptr);
+void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx,
+void *buffer,
+size_t buffer_size,
+size_t required_size);
 
 /**
  * @brief Provides MVM_LvidLogf API.

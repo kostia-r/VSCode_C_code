@@ -52,18 +52,6 @@ static uint8_t *load_file(const char *path, size_t *out_size)
   return buf;
 }
 
-static void *host_calloc(void *user, size_t count, size_t size)
-{
-  (void)user;
-  return calloc(count, size);
-}
-
-static void host_free(void *user, void *ptr)
-{
-  (void)user;
-  free(ptr);
-}
-
 static int host_log(void *user, const char *message)
 {
   (void)user;
@@ -105,8 +93,13 @@ int main(int argc, char **argv)
   size_t file_size = 0;
   uint8_t *file_data;
   void *vm_storage;
+  void *guest_memory = NULL;
+  void *pool_entries = NULL;
+  void *resource_entries = NULL;
   MophunVM *vm;
   MophunPlatform platform = {0};
+  MVM_tstMemoryRequirements memory_requirements = {0};
+  MVM_tstMemoryConfig memory_config = {0};
   uint32_t max_steps = 5000000;
   uint32_t max_logged_calls = 1000;
   uint32_t step_budget = 0;
@@ -145,15 +138,53 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  platform.calloc = host_calloc;
-  platform.free = host_free;
-  platform.log = host_log;
-
-  if (!MVM_bInitWithPlatform(vm, file_data, file_size, &platform))
+  if (!MVM_bQueryMemoryRequirements(file_data, file_size, &memory_requirements))
   {
-    fprintf(stderr, "Failed to initialize VMGP context.\n");
+    fprintf(stderr, "Could not query VM memory requirements.\n");
     free(file_data);
     free(vm_storage);
+
+    return 1;
+  }
+
+  guest_memory = calloc(1u, memory_requirements.guest_memory_bytes);
+  pool_entries = calloc(1u, memory_requirements.pool_entries_bytes);
+  resource_entries = memory_requirements.resource_entries_bytes != 0u
+                   ? calloc(1u, memory_requirements.resource_entries_bytes)
+                   : NULL;
+
+  if (!guest_memory ||
+      !pool_entries ||
+      (memory_requirements.resource_entries_bytes != 0u && !resource_entries))
+  {
+    fprintf(stderr, "Could not allocate static VM memory buffers.\n");
+    free(resource_entries);
+    free(pool_entries);
+    free(guest_memory);
+    free(file_data);
+    free(vm_storage);
+
+    return 1;
+  }
+
+  memory_config.guest_memory = guest_memory;
+  memory_config.guest_memory_size = memory_requirements.guest_memory_bytes;
+  memory_config.pool_entries = pool_entries;
+  memory_config.pool_entries_size = memory_requirements.pool_entries_bytes;
+  memory_config.resource_entries = resource_entries;
+  memory_config.resource_entries_size = memory_requirements.resource_entries_bytes;
+
+  platform.log = host_log;
+
+  if (!MVM_bInitWithPlatformAndMemory(vm, file_data, file_size, &platform, &memory_config))
+  {
+    fprintf(stderr, "Failed to initialize VMGP context.\n");
+    free(resource_entries);
+    free(pool_entries);
+    free(guest_memory);
+    free(file_data);
+    free(vm_storage);
+
     return 1;
   }
 
@@ -181,6 +212,9 @@ int main(int argc, char **argv)
           (unsigned)error);
 
   MVM_vidFree(vm);
+  free(resource_entries);
+  free(pool_entries);
+  free(guest_memory);
   free(vm_storage);
   free(file_data);
   return 0;

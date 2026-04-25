@@ -97,6 +97,10 @@ Done when:
 
 ## Phase 3: Static Memory Model
 
+Status: done. The VM can now report memory requirements before init, accept
+host-supplied buffers for guest RAM/pool/resources, and fail deterministically
+with a memory error when static buffers are undersized or missing.
+
 Purpose: make RAM usage deterministic and remove hidden allocation from firmware
 builds.
 

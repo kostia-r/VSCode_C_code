@@ -27,6 +27,11 @@
 static bool MVM_LbVmgpLoadResources(VMGPContext *ctx);
 
 /**
+ * @brief Counts resource table entries in a VMGP image.
+ */
+static uint32_t MVM_Lu32VmgpCountResources(const uint8_t *data, uint32_t res_file_offset, uint32_t res_size);
+
+/**
  * @brief Builds the initial VM memory image.
  */
 static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx);
@@ -354,6 +359,62 @@ bool MVM_bVmgpParseHeader(VMGPContext *ctx)
 } /* End of MVM_bVmgpParseHeader */
 
 /**********************************************************************************************************************
+ *  Name: MVM_bQueryMemoryRequirements
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Queries static memory requirements for a VMGP image.
+ *********************************************************************************************************************/
+bool MVM_bQueryMemoryRequirements(const uint8_t *image, size_t image_size, MVM_tstMemoryRequirements *requirements)
+{
+  VMGPContext ctx;
+  uint32_t resource_count = 0;
+
+  if (!requirements)
+  {
+    return false;
+  }
+
+  memset(requirements, 0, sizeof(*requirements));
+
+  if (!image || image_size < sizeof(VMGPHeader))
+  {
+    return false;
+  }
+
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.data = image;
+  ctx.size = image_size;
+
+  if (!MVM_bVmgpParseHeader(&ctx))
+  {
+    return false;
+  }
+
+  resource_count = MVM_Lu32VmgpCountResources(ctx.data, ctx.res_file_offset, ctx.header.res_size);
+  ctx.vm_end = ctx.res_offset + ctx.header.res_size;
+  ctx.heap_base = vm_align4(ctx.vm_end);
+  ctx.heap_cur = ctx.heap_base;
+  ctx.heap_limit = ctx.heap_base + VM_HEAP_EXTRA;
+  ctx.stack_top = ctx.heap_limit + VM_STACK_EXTRA;
+  ctx.mem_size = ctx.stack_top + 0x100u;
+  requirements->guest_memory_bytes = ctx.mem_size;
+  requirements->pool_entries_bytes = (size_t)ctx.header.pool_slots * sizeof(VMGPPoolEntry);
+  requirements->resource_entries_bytes = (size_t)resource_count * sizeof(VMGPResource);
+  requirements->pool_entry_count = ctx.header.pool_slots;
+  requirements->resource_count = resource_count;
+  requirements->static_data_bytes = ctx.header.data_size;
+  requirements->bss_bytes = ctx.header.bss_size;
+  requirements->resource_bytes = ctx.header.res_size;
+  requirements->heap_bytes = VM_HEAP_EXTRA;
+  requirements->stack_bytes = ctx.stack_top - ctx.heap_limit;
+
+  return true;
+} /* End of MVM_bQueryMemoryRequirements */
+
+/**********************************************************************************************************************
  *  Name: MVM_bVmgpLoadPool
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
@@ -372,10 +433,15 @@ bool MVM_bVmgpLoadPool(VMGPContext *ctx)
     return false;
   }
 
-  ctx->pool = (VMGPPoolEntry *)MVM_LpudtCalloc(ctx, ctx->header.pool_slots, sizeof(VMGPPoolEntry));
+  ctx->pool = (VMGPPoolEntry *)MVM_LpudtAcquireInitBuffer(ctx,
+                                                          ctx->memory_config.pool_entries,
+                                                          ctx->memory_config.pool_entries_size,
+                                                          (size_t)ctx->header.pool_slots * sizeof(VMGPPoolEntry));
 
   if (!ctx->pool)
   {
+    MVM_LvidSetError(ctx, MVM_TENU_ERROR_MEMORY);
+
     return false;
   }
 
@@ -451,10 +517,15 @@ static bool MVM_LbVmgpLoadResources(VMGPContext *ctx)
     return true;
   }
 
-  ctx->resources = (VMGPResource *)MVM_LpudtCalloc(ctx, count, sizeof(VMGPResource));
+  ctx->resources = (VMGPResource *)MVM_LpudtAcquireInitBuffer(ctx,
+                                                              ctx->memory_config.resource_entries,
+                                                              ctx->memory_config.resource_entries_size,
+                                                              (size_t)count * sizeof(VMGPResource));
 
   if (!ctx->resources)
   {
+    MVM_LvidSetError(ctx, MVM_TENU_ERROR_MEMORY);
+
     return false;
   }
 
@@ -494,10 +565,15 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
   ctx->stack_top = ctx->heap_limit + VM_STACK_EXTRA;
   ctx->mem_size = ctx->stack_top + 0x100u;
 
-  ctx->mem = (uint8_t *)MVM_LpudtCalloc(ctx, ctx->mem_size, 1);
+  ctx->mem = (uint8_t *)MVM_LpudtAcquireInitBuffer(ctx,
+                                                   ctx->memory_config.guest_memory,
+                                                   ctx->memory_config.guest_memory_size,
+                                                   ctx->mem_size);
 
   if (!ctx->mem)
   {
+    MVM_LvidSetError(ctx, MVM_TENU_ERROR_MEMORY);
+
     return false;
   }
 
@@ -515,6 +591,48 @@ static bool MVM_LbVmgpBuildVmMemory(VMGPContext *ctx)
 
   return bResult;
 } /* End of MVM_LbVmgpBuildVmMemory */
+
+/**********************************************************************************************************************
+ *  Name: MVM_Lu32VmgpCountResources
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Counts resource table entries in a VMGP image.
+ *********************************************************************************************************************/
+static uint32_t MVM_Lu32VmgpCountResources(const uint8_t *data, uint32_t res_file_offset, uint32_t res_size)
+{
+  uint32_t prev = 0;
+  uint32_t count = 0;
+  uint32_t i;
+  uint32_t off = 0;
+
+  if (!data || res_size < 8u)
+  {
+    return 0;
+  }
+
+  for (i = 0; i + 4u <= res_size; i += 4u)
+  {
+    off = vm_read_u32_le(data + res_file_offset + i);
+
+    if (off == 0u)
+    {
+      break;
+    }
+
+    if (off >= res_size || off < prev)
+    {
+      break;
+    }
+
+    prev = off;
+    ++count;
+  } /* End of loop */
+
+  return count;
+} /* End of MVM_Lu32VmgpCountResources */
 
 /**********************************************************************************************************************
  *  Name: vm_file_str

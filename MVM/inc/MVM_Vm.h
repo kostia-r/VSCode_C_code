@@ -49,9 +49,40 @@ typedef enum MVM_tenuError
   MVM_TENU_ERROR_NONE = 0,       /**< No fatal error has been reported. */
   MVM_TENU_ERROR_INVALID_ARG,    /**< Host code passed an invalid argument. */
   MVM_TENU_ERROR_INIT_FAILED,    /**< VM initialization failed. */
+  MVM_TENU_ERROR_MEMORY,         /**< VM memory buffers are missing or undersized. */
   MVM_TENU_ERROR_EXECUTION,      /**< VM execution failed. */
   MVM_TENU_ERROR_WATCHDOG,       /**< Soft watchdog detected a stalled PC. */
 } MVM_tenuError;
+
+/**
+ * @brief Describes host-supplied static buffers used by the VM.
+ */
+typedef struct MVM_tstMemoryConfig
+{
+  void *guest_memory;         /**< Backing VM memory buffer. */
+  size_t guest_memory_size;   /**< Size of the guest memory buffer in bytes. */
+  void *pool_entries;         /**< Constant-pool entry storage. */
+  size_t pool_entries_size;   /**< Size of the pool entry storage in bytes. */
+  void *resource_entries;     /**< Resource metadata storage. */
+  size_t resource_entries_size; /**< Size of the resource metadata storage in bytes. */
+} MVM_tstMemoryConfig;
+
+/**
+ * @brief Describes VM memory requirements for one VMGP image.
+ */
+typedef struct MVM_tstMemoryRequirements
+{
+  size_t guest_memory_bytes;    /**< Total guest memory buffer size required. */
+  size_t pool_entries_bytes;    /**< Constant-pool storage size required. */
+  size_t resource_entries_bytes; /**< Resource metadata storage size required. */
+  uint32_t pool_entry_count;    /**< Number of constant-pool entries. */
+  uint32_t resource_count;      /**< Number of resource metadata entries. */
+  uint32_t static_data_bytes;   /**< Initial guest data section size. */
+  uint32_t bss_bytes;           /**< Guest BSS section size. */
+  uint32_t resource_bytes;      /**< Resource payload size copied into guest memory. */
+  uint32_t heap_bytes;          /**< Heap budget included in guest memory. */
+  uint32_t stack_bytes;         /**< Stack budget included in guest memory. */
+} MVM_tstMemoryRequirements;
 
 typedef struct MophunVM MophunVM;
 
@@ -88,9 +119,33 @@ size_t image_size,
 const MophunPlatform *platform);
 
 /**
+ * @brief Initializes VM state using host-supplied memory buffers.
+ */
+bool MVM_bInitWithConfig(MophunVM *vm,
+const uint8_t *image,
+size_t image_size,
+const MVM_tstMemoryConfig *memory_config);
+
+/**
+ * @brief Initializes VM state using host platform callbacks and memory buffers.
+ */
+bool MVM_bInitWithPlatformAndMemory(MophunVM *vm,
+const uint8_t *image,
+size_t image_size,
+const MophunPlatform *platform,
+const MVM_tstMemoryConfig *memory_config);
+
+/**
  * @brief Releases VM resources.
  */
 void MVM_vidFree(MophunVM *vm);
+
+/**
+ * @brief Queries the static memory required for a VMGP image.
+ */
+bool MVM_bQueryMemoryRequirements(const uint8_t *image,
+size_t image_size,
+MVM_tstMemoryRequirements *requirements);
 
 /**
  * @brief Executes at most one VM instruction without blocking.

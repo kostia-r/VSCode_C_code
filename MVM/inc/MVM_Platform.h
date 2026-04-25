@@ -19,7 +19,6 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include <stddef.h>
 #include <stdint.h>
 
 /**********************************************************************************************************************
@@ -31,12 +30,10 @@
  */
 typedef struct MophunPlatform
 {
-  void *user;                                             /**< Opaque host context passed to callbacks. */
-  void *(*calloc)(void *user, size_t count, size_t size); /**< Allocates zeroed memory. */
-  void (*free)(void *user, void *ptr);                    /**< Releases memory allocated by the host. */
-  uint32_t (*get_ticks_ms)(void *user);                   /**< Returns the host tick count in milliseconds. */
-  uint32_t (*get_random)(void *user);                     /**< Returns a host-generated random value. */
-  int (*log)(void *user, const char *message);            /**< Writes a diagnostic message. */
+  void *user;                                   /**< Opaque host context passed to callbacks. */
+  uint32_t (*get_ticks_ms)(void *user);         /**< Returns the host tick count in milliseconds. */
+  uint32_t (*get_random)(void *user);           /**< Returns a host-generated random value. */
+  int (*log)(void *user, const char *message);  /**< Writes a diagnostic message. */
 } MophunPlatform;
 
 /**********************************************************************************************************************

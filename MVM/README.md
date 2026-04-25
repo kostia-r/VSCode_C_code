@@ -30,16 +30,17 @@ changing the external integration contract.
 Host-specific runners and backend examples live outside the library tree under
 `Examples/` so embedding projects can choose their own platform glue.
 
-The VM can run with built-in desktop defaults, but embedded targets should pass
-a `MophunPlatform` to `MVM_bInitWithPlatform()`. The platform owns:
+The VM can run with built-in desktop defaults, but embedded targets should
+normally query memory first with `MVM_bQueryMemoryRequirements()` and then pass
+host-owned buffers through `MVM_bInitWithPlatformAndMemory()`. The platform
+owns:
 
-- allocation and free callbacks;
 - log output;
 - optional tick and random providers.
 
-For stricter firmware builds, define `MVM_ENABLE_DEFAULT_ALLOCATOR=0` or
-`MVM_ENABLE_DEFAULT_LOGGER=0` from the parent build and provide the
-corresponding callbacks.
+For stricter firmware builds, define `MVM_ENABLE_DEFAULT_LOGGER=0` from the
+parent build. The VM library no longer allocates dynamic memory internally, so
+host code must supply VM storage plus `MVM_tstMemoryConfig` buffers.
 
 `MophunVM` is opaque to host code. Allocate storage using
 `MVM_udtGetStorageSize()` and align it to `MVM_udtGetStorageAlign()`, then pass

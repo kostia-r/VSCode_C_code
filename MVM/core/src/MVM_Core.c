@@ -17,7 +17,6 @@
 #include "MVM_Syscalls.h"
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 /**********************************************************************************************************************
@@ -98,7 +97,7 @@ MophunVM *MVM_pudtGetVmFromStorage(void *storage, size_t storage_size)
  *********************************************************************************************************************/
 bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size)
 {
-  return MVM_LbInitRawWithPlatform(ctx, data, size, NULL);
+  return MVM_LbInitRawWithPlatformAndMemory(ctx, data, size, NULL, NULL);
 } /* End of MVM_LbInitRaw */
 
 /**********************************************************************************************************************
@@ -111,6 +110,24 @@ bool MVM_LbInitRaw(VMGPContext *ctx, const uint8_t *data, size_t size)
  *  Description: Initializes VM state.
  *********************************************************************************************************************/
 bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t size, const MophunPlatform *platform)
+{
+  return MVM_LbInitRawWithPlatformAndMemory(ctx, data, size, platform, NULL);
+} /* End of MVM_LbInitRawWithPlatform */
+
+/**********************************************************************************************************************
+ *  Name: MVM_LbInitRawWithPlatformAndMemory
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state.
+ *********************************************************************************************************************/
+bool MVM_LbInitRawWithPlatformAndMemory(VMGPContext *ctx,
+const uint8_t *data,
+size_t size,
+const MophunPlatform *platform,
+const MVM_tstMemoryConfig *memory_config)
 {
   bool bResult = false;
 
@@ -125,6 +142,10 @@ bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t siz
   {
     ctx->platform = *platform;
   }
+  if (memory_config)
+  {
+    ctx->memory_config = *memory_config;
+  }
   ctx->data = data;
   ctx->size = size;
   ctx->next_stream_handle = 0x30u;
@@ -136,7 +157,7 @@ bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t siz
   bResult = true;
 
   return bResult;
-} /* End of MVM_LbInitRawWithPlatform */
+} /* End of MVM_LbInitRawWithPlatformAndMemory */
 
 /**********************************************************************************************************************
  *  Name: MVM_bInit
@@ -149,7 +170,7 @@ bool MVM_LbInitRawWithPlatform(VMGPContext *ctx, const uint8_t *data, size_t siz
  *********************************************************************************************************************/
 bool MVM_bInit(MophunVM *vm, const uint8_t *image, size_t image_size)
 {
-  return MVM_bInitWithPlatform(vm, image, image_size, NULL);
+  return MVM_bInitWithPlatformAndMemory(vm, image, image_size, NULL, NULL);
 } /* End of MVM_bInit */
 
 /**********************************************************************************************************************
@@ -163,9 +184,41 @@ bool MVM_bInit(MophunVM *vm, const uint8_t *image, size_t image_size)
  *********************************************************************************************************************/
 bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size, const MophunPlatform *platform)
 {
+  return MVM_bInitWithPlatformAndMemory(vm, image, image_size, platform, NULL);
+} /* End of MVM_bInitWithPlatform */
+
+/**********************************************************************************************************************
+ *  Name: MVM_bInitWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state.
+ *********************************************************************************************************************/
+bool MVM_bInitWithConfig(MophunVM *vm, const uint8_t *image, size_t image_size, const MVM_tstMemoryConfig *memory_config)
+{
+  return MVM_bInitWithPlatformAndMemory(vm, image, image_size, NULL, memory_config);
+} /* End of MVM_bInitWithConfig */
+
+/**********************************************************************************************************************
+ *  Name: MVM_bInitWithPlatformAndMemory
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state.
+ *********************************************************************************************************************/
+bool MVM_bInitWithPlatformAndMemory(MophunVM *vm,
+const uint8_t *image,
+size_t image_size,
+const MophunPlatform *platform,
+const MVM_tstMemoryConfig *memory_config)
+{
   bool bResult = false;
 
-  if (!MVM_LbInitRawWithPlatform(vm, image, image_size, platform))
+  if (!MVM_LbInitRawWithPlatformAndMemory(vm, image, image_size, platform, memory_config))
   {
     MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
 
@@ -174,7 +227,10 @@ bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size
 
   if (!MVM_bVmgpParseHeader(vm) || !MVM_bVmgpLoadPool(vm))
   {
-    MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
+    if (vm->last_error == MVM_TENU_ERROR_NONE)
+    {
+      MVM_LvidSetError(vm, MVM_TENU_ERROR_INIT_FAILED);
+    }
     MVM_LvidFreeRaw(vm);
 
     return false;
@@ -183,68 +239,46 @@ bool MVM_bInitWithPlatform(MophunVM *vm, const uint8_t *image, size_t image_size
   bResult = true;
 
   return bResult;
-} /* End of MVM_bInitWithPlatform */
+} /* End of MVM_bInitWithPlatformAndMemory */
 
 /**********************************************************************************************************************
- *  Name: MVM_LpudtCalloc
+ *  Name: MVM_LpudtAcquireInitBuffer
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Provides local VM helper logic.
+ *  Description: Acquires one initialization buffer from static config.
  *********************************************************************************************************************/
-void *MVM_LpudtCalloc(VMGPContext *ctx, size_t count, size_t size)
+void *MVM_LpudtAcquireInitBuffer(VMGPContext *ctx,
+void *buffer,
+size_t buffer_size,
+size_t required_size)
 {
   void *pudtMem = NULL;
 
-  if (ctx && ctx->platform.calloc)
+  if (required_size == 0u)
   {
-    pudtMem = ctx->platform.calloc(ctx->platform.user, count, size);
+    return NULL;
+  }
+
+  (void)ctx;
+
+  if (buffer)
+  {
+    if (buffer_size < required_size)
+    {
+      return NULL;
+    }
+
+    memset(buffer, 0, required_size);
+    pudtMem = buffer;
 
     return pudtMem;
   }
 
-#if MVM_ENABLE_DEFAULT_ALLOCATOR
-  pudtMem = calloc(count, size);
-#else
-  (void)ctx;
-  (void)count;
-  (void)size;
-  pudtMem = NULL;
-#endif
-
   return pudtMem;
-} /* End of MVM_LpudtCalloc */
-
-/**********************************************************************************************************************
- *  Name: MVM_LvidFreeMem
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Releases VM resources.
- *********************************************************************************************************************/
-void MVM_LvidFreeMem(VMGPContext *ctx, void *ptr)
-{
-  if (!ptr)
-  {
-    return;
-  }
-
-  if (ctx && ctx->platform.free)
-  {
-    ctx->platform.free(ctx->platform.user, ptr);
-
-    return;
-  }
-#if MVM_ENABLE_DEFAULT_ALLOCATOR
-  free(ptr);
-#else
-  (void)ctx;
-#endif
-} /* End of MVM_LvidFreeMem */
+} /* End of MVM_LpudtAcquireInitBuffer */
 
 /**********************************************************************************************************************
  *  Name: MVM_LvidLogf
@@ -334,9 +368,6 @@ void MVM_LvidFreeRaw(VMGPContext *ctx)
     return;
   }
 
-  MVM_LvidFreeMem(ctx, ctx->pool);
-  MVM_LvidFreeMem(ctx, ctx->resources);
-  MVM_LvidFreeMem(ctx, ctx->mem);
   memset(ctx, 0, sizeof(*ctx));
 } /* End of MVM_LvidFreeRaw */
 

@@ -18,10 +18,8 @@
 /**********************************************************************************************************************
  *  GLOBAL MACROS
  *********************************************************************************************************************/
+#ifndef MVM_DEFAULT_MAX_STREAMS
 #define MVM_DEFAULT_MAX_STREAMS                                 (16U)
-#endif
-#ifndef MVM_ENABLE_DEFAULT_ALLOCATOR
-#define MVM_ENABLE_DEFAULT_ALLOCATOR                            (1U)
 #endif
 #ifndef MVM_ENABLE_DEFAULT_LOGGER
 #define MVM_ENABLE_DEFAULT_LOGGER                               (1U)
@@ -38,9 +36,6 @@
  * Integration-time configuration belongs here. Keep defaults portable; platform
  * backends may override these from their build system before including MVM/vm.mk.
  */
-
-#ifndef MVM_DEFAULT_MAX_STREAMS
-
 /**********************************************************************************************************************
  *  END of header file guard
  *********************************************************************************************************************/
