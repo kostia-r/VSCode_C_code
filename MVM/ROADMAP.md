@@ -295,26 +295,49 @@ Done when:
 
 ## Phase 9: Windows Platform Backend
 
-Purpose: run games interactively on desktop, not only trace them.
+Purpose: run games interactively on desktop, not only trace them, and push at
+least one target game to a genuinely playable state.
 
 Tasks:
 
 - Create Windows backend under `Examples/platform/win32`.
-- Implement:
-  - logging;
-  - ticks/random;
-  - input;
-  - screen/framebuffer;
-  - basic palette/graphics stubs;
-  - stream/resource access;
-  - audio stub.
+- Use one practical backend foundation such as SDL2 for:
+  - window creation;
+  - framebuffer presentation;
+  - keyboard input;
+  - minimal audio output.
+- Build one host event loop around the bounded VM execution API.
 - Connect keyboard input to `vGetButtonData` / `vTestKey`.
+- Implement framebuffer present through `vFlipScreen`.
+- Implement basic 2D drawing/import behavior needed for menu/UI flow:
+  - `vClearScreen`;
+  - `vFillRect`;
+  - `vDrawLine`;
+  - palette operations;
+  - clip window and transfer mode handling.
+- Implement the object/sprite drawing path needed by the current game:
+  - `vDrawObject`;
+  - visible map/sprite update flow;
+  - palette-aware rendering.
+- Implement enough text/font behavior for menu and HUD readability:
+  - `vSetActiveFont`;
+  - `vPrint`.
+- Add minimal audio handling for `vPlayResource`, even if the first version is
+  limited or stub-backed.
+- Run one playability pass against the target game:
+  - start screen;
+  - menu flow;
+  - gameplay input;
+  - visible rendering correctness;
+  - basic sound requests.
 - Keep `Src/main.c` as a thin runner or move it to examples.
 
 Done when:
 
-- The target game reaches visible/menu state through our backend.
-- Input can be injected or read from keyboard.
+- The target game reaches visible/menu state through the backend.
+- Input works through the real keyboard path.
+- Graphics are rendered through the backend instead of log-only fallbacks.
+- At least one target game can be played at a basic level on desktop.
 
 ## Phase 10: Persistent Data And Snapshot Support
 
