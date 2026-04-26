@@ -26,18 +26,27 @@
  *  GLOBAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
 
+#define MVM_DEVICE_CAP_VIDEO                                    (1UL << 0U)
+#define MVM_DEVICE_CAP_COLOR                                    (1UL << 2U)
+#define MVM_DEVICE_CAP_SOUND                                    (1UL << 3U)
+#define MVM_DEVICE_CAP_SYSTEM                                   (1UL << 4U)
+
 /**
  * @brief Describes one target device profile exposed to VM code.
  */
 typedef struct MpnDevProfile_t
 {
-  const char *name;       /**< Human-readable profile name used by host-side profile selection. */
-  uint16_t screen_width;  /**< Display width in pixels. */
-  uint16_t screen_height; /**< Display height in pixels. */
-  uint16_t color_mode;    /**< Encoded display color mode reported by device capability imports. */
-  uint16_t sound_flags;   /**< Encoded sound capability flags reported to guest code. */
-  uint16_t system_flags;  /**< Encoded system capability flags reported to guest code. */
-  uint32_t device_id;     /**< Stable device identifier reported to the guest runtime. */
+  const char *name;             /**< Human-readable profile name used by host-side profile selection. */
+  uint16_t screen_width;        /**< Display width in pixels. */
+  uint16_t screen_height;       /**< Display height in pixels. */
+  uint16_t color_mode;          /**< Encoded display color mode reported by device capability imports. */
+  uint16_t sound_flags;         /**< Encoded sound capability flags reported to guest code. */
+  uint16_t system_flags;        /**< Encoded system capability flags reported to guest code. */
+  uint16_t key_layout;          /**< Encoded key-layout identifier used by input-facing integration. */
+  uint16_t frame_interval_ms;   /**< Default frame/tick interval used by timing fallbacks. */
+  uint32_t device_id;           /**< Stable guest-visible device identifier. */
+  uint32_t memory_limit_bytes;  /**< Reported or assumed device-side working-memory limit. */
+  uint32_t supported_caps;      /**< Bit-mask of capability queries supported by this profile. */
 } MpnDevProfile_t;
 
 /**********************************************************************************************************************

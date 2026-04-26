@@ -69,8 +69,54 @@ static const MpnDevProfile_t MVM_lDevProfiles[] =
     /* Encoded system capability flags reported to the guest. */
     .system_flags = 0x0025U,
 
+    /* Encoded keypad/layout identifier used by input-facing integration. */
+    .key_layout = 0x0001U,
+
+    /* Default frame interval used by timing fallbacks. */
+    .frame_interval_ms = 16U,
+
     /* Device identifier reported through the capability query API. */
     .device_id = (((uint32_t)1U << 16) | 3U),
+
+    /* Assumed working-memory limit for profile-level policy and future save checks. */
+    .memory_limit_bytes = 0u,
+
+    /* Capability queries supported by this profile. */
+    .supported_caps = MVM_DEVICE_CAP_VIDEO | MVM_DEVICE_CAP_COLOR | MVM_DEVICE_CAP_SOUND | MVM_DEVICE_CAP_SYSTEM,
+  },
+  {
+    /* Human-readable profile identifier used by the host integration. */
+    .name = "SE_T610",
+
+    /* Visible framebuffer width reported to vGetCaps. */
+    .screen_width = 128U,
+
+    /* Visible framebuffer height reported to vGetCaps. */
+    .screen_height = 160U,
+
+    /* Encoded display capability flags reported to the guest. */
+    .color_mode = 0x000FU,
+
+    /* Encoded audio capability flags reported to the guest. */
+    .sound_flags = 0x00A7U,
+
+    /* Encoded system capability flags reported to the guest. */
+    .system_flags = 0x0025U,
+
+    /* Encoded keypad/layout identifier used by input-facing integration. */
+    .key_layout = 0x0001U,
+
+    /* Default frame interval used by timing fallbacks. */
+    .frame_interval_ms = 16U,
+
+    /* Device identifier reported through the capability query API. */
+    .device_id = (((uint32_t)2U << 16) | 3U),
+
+    /* Assumed working-memory limit for profile-level policy and future save checks. */
+    .memory_limit_bytes = 0u,
+
+    /* Capability queries supported by this profile. */
+    .supported_caps = MVM_DEVICE_CAP_VIDEO | MVM_DEVICE_CAP_COLOR | MVM_DEVICE_CAP_SOUND | MVM_DEVICE_CAP_SYSTEM,
   }
 };
 

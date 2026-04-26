@@ -263,6 +263,11 @@ Done when:
 
 ## Phase 8: Device Profiles
 
+Status: done. The VM now exposes a stable device-profile model, ships with
+SonyEricsson T310 and T610 profiles, selects profiles through the normal init
+path, and resolves supported `vGetCaps` queries from profile data instead of
+hardcoded device constants in runtime logic.
+
 Purpose: remove hardcoded T310 capability values from runtime logic and make
 profile selection a stable part of integration.
 
@@ -277,14 +282,14 @@ Tasks:
   - memory limits;
   - audio capabilities;
   - supported caps.
-- Implement SonyEricsson T310 profile first.
+- Implement SonyEricsson T310 and T610 profiles first.
 - Make `vGetCaps` profile-driven.
 - Keep profile identity stable so later save/snapshot data can be tied to the
   active profile.
 
 Done when:
 
-- T310 values are not hardcoded in syscall handlers.
+- T310/T610 values are not hardcoded in syscall handlers.
 - Adding another SonyEricsson profile does not touch PIP/core.
 - Host can select one profile without patching runtime logic.
 

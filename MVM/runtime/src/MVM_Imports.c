@@ -163,7 +163,7 @@ MVM_IMPORT_PROTO(vDrawObject);             /* Partially implemented */
 MVM_IMPORT_PROTO(vFillRect);               /* Partially implemented */
 MVM_IMPORT_PROTO(vFlipScreen);             /* Partially implemented */
 MVM_IMPORT_PROTO(vGetButtonData);          /* Partially implemented */
-MVM_IMPORT_PROTO(vGetCaps);                /* Partially implemented */
+MVM_IMPORT_PROTO(vGetCaps);                /* Fully implemented */
 MVM_IMPORT_PROTO(vGetPaletteEntry);        /* Partially implemented */
 MVM_IMPORT_PROTO(vGetRandom);              /* Fully implemented */
 MVM_IMPORT_PROTO(vGetTickCount);           /* Fully implemented */
@@ -2631,7 +2631,9 @@ MVM_IMPORT_IMPL(vGetCaps)
   query = ctx->regs[VM_REG_P0];
   out = ctx->regs[VM_REG_P1];
 
-  if (query == 0u && MVM_RuntimeMemRangeOk(ctx, out, 8u))
+  if ((profile->supported_caps & MVM_DEVICE_CAP_VIDEO) != 0u &&
+      query == 0u &&
+      MVM_RuntimeMemRangeOk(ctx, out, 8u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 8u);
     vm_write_u16_le(ctx->mem + out + 2u, 8u);
@@ -2639,19 +2641,25 @@ MVM_IMPORT_IMPL(vGetCaps)
     vm_write_u16_le(ctx->mem + out + 6u, profile->screen_height);
     result = 1u;
   }
-  else if (query == 2u && MVM_RuntimeMemRangeOk(ctx, out, 4u))
+  else if ((profile->supported_caps & MVM_DEVICE_CAP_COLOR) != 0u &&
+           query == 2u &&
+           MVM_RuntimeMemRangeOk(ctx, out, 4u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 4u);
     vm_write_u16_le(ctx->mem + out + 2u, profile->color_mode);
     result = 1u;
   }
-  else if (query == 3u && MVM_RuntimeMemRangeOk(ctx, out, 4u))
+  else if ((profile->supported_caps & MVM_DEVICE_CAP_SOUND) != 0u &&
+           query == 3u &&
+           MVM_RuntimeMemRangeOk(ctx, out, 4u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 4u);
     vm_write_u16_le(ctx->mem + out + 2u, profile->sound_flags);
     result = 1u;
   }
-  else if (query == 4u && MVM_RuntimeMemRangeOk(ctx, out, 12u))
+  else if ((profile->supported_caps & MVM_DEVICE_CAP_SYSTEM) != 0u &&
+           query == 4u &&
+           MVM_RuntimeMemRangeOk(ctx, out, 12u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 12u);
     vm_write_u16_le(ctx->mem + out + 2u, profile->system_flags);
@@ -2693,7 +2701,14 @@ MVM_IMPORT_IMPL(vGetTickCount)
   }
   else
   {
-    ctx->tick_count += 16u;
+    if (ctx->device_profile && ctx->device_profile->frame_interval_ms != 0u)
+    {
+      ctx->tick_count += ctx->device_profile->frame_interval_ms;
+    }
+    else
+    {
+      ctx->tick_count += 16u;
+    }
   }
 
   ctx->regs[VM_REG_R0] = ctx->tick_count;
