@@ -293,7 +293,30 @@ Done when:
 - Adding another SonyEricsson profile does not touch PIP/core.
 - Host can select one profile without patching runtime logic.
 
-## Phase 9: Persistent Data And Snapshot Support
+## Phase 9: Windows Platform Backend
+
+Purpose: run games interactively on desktop, not only trace them.
+
+Tasks:
+
+- Create Windows backend under `Examples/platform/win32`.
+- Implement:
+  - logging;
+  - ticks/random;
+  - input;
+  - screen/framebuffer;
+  - basic palette/graphics stubs;
+  - stream/resource access;
+  - audio stub.
+- Connect keyboard input to `vGetButtonData` / `vTestKey`.
+- Keep `Src/main.c` as a thin runner or move it to examples.
+
+Done when:
+
+- The target game reaches visible/menu state through our backend.
+- Input can be injected or read from keyboard.
+
+## Phase 10: Persistent Data And Snapshot Support
 
 Purpose: support game progress persistence and, later, optional full VM
 suspend/resume.
@@ -334,29 +357,6 @@ Done when:
 - Host can restore one persistent record before game start.
 - Snapshot support is either implemented with explicit limits or documented as
   a separate optional layer.
-
-## Phase 10: Windows Platform Backend
-
-Purpose: run games interactively on desktop, not only trace them.
-
-Tasks:
-
-- Create Windows backend under `Examples/platform/win32`.
-- Implement:
-  - logging;
-  - ticks/random;
-  - input;
-  - screen/framebuffer;
-  - basic palette/graphics stubs;
-  - stream/resource access;
-  - audio stub.
-- Connect keyboard input to `vGetButtonData` / `vTestKey`.
-- Keep `Src/main.c` as a thin runner or move it to examples.
-
-Done when:
-
-- The target game reaches visible/menu state through our backend.
-- Input can be injected or read from keyboard.
 
 ## Phase 11: Game Corpus And Regression Runner
 
@@ -519,6 +519,7 @@ Measurements to add:
 6. Finish device profiles and make `vGetCaps` fully profile-driven.
 7. Add persistent-data export/import and define snapshot boundaries.
 8. Build Windows platform backend and get at least one game running with real graphics/input/audio flow.
-9. Run game corpus and fill missing APIs.
-10. Make config externalizable for submodule-style integration.
-11. Start minimal MCU port.
+9. Add persistent-data export/import and define snapshot boundaries.
+10. Run game corpus and fill missing APIs.
+11. Make config externalizable for submodule-style integration.
+12. Start minimal MCU port.
