@@ -45,10 +45,7 @@ bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index)
   MVM_EmitEvent(ctx, MVM_EVENT_IMPORT_CALL, pool_index, 0u);
 
   bHandled = MVM_lTryHostSyscall(ctx, name) ||
-             MVM_HandleRuntimeStream(ctx, name) ||
-             MVM_HandleRuntimeDecompress(ctx, name) ||
-             MVM_HandleRuntimeHeap(ctx, name) ||
-             MVM_HandleRuntimeStrings(ctx, name);
+             MVM_HandleImport(ctx, name);
 
   if (!bHandled)
   {

@@ -21,6 +21,7 @@
 
 #include "MVM_Cfg.h"
 #include "MVM_BuildCfg.h"
+#include "MVM_Imports.h"
 #include "MVM_VmgpDebug.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,6 +33,7 @@
 
 #define VMGP_MAX_REGS                                           (32U)
 #define VMGP_MAX_STREAMS                                        (16U)
+#define VMGP_MAX_SPRITE_SLOTS                                   (255U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
 #define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
@@ -68,7 +70,41 @@ typedef struct VMGPStream
   uint32_t size;            /**< Stream size in bytes. */
   uint32_t pos;             /**< Current read position in bytes. */
   uint32_t resource_id;     /**< Backing resource identifier. */
+  uint32_t mode;            /**< Open mode flags passed by the guest. */
 } VMGPStream;
+
+/**
+ * @brief Tracks one configured sprite slot.
+ */
+typedef struct VMGPSpriteSlot
+{
+  bool used;                /**< Indicates whether the slot currently references one sprite. */
+  uint32_t sprite_addr;     /**< Guest pointer to one SPRITE header. */
+  int16_t x;                /**< Horizontal sprite position in pixels. */
+  int16_t y;                /**< Vertical sprite position in pixels. */
+} VMGPSpriteSlot;
+
+/**
+ * @brief Stores one decoded tilemap state snapshot.
+ */
+typedef struct VMGPMapState
+{
+  bool valid;               /**< Indicates whether one tilemap is currently active. */
+  uint8_t flags;            /**< Tilemap flags copied from the guest header. */
+  uint8_t format;           /**< Tilemap format copied from the guest header. */
+  uint8_t width;            /**< Tile count along the X axis. */
+  uint8_t height;           /**< Tile count along the Y axis. */
+  uint8_t animation_speed;  /**< Animation speed copied from the guest header. */
+  uint8_t animation_count;  /**< Number of animation frames in the guest header. */
+  uint8_t animation_active; /**< Active animation frame index. */
+  int16_t x_pan;            /**< Horizontal tilemap pan value. */
+  int16_t y_pan;            /**< Vertical tilemap pan value. */
+  int16_t x_pos;            /**< Horizontal screen offset in pixels. */
+  int16_t y_pos;            /**< Vertical screen offset in pixels. */
+  uint32_t header_addr;     /**< Guest pointer to the original MAP_HEADER block. */
+  uint32_t map_data_addr;   /**< Guest pointer to the tile data array. */
+  uint32_t tile_data_addr;  /**< Guest pointer to the tile sprite atlas data. */
+} VMGPMapState;
 
 /**
  * @brief Stores the complete mutable VM execution context.
@@ -116,6 +152,21 @@ struct MpnVM_t
 
   VMGPStream streams[VMGP_MAX_STREAMS]; /**< Open stream table. */
   uint32_t next_stream_handle;      /**< Next stream handle to allocate. */
+  uint32_t active_font;             /**< Guest pointer to the currently selected font. */
+  uint32_t previous_font;           /**< Guest pointer to the previously selected font. */
+  uint32_t fg_color;                /**< Current foreground color in guest encoding. */
+  uint32_t bg_color;                /**< Current background color in guest encoding. */
+  uint32_t transfer_mode;           /**< Current blit/text transfer mode. */
+  uint16_t clip_x0;                 /**< Current clip window left edge. */
+  uint16_t clip_y0;                 /**< Current clip window top edge. */
+  uint16_t clip_x1;                 /**< Current clip window right edge. */
+  uint16_t clip_y1;                 /**< Current clip window bottom edge. */
+  uint32_t palette_entries[256];    /**< Current palette state in guest encoding. */
+  uint32_t clear_color;             /**< Last clear-screen color. */
+  uint32_t button_state;            /**< Current polled button bit-mask. */
+  VMGPSpriteSlot sprite_slots[VMGP_MAX_SPRITE_SLOTS]; /**< Current sprite-slot table. */
+  uint32_t sprite_slot_count;       /**< Number of sprite slots configured by the guest. */
+  VMGPMapState map_state;           /**< Current tilemap state used by map imports. */
 
   uint32_t regs[VMGP_MAX_REGS];     /**< Architectural register file. */
   uint32_t pc;                      /**< Program counter. */
@@ -279,26 +330,6 @@ bool MVM_RuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size)
  * @brief Measures one bounded VM string length.
  */
 uint32_t MVM_RuntimeStrLen(const uint8_t *s, size_t max_len);
-
-/**
- * @brief Handles a VM runtime import group.
- */
-bool MVM_HandleRuntimeStream(VMGPContext *ctx, const char *name);
-
-/**
- * @brief Handles a VM runtime import group.
- */
-bool MVM_HandleRuntimeDecompress(VMGPContext *ctx, const char *name);
-
-/**
- * @brief Handles a VM runtime import group.
- */
-bool MVM_HandleRuntimeHeap(VMGPContext *ctx, const char *name);
-
-/**
- * @brief Handles a VM runtime import group.
- */
-bool MVM_HandleRuntimeStrings(VMGPContext *ctx, const char *name);
 
 /**********************************************************************************************************************
  *  GLOBAL INLINE FUNCTIONS

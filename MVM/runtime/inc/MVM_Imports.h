@@ -2,43 +2,34 @@
  *  FILE DESCRIPTION
  *  -------------------------------------------------------------------------------------------------------------------
  *          Project:  Mophun
- *             File:  MVM_Device.h
- *           Module:  MVM_Inc
+ *             File:  MVM_Imports.h
+ *           Module:  MVM_Runtime
  *           Target:  Portable C
- *      Description:  Public device profile definitions exposed to VM-facing code.
+ *      Description:  Internal VM import binding entry used by the runtime dispatcher.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
  *  Header file guard
  *********************************************************************************************************************/
 
-#ifndef MVM_DEVICE_H
-#define MVM_DEVICE_H
+#ifndef MVM_IMPORTS_H
+#define MVM_IMPORTS_H
 
 /**********************************************************************************************************************
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include <stddef.h>
-#include <stdint.h>
+#include "MVM_Types.h"
+#include <stdbool.h>
 
 /**********************************************************************************************************************
- *  GLOBAL DATA TYPES AND STRUCTURES
+ *  GLOBAL FUNCTIONS PROTOTYPES
  *********************************************************************************************************************/
 
 /**
- * @brief Describes one target device profile exposed to VM code.
+ * @brief Dispatches one imported VM symbol to the built-in import layer.
  */
-typedef struct MpnDevProfile_t
-{
-  const char *name;       /**< Human-readable profile name used by host-side profile selection. */
-  uint16_t screen_width;  /**< Display width in pixels. */
-  uint16_t screen_height; /**< Display height in pixels. */
-  uint16_t color_mode;    /**< Encoded display color mode reported by device capability imports. */
-  uint16_t sound_flags;   /**< Encoded sound capability flags reported to guest code. */
-  uint16_t system_flags;  /**< Encoded system capability flags reported to guest code. */
-  uint32_t device_id;     /**< Stable device identifier reported to the guest runtime. */
-} MpnDevProfile_t;
+bool MVM_HandleImport(MpnVM_t *vm, const char *name);
 
 /**********************************************************************************************************************
  *  END of header file guard
@@ -47,5 +38,5 @@ typedef struct MpnDevProfile_t
 #endif
 
 /**********************************************************************************************************************
- *  END OF FILE MVM_Device.h
+ *  END OF FILE MVM_Imports.h
  *********************************************************************************************************************/

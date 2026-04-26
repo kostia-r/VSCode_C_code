@@ -105,6 +105,36 @@ generic platform stubs, frame presentation, and sound requests. This makes it
 possible to trace VM-to-platform interaction through the same logger path
 instead of mixing in ad-hoc prints.
 
+Phase 6 import/platform modeling is now exposed through `MVM_Imports.h`.
+Host code can query the built-in import catalog and inspect, for each known
+VMGP import:
+
+- category;
+- guest-visible call model;
+- implementation status;
+- memory/blocking flags;
+- documented default stub return value;
+- short implementation note.
+
+The current contract is:
+
+- imports dispatched through `MVM_HandleRuntimeImportCall()` are guest requests
+  identified by VMGP import name, not direct host function pointers;
+- VM-owned imports stay inside the library (`streams`, `decompress`, `memory`,
+  `strings`);
+- platform-owned imports are bound in `Config/MVM_Lcfg.c` through the built-in
+  syscall table and may be replaced there by a real backend;
+- guest pointers are VM-memory offsets, not host pointers, and must not be
+  retained by host callbacks after the call returns;
+- callbacks marked non-blocking should not wait on slow host work;
+- asynchronous requests such as `vPlayResource` should enqueue or signal work
+  instead of blocking the caller.
+
+The default integration currently keeps host replacement at compile/integration
+time through `Config/MVM_Lcfg.c` rather than through a public runtime
+registration API. Missing imports are still reported deterministically through
+`MVM_EVENT_MISSING_SYSCALL` and warning logs.
+
 For stricter firmware builds, define `MVM_ENABLE_DEFAULT_LOGGER=0` from the
 parent build. The VM library no longer allocates dynamic memory internally.
 Instead, it carves guest RAM, pool metadata, and resource metadata from the

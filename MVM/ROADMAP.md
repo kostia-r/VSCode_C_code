@@ -194,6 +194,12 @@ Done when:
 
 ## Phase 6: Syscall And Platform Model
 
+Status: done. The VM now exposes a public import/syscall contract model through
+`MVM_Imports.h`, categorizes known imports by subsystem and guest-visible call
+model, documents implementation status and default stub return values, and
+keeps the replacement boundary explicit between VM-owned runtime imports and
+platform-owned imports bound in `Config/MVM_Lcfg.c`.
+
 Purpose: define a clean contract between game imports, VM runtime, and host
 platform backends.
 
@@ -218,36 +224,42 @@ Tasks:
   - unsupported/stub.
 - Define callback blocking rules.
 - Define ownership rules for buffers and pointers.
-- Keep host syscall override registration.
+- Keep host/platform import replacement at the integration-config boundary.
 - Add default SDK stubs with documented return values.
 
 Done when:
 
 - Every known SDK syscall has an entry and status.
 - Missing syscalls are reported deterministically.
-- Host can replace any syscall implementation.
+- Host can replace any platform-owned import implementation through the
+  integration config.
 
-## Phase 7: SDK Catalog
+## Phase 7: SDK Coverage And Import Documentation
 
-Purpose: make runtime completeness measurable.
+Status: done. The official SDK documentation remains the canonical API source,
+while the runtime import layer now carries one handler per import together with
+short SDK-based contract comments and explicit implementation status in the
+source file.
+
+Purpose: make runtime completeness measurable without maintaining one duplicated
+catalog separate from the SDK.
 
 Tasks:
 
-- Extract syscall names, signatures, and descriptions from official SDK docs.
-- Create a machine-readable syscall catalog.
-- Add status per syscall:
+- Extract import names, signatures, and intent from official SDK docs.
+- Keep SDK-based contract comments above import handlers.
+- Mark each import in code as:
   - implemented;
   - partial;
-  - stub;
-  - unknown;
-  - not applicable.
-- Link runtime implementation files to catalog entries.
-- Generate or maintain a human-readable table.
+  - stub.
+- Keep the import binding layer centralized so implementation coverage is
+  visible from one place.
+- Use game import dumps against `MVM_Imports.c` to identify missing APIs.
 
 Done when:
 
 - We can answer "which SDK APIs are implemented?" from the repo.
-- New games can report missing APIs against the catalog.
+- New games can report missing APIs against the import binding layer.
 
 ## Phase 8: Device Profiles
 

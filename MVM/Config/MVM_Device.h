@@ -2,35 +2,43 @@
  *  FILE DESCRIPTION
  *  -------------------------------------------------------------------------------------------------------------------
  *          Project:  Mophun
- *             File:  MVM_Trace.h
- *           Module:  MVM_Inc
+ *             File:  MVM_Device.h
+ *           Module:  MVM_Config
  *           Target:  Portable C
- *      Description:  Public tracing and execution-log API for VM debugging.
+ *      Description:  Internal device profile definitions used by the integration configuration layer.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
  *  Header file guard
  *********************************************************************************************************************/
 
-#ifndef MVM_TRACE_H
-#define MVM_TRACE_H
+#ifndef MVM_DEVICE_H
+#define MVM_DEVICE_H
 
 /**********************************************************************************************************************
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include "MVM_Types.h"
-#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /**********************************************************************************************************************
- *  GLOBAL FUNCTIONS PROTOTYPES
+ *  GLOBAL DATA TYPES AND STRUCTURES
  *********************************************************************************************************************/
 
 /**
- * @brief Runs traced VM execution.
+ * @brief Describes one target device profile exposed to VM code.
  */
-bool MVM_RunTrace(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls);
+typedef struct MpnDevProfile_t
+{
+  const char *name;       /**< Human-readable profile name used by host-side profile selection. */
+  uint16_t screen_width;  /**< Display width in pixels. */
+  uint16_t screen_height; /**< Display height in pixels. */
+  uint16_t color_mode;    /**< Encoded display color mode reported by device capability imports. */
+  uint16_t sound_flags;   /**< Encoded sound capability flags reported to guest code. */
+  uint16_t system_flags;  /**< Encoded system capability flags reported to guest code. */
+  uint32_t device_id;     /**< Stable device identifier reported to the guest runtime. */
+} MpnDevProfile_t;
 
 /**********************************************************************************************************************
  *  END of header file guard
@@ -39,5 +47,5 @@ bool MVM_RunTrace(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls);
 #endif
 
 /**********************************************************************************************************************
- *  END OF FILE MVM_Trace.h
+ *  END OF FILE MVM_Device.h
  *********************************************************************************************************************/
