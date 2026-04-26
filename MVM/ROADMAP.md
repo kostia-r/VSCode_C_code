@@ -263,7 +263,8 @@ Done when:
 
 ## Phase 8: Device Profiles
 
-Purpose: remove hardcoded T310 capability values from runtime logic.
+Purpose: remove hardcoded T310 capability values from runtime logic and make
+profile selection a stable part of integration.
 
 Tasks:
 
@@ -278,13 +279,58 @@ Tasks:
   - supported caps.
 - Implement SonyEricsson T310 profile first.
 - Make `vGetCaps` profile-driven.
+- Keep profile identity stable so later save/snapshot data can be tied to the
+  active profile.
 
 Done when:
 
 - T310 values are not hardcoded in syscall handlers.
 - Adding another SonyEricsson profile does not touch PIP/core.
+- Host can select one profile without patching runtime logic.
 
-## Phase 9: Windows Platform Backend
+## Phase 9: Persistent Data And Snapshot Support
+
+Purpose: support game progress persistence and, later, optional full VM
+suspend/resume.
+
+Tasks:
+
+- Define a stable game identifier for persistent records:
+  - content hash;
+  - image metadata fingerprint;
+  - avoid relying on file name alone.
+- Add persistent-data export/import APIs for host-managed NvM storage.
+- Define record metadata:
+  - game id;
+  - profile id/name;
+  - format version;
+  - payload size;
+  - integrity check.
+- Decide what belongs to the persistent payload:
+  - game-owned save data;
+  - selected VM-owned metadata only when required.
+- Keep host-side storage ownership outside the VM core:
+  - export one record/blob;
+  - import one previously stored record/blob.
+- Explore optional full snapshot APIs for exact suspend/resume:
+  - registers and execution state;
+  - guest RAM;
+  - allocator metadata;
+  - stream/resource runtime state;
+  - random/timing state where needed.
+- Define snapshot compatibility rules:
+  - same game image;
+  - same device profile;
+  - same snapshot format version.
+
+Done when:
+
+- Host can export one persistent record and store it in NvM.
+- Host can restore one persistent record before game start.
+- Snapshot support is either implemented with explicit limits or documented as
+  a separate optional layer.
+
+## Phase 10: Windows Platform Backend
 
 Purpose: run games interactively on desktop, not only trace them.
 
@@ -299,6 +345,7 @@ Tasks:
   - basic palette/graphics stubs;
   - stream/resource access;
   - audio stub.
+- Connect keyboard input to `vGetButtonData` / `vTestKey`.
 - Keep `Src/main.c` as a thin runner or move it to examples.
 
 Done when:
@@ -306,7 +353,7 @@ Done when:
 - The target game reaches visible/menu state through our backend.
 - Input can be injected or read from keyboard.
 
-## Phase 10: Game Corpus And Regression Runner
+## Phase 11: Game Corpus And Regression Runner
 
 Purpose: use multiple games to discover missing opcodes and APIs.
 
@@ -322,13 +369,49 @@ Tasks:
   - first N MVM/syscall logs.
 - Produce summary output, preferably CSV or JSON.
 - Add regression comparison for known-good traces.
+- Use corpus runs to prioritize missing SDK imports and incomplete backend
+  behaviors.
 
 Done when:
 
 - Running a batch of games is one command.
 - API gaps are visible as a prioritized list.
 
-## Phase 11: Decryption Research
+## Phase 12: External Config And Submodule-Friendly Integration
+
+Purpose: make the VM easy to consume as a git submodule without modifying files
+inside the library tree, after the integration boundaries have been validated
+by a real host backend.
+
+Tasks:
+
+- Separate bundled default config from project-owned integration config.
+- Support external `MVM_Cfg.h` / `MVM_Lcfg.c` supplied by the parent project.
+- Keep bundled config as a fallback for local smoke tests and examples.
+- Add build hooks so the parent project can point the VM build at an external
+  config directory.
+- Minimize assumptions in `vm.mk` about runner layout and top-level project
+  structure.
+- Write a minimal integration guide for parent projects.
+- Document platform callback interfaces and backend responsibilities.
+- Add one small static architecture/data-flow overview for integrators.
+- Add compile-time validation for invalid external-config combinations where
+  possible.
+- Document the expected parent-project responsibilities:
+  - provide config files;
+  - provide platform backend callbacks;
+  - provide image source setup;
+  - allocate VM storage.
+- Verify that the library can be dropped in as a git submodule without editing
+  library-owned files.
+
+Done when:
+
+- A parent project can integrate the VM as a submodule using external config
+  files.
+- Platform-specific configuration no longer requires patching the library tree.
+
+## Phase 13: Decryption Research
 
 Purpose: eventually load original encrypted `.mpn` files, not only decrypted
 ones.
@@ -345,7 +428,7 @@ Done when:
 
 - Loader can accept original files or a documented decrypted image source.
 
-## Phase 12: Minimal MCU Port
+## Phase 14: Minimal MCU Port
 
 Purpose: prove portability on a constrained embedded target.
 
@@ -362,7 +445,7 @@ Done when:
 - VM builds and runs a simple trace or smoke case on target hardware/simulator.
 - RAM/stack numbers are documented.
 
-## Phase 13: Optimization And Final Review
+## Phase 15: Optimization And Final Review
 
 Purpose: improve performance only after behavior and boundaries are stable.
 
@@ -371,9 +454,11 @@ Tasks:
 - Profile opcode dispatch and syscall dispatch.
 - Consider jump tables for opcodes.
 - Consider import index/hash dispatch instead of repeated string compare.
+- Consider X-macro/codegen support for opcode metadata or dispatch tables.
 - Inline hot memory helpers where useful.
 - Remove unused debug code from release builds.
 - Review endian, alignment, integer overflow, and bounds checks.
+- Expand compile-time asserts/preprocessor guards for invalid configuration.
 - Review integration for STM32, TriCore, Arduino-class targets.
 
 Done when:
@@ -394,6 +479,11 @@ Add focused tests as modules stabilize:
 - Static storage size/alignment.
 - Stream open/read/seek/close.
 - Logger compile-time filtering.
+
+Also add higher-level coverage over time:
+
+- integration tests for import/platform/backend boundaries;
+- smoke/system tests for representative games and host backends.
 
 ## Resource Estimate Tracking
 
@@ -421,7 +511,9 @@ Measurements to add:
 3. Replace dynamic allocation path with full static memory config.
 4. Add level-gated logger and event callbacks.
 5. Build SDK syscall catalog and default stubs.
-6. Add T310 device profile.
-7. Build Windows platform backend.
-8. Run game corpus and fill missing APIs.
-9. Start minimal MCU port.
+6. Finish device profiles and make `vGetCaps` fully profile-driven.
+7. Add persistent-data export/import and define snapshot boundaries.
+8. Build Windows platform backend and get at least one game running with real graphics/input/audio flow.
+9. Run game corpus and fill missing APIs.
+10. Make config externalizable for submodule-style integration.
+11. Start minimal MCU port.
