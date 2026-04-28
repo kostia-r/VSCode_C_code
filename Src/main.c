@@ -3,12 +3,27 @@
 #include "MVM_Trace.h"
 #include "MVM_VmgpDebug.h"
 
+#define SDL_MAIN_HANDLED
+#include <SDL.h>
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #define MAX_STEPS_DEFAULT              (10000000U)
 #define MAX_LOGGED_CALLS_DEFAULT       (5000U)
+#define VM_STEPS_PER_HOST_TICK         (1000U)
+
+/**
+ * @brief Stores the minimal SDL host backend state used by the example runner.
+ */
+typedef struct SdlBackend
+{
+  SDL_Window *window;
+  SDL_Renderer *renderer;
+  uint32_t width;
+  uint32_t height;
+} SdlBackend;
 
 /**
  * @brief Describes parsed command-line options for the VM runner.
@@ -29,6 +44,24 @@ typedef struct FileImageSource
   FILE *file;
   size_t size;
 } FileImageSource;
+
+/**
+ * @brief Returns the selected built-in device profile or the default one.
+ */
+static const MpnDevProfile_t *resolve_device_profile(const char *profile_name)
+{
+  if (profile_name)
+  {
+    return MVM_FindDevProfileByName(profile_name);
+  }
+
+  if (MVM_GetDevProfileCount() == 0u)
+  {
+    return NULL;
+  }
+
+  return MVM_GetDevProfile(0u);
+}
 
 /**
  * @brief Opens one image file for source-backed access.
@@ -113,6 +146,124 @@ static void print_available_profiles(void)
   }
 
   fprintf(stderr, "\n");
+}
+
+/**
+ * @brief Initializes the minimal SDL window/renderer backend for one profile.
+ */
+static int init_sdl_backend(const MpnDevProfile_t *profile, SdlBackend *backend)
+{
+  uint32_t width;
+  uint32_t height;
+
+  if (!backend)
+  {
+    return 0;
+  }
+
+  backend->window = NULL;
+  backend->renderer = NULL;
+  backend->width = 0u;
+  backend->height = 0u;
+
+  width = 320u;
+  height = 240u;
+  if (profile)
+  {
+    if (profile->screen_width != 0u)
+    {
+      width = profile->screen_width;
+    }
+
+    if (profile->screen_height != 0u)
+    {
+      height = profile->screen_height;
+    }
+  }
+
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO) != 0)
+  {
+    fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+
+    return 0;
+  }
+
+  backend->window = SDL_CreateWindow("Mophun VM",
+                                     SDL_WINDOWPOS_CENTERED,
+                                     SDL_WINDOWPOS_CENTERED,
+                                     (int)(width * 2u),
+                                     (int)(height * 2u),
+                                     SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+  if (!backend->window)
+  {
+    fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+    SDL_Quit();
+
+    return 0;
+  }
+
+  backend->renderer = SDL_CreateRenderer(backend->window,
+                                         -1,
+                                         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+  if (!backend->renderer)
+  {
+    fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
+    SDL_DestroyWindow(backend->window);
+    backend->window = NULL;
+    SDL_Quit();
+
+    return 0;
+  }
+
+  SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+  SDL_RenderSetLogicalSize(backend->renderer, (int)width, (int)height);
+
+  backend->width = width;
+  backend->height = height;
+
+  return 1;
+}
+
+/**
+ * @brief Shuts down the minimal SDL backend.
+ */
+static void shutdown_sdl_backend(SdlBackend *backend)
+{
+  if (!backend)
+  {
+    return;
+  }
+
+  if (backend->renderer)
+  {
+    SDL_DestroyRenderer(backend->renderer);
+    backend->renderer = NULL;
+  }
+
+  if (backend->window)
+  {
+    SDL_DestroyWindow(backend->window);
+    backend->window = NULL;
+  }
+
+  backend->width = 0u;
+  backend->height = 0u;
+  SDL_Quit();
+}
+
+/**
+ * @brief Presents the minimal host window for one frame.
+ */
+static void present_sdl_backend(SdlBackend *backend)
+{
+  if (!backend || !backend->renderer)
+  {
+    return;
+  }
+
+  SDL_SetRenderDrawColor(backend->renderer, 0u, 0u, 0u, 255u);
+  SDL_RenderClear(backend->renderer);
+  SDL_RenderPresent(backend->renderer);
 }
 
 /**
@@ -248,10 +399,13 @@ static MpnVM_t *create_vm(void *storage)
 /**
  * @brief Runs the VM until one local stop condition is reached.
  */
-static int run_vm(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls)
+static int run_vm(MpnVM_t *vm, SdlBackend *backend, uint32_t max_steps, uint32_t max_logged_calls)
 {
   MVM_RetCode_t retVal;
+  SDL_Event event;
+  uint32_t host_budget;
   uint32_t step_budget;
+  int quit_requested;
 
   MVM_DumpVmgpSummary(vm);
   MVM_DumpVmgpImports(vm, 64);
@@ -261,10 +415,41 @@ static int run_vm(MpnVM_t *vm, uint32_t max_steps, uint32_t max_logged_calls)
     return 0;
   }
 
+  present_sdl_backend(backend);
+
   step_budget = max_steps;
-  while (pump_vm_once(vm, &step_budget) == 0)
+  quit_requested = 0;
+  while (!quit_requested)
   {
+    while (SDL_PollEvent(&event) != 0)
+    {
+      if (event.type == SDL_QUIT)
+      {
+        MVM_RequestExit(vm);
+        quit_requested = 1;
+        break;
+      }
+    }
+
+    host_budget = VM_STEPS_PER_HOST_TICK;
+    while (host_budget != 0u && pump_vm_once(vm, &step_budget) == 0)
+    {
+      --host_budget;
+    }
+
+    present_sdl_backend(backend);
+
     if (MVM_GetLoggedCalls(vm) >= max_logged_calls)
+    {
+      break;
+    }
+
+    if (MVM_GetState(vm) != MVM_STATE_READY && MVM_GetState(vm) != MVM_STATE_RUNNING)
+    {
+      break;
+    }
+
+    if (step_budget == 0u)
     {
       break;
     }
@@ -299,7 +484,9 @@ int main(int argc, char **argv)
   MpnImageSource_t image_source;
   void *vm_storage;
   MpnVM_t *vm;
+  SdlBackend backend;
   MVM_MemReqs_t memory_requirements;
+  const MpnDevProfile_t *profile;
   MVM_RetCode_t retVal;
   int exit_code;
 
@@ -307,7 +494,9 @@ int main(int argc, char **argv)
   image_source = (MpnImageSource_t){0};
   vm_storage = NULL;
   vm = NULL;
+  backend = (SdlBackend){0};
   memory_requirements = (MVM_MemReqs_t){0};
+  profile = NULL;
   retVal = MVM_OK;
   exit_code = 1;
 
@@ -324,6 +513,19 @@ int main(int argc, char **argv)
     return exit_code;
   }
 
+  profile = resolve_device_profile(options.profile_name);
+  if (!profile)
+  {
+    fprintf(stderr, "No built-in device profile is available.\n");
+
+    return exit_code;
+  }
+
+  if (!init_sdl_backend(profile, &backend))
+  {
+    return exit_code;
+  }
+
   /* This sample integration opens the VMGP image through a file-backed image
    * source descriptor. The actual read callbacks are compiled into Config/,
    * so the runner only chooses which image instance to execute.
@@ -331,6 +533,7 @@ int main(int argc, char **argv)
   if (!open_image_source(options.image_path, &file_provider))
   {
     fprintf(stderr, "Could not load file.\n");
+    shutdown_sdl_backend(&backend);
 
     return exit_code;
   }
@@ -347,6 +550,7 @@ int main(int argc, char **argv)
   {
     fprintf(stderr, "Could not allocate VM storage.\n");
     close_image_source(&file_provider);
+    shutdown_sdl_backend(&backend);
     free(vm_storage);
 
     return exit_code;
@@ -362,6 +566,7 @@ int main(int argc, char **argv)
     MVM_Free(vm);
     free(vm_storage);
     close_image_source(&file_provider);
+    shutdown_sdl_backend(&backend);
 
     return exit_code;
   }
@@ -380,6 +585,7 @@ int main(int argc, char **argv)
     MVM_Free(vm);
     free(vm_storage);
     close_image_source(&file_provider);
+    shutdown_sdl_backend(&backend);
 
     return exit_code;
   }
@@ -387,13 +593,14 @@ int main(int argc, char **argv)
   /* Drive the VM through the non-blocking step API until one of the local
    * runner limits is reached.
    */
-  run_vm(vm, options.max_steps, options.max_logged_calls);
+  run_vm(vm, &backend, options.max_steps, options.max_logged_calls);
   print_stop_summary(vm);
 
   exit_code = 0;
   MVM_Free(vm);
   free(vm_storage);
   close_image_source(&file_provider);
+  shutdown_sdl_backend(&backend);
 
   return exit_code;
 }
