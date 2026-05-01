@@ -777,7 +777,7 @@ static bool MVM_lLoadVmgpResources(VMGPContext *ctx)
       next = ctx->header.res_size;
     }
 
-    ctx->resources[i].id = i + 1u;
+    ctx->resources[i].id = i;
     ctx->resources[i].offset = off;
     ctx->resources[i].size = (next > off) ? (next - off) : 0u;
   } /* End of loop */

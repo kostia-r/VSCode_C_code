@@ -104,13 +104,11 @@ Host-specific runners and backend examples live outside the library tree under
 Current Windows/SDL runner notes:
 - primary logging stays in the console;
 - the SDL window is used only for graphics/input;
-- desktop keys follow the current SDL reference-runner mapping:
+- desktop keys follow the current Windows/SDL runner mapping:
   - `Up/Down/Left/Right` -> guest direction keys;
-  - `Ctrl` -> `KEY_FIRE`;
+  - `Shift` / `Ctrl` -> `KEY_FIRE`;
   - `Backspace` / `Enter` -> `KEY_SELECT`;
-  - `Space` / keypad `Enter` -> `KEY_FIRE2`;
-  - `Shift` is reserved for pointer/device-specific input and is not exposed
-    through `vGetButtonData()` until the pointer API is implemented coherently.
+  - `Space` / keypad `Enter` -> `KEY_FIRE2`.
 
 Integration-time glue lives under `Config/`:
 

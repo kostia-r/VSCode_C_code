@@ -42,6 +42,12 @@
 #define MVM_POINTER_ALTDOWN_MASK 0x00000080u
 #define MVM_KEY_FIRE2_MASK       0x00000100u
 #define MVM_SE_OPTION_ASCII      217u
+#define MVM_CAPS_VIDEO           0u
+#define MVM_CAPS_INPUT           1u
+#define MVM_CAPS_SOUND           2u
+#define MVM_CAPS_COMM            3u
+#define MVM_CAPS_SYSTEM          4u
+#define MVM_INPUT_NUMERIC_KEYPAD 0x0008u
 
 /**********************************************************************************************************************
  *  LOCAL DATA TYPES AND STRUCTURES
@@ -2743,33 +2749,43 @@ MVM_IMPORT_IMPL(vGetCaps)
   out = ctx->regs[VM_REG_P1];
 
   if ((profile->supported_caps & MVM_DEVICE_CAP_VIDEO) != 0u &&
-      query == 0u &&
+      query == MVM_CAPS_VIDEO &&
       MVM_RuntimeMemRangeOk(ctx, out, 8u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 8u);
-    vm_write_u16_le(ctx->mem + out + 2u, 8u);
+    vm_write_u16_le(ctx->mem + out + 2u, profile->color_mode);
     vm_write_u16_le(ctx->mem + out + 4u, profile->screen_width);
     vm_write_u16_le(ctx->mem + out + 6u, profile->screen_height);
     result = 1u;
   }
-  else if ((profile->supported_caps & MVM_DEVICE_CAP_COLOR) != 0u &&
-           query == 2u &&
-           MVM_RuntimeMemRangeOk(ctx, out, 4u))
+  else if ((profile->supported_caps & MVM_DEVICE_CAP_INPUT) != 0u &&
+           query == MVM_CAPS_INPUT &&
+           MVM_RuntimeMemRangeOk(ctx, out, 6u))
   {
-    vm_write_u16_le(ctx->mem + out + 0u, 4u);
-    vm_write_u16_le(ctx->mem + out + 2u, profile->color_mode);
+    vm_write_u16_le(ctx->mem + out + 0u, 6u);
+    vm_write_u16_le(ctx->mem + out + 2u, MVM_INPUT_NUMERIC_KEYPAD);
+    ctx->mem[out + 4u] = 12u;
+    ctx->mem[out + 5u] = 0u;
     result = 1u;
   }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_SOUND) != 0u &&
-           query == 3u &&
+           query == MVM_CAPS_SOUND &&
            MVM_RuntimeMemRangeOk(ctx, out, 4u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 4u);
     vm_write_u16_le(ctx->mem + out + 2u, profile->sound_flags);
     result = 1u;
   }
+  else if ((profile->supported_caps & MVM_DEVICE_CAP_COMM) != 0u &&
+           query == MVM_CAPS_COMM &&
+           MVM_RuntimeMemRangeOk(ctx, out, 4u))
+  {
+    vm_write_u16_le(ctx->mem + out + 0u, 4u);
+    vm_write_u16_le(ctx->mem + out + 2u, 0u);
+    result = 1u;
+  }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_SYSTEM) != 0u &&
-           query == 4u &&
+           query == MVM_CAPS_SYSTEM &&
            MVM_RuntimeMemRangeOk(ctx, out, 12u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 12u);

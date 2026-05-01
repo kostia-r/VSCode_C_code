@@ -825,7 +825,7 @@ bool MVM_PipStep(VMGPContext *ctx)
       if ((raw >> 24) != 0x00)
       {
         ctx->regs[VM_REG_RA] = ctx->pc + 8;
-        ctx->pc = (uint32_t)vm_sext24(raw);
+        ctx->pc = ctx->pc + (uint32_t)vm_sext24(raw);
         break;
       }
 

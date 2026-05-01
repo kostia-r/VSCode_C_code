@@ -27,8 +27,9 @@
  *********************************************************************************************************************/
 
 #define MVM_DEVICE_CAP_VIDEO                                    (1UL << 0U)
-#define MVM_DEVICE_CAP_COLOR                                    (1UL << 2U)
-#define MVM_DEVICE_CAP_SOUND                                    (1UL << 3U)
+#define MVM_DEVICE_CAP_INPUT                                    (1UL << 1U)
+#define MVM_DEVICE_CAP_SOUND                                    (1UL << 2U)
+#define MVM_DEVICE_CAP_COMM                                     (1UL << 3U)
 #define MVM_DEVICE_CAP_SYSTEM                                   (1UL << 4U)
 
 /**
