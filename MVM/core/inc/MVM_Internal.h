@@ -138,6 +138,7 @@ typedef struct MVM_DrawCommand_t
   uint32_t aux2;               /**< Secondary guest pointer or extra metadata. */
   uint16_t text_length;         /**< Captured text byte count for deferred text commands. */
   uint8_t text[VMGP_DRAW_TEXT_SNAPSHOT_BYTES]; /**< Captured text bytes for deferred text commands. */
+  uint32_t text_palette[4];     /**< Captured low-index text palette entries for deferred text commands. */
 } MVM_DrawCommand_t;
 
 /**

@@ -3572,6 +3572,10 @@ MVM_IMPORT_IMPL(vPrint)
     command->color = ctx->fg_color;
     command->aux = str;
     command->aux2 = ctx->active_font;
+    command->text_palette[0] = ctx->palette_entries[0];
+    command->text_palette[1] = ctx->palette_entries[1];
+    command->text_palette[2] = ctx->palette_entries[2];
+    command->text_palette[3] = ctx->palette_entries[3];
     if (str < ctx->mem_size && length != 0u)
     {
       uint32_t copy_length;

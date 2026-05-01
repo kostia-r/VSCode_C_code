@@ -149,54 +149,6 @@ static uint32_t read_tight_font_pixel(const uint8_t *data,
 }
 
 /**
- * @brief Reads one packed font pixel from row-aligned glyph data.
- */
-static uint32_t read_row_aligned_font_pixel(const uint8_t *data,
-                                            uint32_t width,
-                                            uint32_t pixel_index,
-                                            uint32_t bits_per_pixel,
-                                            int msb_first)
-{
-  uint32_t x;
-  uint32_t y;
-  uint32_t row_stride;
-  uint32_t byte_offset;
-  uint32_t pixels_per_byte;
-  uint32_t local_index;
-  uint32_t shift;
-  uint32_t mask;
-  uint8_t byte_value;
-
-  if (!data || width == 0u || bits_per_pixel == 0u || bits_per_pixel > 8u)
-  {
-    return 0u;
-  }
-
-  x = pixel_index % width;
-  y = pixel_index / width;
-  if (bits_per_pixel == 8u)
-  {
-    row_stride = width;
-    byte_offset = (y * row_stride) + x;
-    return data[byte_offset];
-  }
-
-  pixels_per_byte = 8u / bits_per_pixel;
-  row_stride = ((width * bits_per_pixel) + 7u) / 8u;
-  byte_offset = (y * row_stride) + (x / pixels_per_byte);
-  byte_value = data[byte_offset];
-  local_index = x % pixels_per_byte;
-  shift = local_index * bits_per_pixel;
-  if (msb_first)
-  {
-    shift = (pixels_per_byte - 1u - local_index) * bits_per_pixel;
-  }
-
-  mask = (1u << bits_per_pixel) - 1u;
-  return (uint32_t)((byte_value >> shift) & mask);
-}
-
-/**
  * @brief Scores one legacy sprite-layout candidate by the density of non-zero pixels.
  */
 static uint32_t score_legacy_sprite_candidate(const VMGPContext *ctx, const VmSpriteHeader *sprite)
@@ -272,7 +224,7 @@ typedef struct VmFontHeader
   uint8_t bpp;
   uint8_t width;
   uint8_t height;
-  uint8_t flags;
+  uint8_t palindex;
 } VmFontHeader;
 
 /**
@@ -318,7 +270,7 @@ static int read_font_header_at(const VMGPContext *ctx, uint32_t font_addr, VmFon
   font->bpp = ctx->mem[font_addr + 8u];
   font->width = ctx->mem[font_addr + 9u];
   font->height = ctx->mem[font_addr + 10u];
-  font->flags = ctx->mem[font_addr + 11u];
+  font->palindex = ctx->mem[font_addr + 11u];
 
   return 1;
 }
@@ -355,8 +307,7 @@ static int font_header_plausible(const VMGPContext *ctx, const VmFontHeader *fon
     return 0;
   }
 
-  if (font->char_table_addr != 0u &&
-      !MVM_RuntimeMemRangeOk(ctx, font->char_table_addr, 256u))
+  if (!MVM_RuntimeMemRangeOk(ctx, font->char_table_addr, 256u))
   {
     return 0;
   }
@@ -407,7 +358,7 @@ static const MpnDevProfile_t *resolve_device_profile(const char *profile_name)
  */
 static void decode_guest_color(uint32_t color, uint8_t *red, uint8_t *green, uint8_t *blue)
 {
-  if ((color & 0x80000000u) != 0u)
+  if ((color & 0x80000000u) != 0u || color > 0xFFu)
   {
     *red = (uint8_t)((((color & 0xFFFFu) >> 10) & 0x1Fu) * 255u / 31u);
     *green = (uint8_t)((((color & 0xFFFFu) >> 5) & 0x1Fu) * 255u / 31u);
@@ -903,21 +854,31 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
                                  const VMGPContext *ctx,
                                  const uint8_t *text,
                                  uint32_t char_count,
+                                 const uint32_t *palette,
                                  uint32_t str_addr,
                                  int32_t x,
                                  int32_t y)
 {
-  const int32_t char_advance = 7;
+  const int32_t char_advance = 6;
   uint32_t char_index;
   uint32_t row;
   uint32_t col;
   const uint8_t *glyph;
   uint8_t ch;
+  uint8_t fg_red;
+  uint8_t fg_green;
+  uint8_t fg_blue;
+  uint8_t shadow_red;
+  uint8_t shadow_green;
+  uint8_t shadow_blue;
 
   if (!renderer || !ctx || !text)
   {
     return 0;
   }
+
+  decode_guest_color(palette ? palette[1] : 0xFFu, &fg_red, &fg_green, &fg_blue);
+  decode_guest_color(palette ? palette[2] : 0x00u, &shadow_red, &shadow_green, &shadow_blue);
 
   for (char_index = 0u; char_index < char_count; ++char_index)
   {
@@ -930,6 +891,11 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
     {
       const int32_t glyph_x = x + (int32_t)(char_index * (uint32_t)char_advance);
 
+      SDL_SetRenderDrawColor(renderer, shadow_red, shadow_green, shadow_blue, 255u);
+      SDL_RenderDrawLine(renderer, glyph_x + 1, y + 1, glyph_x + 1, y + 7);
+      SDL_RenderDrawLine(renderer, glyph_x + 5, y + 1, glyph_x + 5, y + 7);
+      SDL_RenderDrawLine(renderer, glyph_x + 1, y + 1, glyph_x + 5, y + 7);
+      SDL_SetRenderDrawColor(renderer, fg_red, fg_green, fg_blue, 255u);
       SDL_RenderDrawLine(renderer, glyph_x + 0, y + 0, glyph_x + 0, y + 6);
       SDL_RenderDrawLine(renderer, glyph_x + 4, y + 0, glyph_x + 4, y + 6);
       SDL_RenderDrawLine(renderer, glyph_x + 0, y + 0, glyph_x + 4, y + 6);
@@ -947,6 +913,11 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
           continue;
         }
 
+        SDL_SetRenderDrawColor(renderer, shadow_red, shadow_green, shadow_blue, 255u);
+        SDL_RenderDrawPoint(renderer,
+                            x + (int32_t)(char_index * (uint32_t)char_advance) + (int32_t)col + 1,
+                            y + (int32_t)row + 1);
+        SDL_SetRenderDrawColor(renderer, fg_red, fg_green, fg_blue, 255u);
         SDL_RenderDrawPoint(renderer,
                             x + (int32_t)(char_index * (uint32_t)char_advance) + (int32_t)col,
                             y + (int32_t)row);
@@ -968,7 +939,6 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   uint32_t pixel_count;
   uint32_t bits_per_char;
   uint32_t bytes_per_char_tight;
-  uint32_t bytes_per_char_row;
   uint32_t char_count;
   uint32_t char_index;
   int32_t base_x;
@@ -978,16 +948,9 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   uint8_t ch;
   uint8_t glyph_index;
   uint32_t bit_index;
-  uint32_t layout_index;
-  uint32_t best_layout;
-  uint32_t best_score;
-  uint32_t score;
   uint32_t pixel_value;
   uint32_t max_pixel_value;
   uint32_t bytes_per_char;
-  int use_row_aligned;
-  int use_msb_first;
-  uint32_t row_stride;
   const uint8_t *glyph_data;
   uint32_t drawn_pixels;
   uint8_t fg_red;
@@ -1019,31 +982,32 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
 
   if (!read_guest_font_header(ctx, command->aux2, &font))
   {
-    return draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
+    return draw_debug_text_bytes(renderer,
+                                 ctx,
+                                 text_bytes,
+                                 char_count,
+                                 command->text_palette,
+                                 str_addr,
+                                 command->x0,
+                                 command->y0);
   }
 
   if ((font.bpp != 1u && font.bpp != 2u) || font.width == 0u || font.height == 0u)
   {
-    return draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
-  }
-
-  /*
-   * The SDK emulator confirms the 12-byte FONT descriptor layout, but this
-   * title still exposes a `char_table_addr == 0` case that we do not decode
-   * correctly yet. Prefer the readable ASCII fallback until that mapping is
-   * understood, instead of rendering garbage from the raw font payload.
-   */
-  if (font.char_table_addr == 0u)
-  {
-    return draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
+    return draw_debug_text_bytes(renderer,
+                                 ctx,
+                                 text_bytes,
+                                 char_count,
+                                 command->text_palette,
+                                 str_addr,
+                                 command->x0,
+                                 command->y0);
   }
 
   pixel_count = (uint32_t)font.width * (uint32_t)font.height;
   bits_per_char = pixel_count * (uint32_t)font.bpp;
   bytes_per_char_tight = (bits_per_char + 7u) / 8u;
-  row_stride = (((uint32_t)font.width * (uint32_t)font.bpp) + 7u) / 8u;
-  bytes_per_char_row = row_stride * (uint32_t)font.height;
-  if (bytes_per_char_tight == 0u || bytes_per_char_row == 0u)
+  if (bytes_per_char_tight == 0u)
   {
     return 0;
   }
@@ -1057,8 +1021,8 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   base_y = command->y0;
   drawn_pixels = 0u;
   max_pixel_value = (1u << font.bpp) - 1u;
-  decode_guest_color(ctx->fg_color, &fg_red, &fg_green, &fg_blue);
-  decode_guest_color(ctx->bg_color, &bg_red, &bg_green, &bg_blue);
+  decode_guest_color(command->text_palette[1], &fg_red, &fg_green, &fg_blue);
+  decode_guest_color(command->text_palette[0], &bg_red, &bg_green, &bg_blue);
 
   for (char_index = 0u; char_index < char_count; ++char_index)
   {
@@ -1074,55 +1038,13 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
       continue;
     }
 
-    best_layout = 0xFFFFFFFFu;
-    best_score = 0u;
-
-    for (layout_index = 0u; layout_index < 4u; ++layout_index)
-    {
-      use_row_aligned = (layout_index & 0x01u) != 0u;
-      use_msb_first = (layout_index & 0x02u) != 0u;
-      bytes_per_char = use_row_aligned ? bytes_per_char_row : bytes_per_char_tight;
-      glyph_data_addr = font.font_data_addr + ((uint32_t)glyph_index * bytes_per_char);
-
-      if (!MVM_RuntimeMemRangeOk(ctx, glyph_data_addr, bytes_per_char))
-      {
-        continue;
-      }
-
-      glyph_data = ctx->mem + glyph_data_addr;
-      score = 0u;
-
-      for (bit_index = 0u; bit_index < pixel_count; ++bit_index)
-      {
-        pixel_value = use_row_aligned
-                        ? read_row_aligned_font_pixel(glyph_data,
-                                                      (uint32_t)font.width,
-                                                      bit_index,
-                                                      (uint32_t)font.bpp,
-                                                      use_msb_first)
-                        : read_tight_font_pixel(glyph_data,
-                                                bit_index,
-                                                (uint32_t)font.bpp,
-                                                use_msb_first);
-        score += pixel_value;
-      }
-
-      if (score > best_score)
-      {
-        best_score = score;
-        best_layout = layout_index;
-      }
-    }
-
-    if (best_layout == 0xFFFFFFFFu || best_score == 0u)
+    bytes_per_char = bytes_per_char_tight;
+    glyph_data_addr = font.font_data_addr + ((uint32_t)glyph_index * bytes_per_char);
+    if (!MVM_RuntimeMemRangeOk(ctx, glyph_data_addr, bytes_per_char))
     {
       continue;
     }
 
-    use_row_aligned = (best_layout & 0x01u) != 0u;
-    use_msb_first = (best_layout & 0x02u) != 0u;
-    bytes_per_char = use_row_aligned ? bytes_per_char_row : bytes_per_char_tight;
-    glyph_data_addr = font.font_data_addr + ((uint32_t)glyph_index * bytes_per_char);
     glyph_data = ctx->mem + glyph_data_addr;
 
     for (bit_index = 0u; bit_index < pixel_count; ++bit_index)
@@ -1133,16 +1055,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
       uint8_t green;
       uint8_t blue;
 
-      pixel_value = use_row_aligned
-                      ? read_row_aligned_font_pixel(glyph_data,
-                                                    (uint32_t)font.width,
-                                                    bit_index,
-                                                    (uint32_t)font.bpp,
-                                                    use_msb_first)
-                      : read_tight_font_pixel(glyph_data,
-                                              bit_index,
-                                              (uint32_t)font.bpp,
-                                              use_msb_first);
+      pixel_value = read_tight_font_pixel(glyph_data, bit_index, (uint32_t)font.bpp, 0);
       if (pixel_value == 0u)
       {
         continue;
@@ -1152,16 +1065,34 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
       pixel_y = bit_index / (uint32_t)font.width;
       draw_x = base_x + (int32_t)(char_index * font.width) + (int32_t)pixel_x;
       draw_y = base_y + (int32_t)pixel_y;
-      red = (uint8_t)((((max_pixel_value - pixel_value) * bg_red) + (pixel_value * fg_red)) / max_pixel_value);
-      green = (uint8_t)((((max_pixel_value - pixel_value) * bg_green) + (pixel_value * fg_green)) / max_pixel_value);
-      blue = (uint8_t)((((max_pixel_value - pixel_value) * bg_blue) + (pixel_value * fg_blue)) / max_pixel_value);
+      if (font.bpp > 1u && (uint32_t)font.palindex + pixel_value < 4u)
+      {
+        decode_guest_color(command->text_palette[(uint32_t)font.palindex + pixel_value], &red, &green, &blue);
+      }
+      else if (font.bpp == 1u)
+      {
+        decode_guest_color(command->color, &red, &green, &blue);
+      }
+      else
+      {
+        red = (uint8_t)((((max_pixel_value - pixel_value) * bg_red) + (pixel_value * fg_red)) / max_pixel_value);
+        green = (uint8_t)((((max_pixel_value - pixel_value) * bg_green) + (pixel_value * fg_green)) / max_pixel_value);
+        blue = (uint8_t)((((max_pixel_value - pixel_value) * bg_blue) + (pixel_value * fg_blue)) / max_pixel_value);
+      }
       SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
       SDL_RenderDrawPoint(renderer, draw_x, draw_y);
       ++drawn_pixels;
     }
   }
 
-  return drawn_pixels != 0u ? 1 : draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
+  return drawn_pixels != 0u ? 1 : draw_debug_text_bytes(renderer,
+                                                        ctx,
+                                                        text_bytes,
+                                                        char_count,
+                                                        command->text_palette,
+                                                        str_addr,
+                                                        command->x0,
+                                                        command->y0);
 }
 
 /**
