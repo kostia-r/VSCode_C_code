@@ -104,11 +104,13 @@ Host-specific runners and backend examples live outside the library tree under
 Current Windows/SDL runner notes:
 - primary logging stays in the console;
 - the SDL window is used only for graphics/input;
-- desktop keys follow the official Mophun SDK emulator mapping:
+- desktop keys follow the current SDL reference-runner mapping:
   - `Up/Down/Left/Right` -> guest direction keys;
-  - `Shift` -> `KEY_FIRE`;
-  - `Backspace` -> `KEY_SELECT`;
-  - `Enter` -> `KEY_FIRE2`.
+  - `Ctrl` -> `KEY_FIRE`;
+  - `Backspace` / `Enter` -> `KEY_SELECT`;
+  - `Space` / keypad `Enter` -> `KEY_FIRE2`;
+  - `Shift` is reserved for pointer/device-specific input and is not exposed
+    through `vGetButtonData()` until the pointer API is implemented coherently.
 
 Integration-time glue lives under `Config/`:
 

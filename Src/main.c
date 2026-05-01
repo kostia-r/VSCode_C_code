@@ -34,9 +34,10 @@
  * - Down Arrow  -> KEY_DOWN
  * - Left Arrow  -> KEY_LEFT
  * - Right Arrow -> KEY_RIGHT
- * - Left/Right Shift -> KEY_FIRE
- * - Backspace   -> KEY_SELECT
- * - Enter / Keypad Enter -> KEY_FIRE2
+ * - Left/Right Ctrl  -> KEY_FIRE
+ * - Backspace/Enter  -> KEY_SELECT
+ * - Space / Keypad Enter -> KEY_FIRE2
+ * - Left/Right Shift -> ignored until the pointer API is implemented coherently
  * - Numeric keypad 1/3/7/9 -> diagonal direction combinations
  * - Numeric keypad 2/4/6/8 -> down/left/right/up
  */
@@ -1457,9 +1458,11 @@ static void update_backend_raw_button_mask(SdlBackend *backend, uint32_t mask, i
 /*
  * SDK emulator mapping:
  * - arrows     -> directions
- * - Shift      -> Fire
+ * - Ctrl       -> Fire
  * - Backspace  -> Select
- * - Enter      -> Fire2
+ * - Enter      -> Select
+ * - Space      -> Fire2
+ * - Shift      -> pointer modifier ignored by the generic button path
  */
 static void update_backend_button_state(SdlBackend *backend, const SDL_KeyboardEvent *key_event)
 {
@@ -1509,18 +1512,29 @@ static void update_backend_button_state(SdlBackend *backend, const SDL_KeyboardE
       mask = MVM_KEY_DOWN | MVM_KEY_RIGHT;
       break;
 
-    case SDLK_LSHIFT:
-    case SDLK_RSHIFT:
+    case SDLK_LCTRL:
+    case SDLK_RCTRL:
       mask = MVM_KEY_FIRE;
       break;
 
     case SDLK_BACKSPACE:
+    case SDLK_RETURN:
       mask = MVM_KEY_SELECT;
       break;
 
-    case SDLK_RETURN:
+    case SDLK_SPACE:
     case SDLK_KP_ENTER:
       mask = MVM_KEY_FIRE2;
+      break;
+
+    case SDLK_LSHIFT:
+    case SDLK_RSHIFT:
+      /*
+       * The SDK desktop emulator treats Shift as pointer/device-specific input, not as
+       * the generic FIRE bit used by vGetButtonData(). Publishing it as KEY_FIRE makes
+       * the target game enter its own terminate path immediately.
+       */
+      mask = 0u;
       break;
 
     default:
