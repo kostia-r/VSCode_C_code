@@ -1132,7 +1132,7 @@ static bool MVM_lReadMapHeader(const VMGPContext *ctx, uint32_t header_addr, VMG
 
 static uint32_t MVM_lMapCellStride(const VMGPMapState *map_state)
 {
-  if (map_state && (map_state->flags & 0x01u) != 0u)
+  if (map_state && (map_state->flags & 0x02u) != 0u)
   {
     return 2u;
   }
@@ -4072,8 +4072,12 @@ MVM_IMPORT_IMPL(vSpriteBoxCollision)
  */
 MVM_IMPORT_IMPL(vUpdateSprite)
 {
+  MVM_DrawCommand_t *command;
   uint32_t visible_count;
   uint32_t index;
+
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_SPRITE_SLOTS);
+  (void)command;
 
   visible_count = 0u;
 
@@ -4212,6 +4216,75 @@ MVM_IMPORT_IMPL(vMapSetTile)
 } /* End of vMapSetTile */
 
 /**
+ * @brief SDK: Changes one tile attribute value in the active tilemap.
+ * Call model: `sync/fire-and-forget`
+ * Ownership: Writes guest tilemap memory during the call only.
+ * Blocking: Non-blocking.
+ * Status: Implemented.
+ */
+MVM_IMPORT_IMPL(vMapSetAttribute)
+{
+  uint32_t x;
+  uint32_t y;
+  uint32_t attribute;
+  uint8_t *cell;
+  uint32_t addr;
+
+  x = ctx->regs[VM_REG_P0] & 0xFFu;
+  y = ctx->regs[VM_REG_P1] & 0xFFu;
+  attribute = ctx->regs[VM_REG_P2] & 0xFFu;
+  cell = MVM_lMapCellPtr(ctx, &ctx->map_state, x, y);
+
+  if (cell && MVM_lMapCellStride(&ctx->map_state) > 1u)
+  {
+    addr = ctx->map_state.map_data_addr +
+           ((y * (uint32_t)ctx->map_state.width) + x) * MVM_lMapCellStride(&ctx->map_state) + 1u;
+    cell[1] = (uint8_t)attribute;
+    MVM_WatchMemoryWrite(ctx, addr, 1u, "vMapSetAttribute");
+  }
+
+  ctx->regs[VM_REG_R0] = 0u;
+
+  MVM_LOG_D(ctx,
+            "map-set-attr",
+            "vMapSetAttribute(x=%u y=%u attr=%u ok=%u)\n",
+            x,
+            y,
+            attribute,
+            (cell && MVM_lMapCellStride(&ctx->map_state) > 1u) ? 1u : 0u);
+
+  return true;
+} /* End of vMapSetAttribute */
+
+/**
+ * @brief SDK: Returns one tile value from the active tilemap.
+ * Call model: `sync/result`
+ * Ownership: Reads guest tilemap memory during the call only.
+ * Blocking: Non-blocking.
+ * Status: Implemented.
+ */
+MVM_IMPORT_IMPL(vMapGetTile)
+{
+  uint32_t x;
+  uint32_t y;
+  uint8_t *cell;
+
+  x = ctx->regs[VM_REG_P0] & 0xFFu;
+  y = ctx->regs[VM_REG_P1] & 0xFFu;
+  cell = MVM_lMapCellPtr(ctx, &ctx->map_state, x, y);
+  ctx->regs[VM_REG_R0] = cell ? cell[0] : 0u;
+
+  MVM_LOG_D(ctx,
+            "map-get-tile",
+            "vMapGetTile(x=%u y=%u) -> %u\n",
+            x,
+            y,
+            ctx->regs[VM_REG_R0]);
+
+  return true;
+} /* End of vMapGetTile */
+
+/**
  * @brief SDK: Returns one tile attribute value from the active tilemap.
  * Call model: `sync/result`
  * Ownership: Reads guest tilemap memory during the call only.
@@ -4245,6 +4318,49 @@ MVM_IMPORT_IMPL(vMapGetAttribute)
 } /* End of vMapGetAttribute */
 
 /**
+ * @brief SDK: Updates the active tilemap definition from one MAP_HEADER.
+ * Call model: `sync/result`
+ * Ownership: Copies the current guest MAP_HEADER fields into VM-side state.
+ * Blocking: Non-blocking.
+ * Status: Implemented.
+ */
+MVM_IMPORT_IMPL(vMapHeaderUpdate)
+{
+  uint32_t header_addr;
+  bool is_valid;
+
+  header_addr = ctx->regs[VM_REG_P0];
+  is_valid = MVM_lReadMapHeader(ctx, header_addr, &ctx->map_state);
+  ctx->regs[VM_REG_R0] = is_valid ? 1u : 0u;
+
+  if (!is_valid)
+  {
+    MVM_LOG_W(ctx,
+              "map-header-update",
+              "vMapHeaderUpdate(map=%08X) invalid\n",
+              header_addr);
+
+    return true;
+  }
+
+  MVM_LOG_D(ctx,
+            "map-header-update",
+            "vMapHeaderUpdate(map=%08X) -> width=%u height=%u pan=%d,%d pos=%d,%d flags=%02X data=%08X tile=%08X\n",
+            header_addr,
+            (uint32_t)ctx->map_state.width,
+            (uint32_t)ctx->map_state.height,
+            (int32_t)ctx->map_state.x_pan,
+            (int32_t)ctx->map_state.y_pan,
+            (int32_t)ctx->map_state.x_pos,
+            (int32_t)ctx->map_state.y_pos,
+            (uint32_t)ctx->map_state.flags,
+            ctx->map_state.map_data_addr,
+            ctx->map_state.tile_data_addr);
+
+  return true;
+} /* End of vMapHeaderUpdate */
+
+/**
  * @brief SDK: Draws the active tilemap.
  * Call model: `sync/fire-and-forget`
  * Ownership: Reads VM-side map state only during the call.
@@ -4253,6 +4369,14 @@ MVM_IMPORT_IMPL(vMapGetAttribute)
  */
 MVM_IMPORT_IMPL(vUpdateMap)
 {
+  MVM_DrawCommand_t *command;
+
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_MAP);
+  if (command)
+  {
+    command->map_state = ctx->map_state;
+  }
+
   ctx->regs[VM_REG_R0] = 0u;
 
   MVM_LOG_D(ctx,
@@ -5330,36 +5454,6 @@ MVM_DEFINE_ZERO_STUB(vKillTask)
  * Stub behavior: Logs the call and returns zero.
  */
 MVM_DEFINE_ZERO_STUB(vLightPoint)
-
-/**
- * @brief SDK: Queries one tile value from the active map.
- * Call model: `sync/result`
- * Ownership: Uses guest pointers or scalars only during the call.
- * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
- */
-MVM_DEFINE_ZERO_STUB(vMapGetTile)
-
-/**
- * @brief SDK: Updates the current map header state.
- * Call model: `sync/fire-and-forget`
- * Ownership: Uses guest pointers or scalars only during the call.
- * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
- */
-MVM_DEFINE_ZERO_STUB(vMapHeaderUpdate)
-
-/**
- * @brief SDK: Sets one map attribute.
- * Call model: `sync/fire-and-forget`
- * Ownership: Uses guest pointers or scalars only during the call.
- * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
- */
-MVM_DEFINE_ZERO_STUB(vMapSetAttribute)
 
 /**
  * @brief SDK: Returns the current matrix.

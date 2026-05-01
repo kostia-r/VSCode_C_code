@@ -67,11 +67,13 @@ enum
   OP_BEQI = 0x2C,
   OP_BNEI = 0x2D,
   OP_BGEI = 0x2E,
+  OP_BGEUI = 0x2F,
   OP_BGTI = 0x30,
   OP_BGTUI = 0x31,
   OP_BLEI = 0x32,
   OP_BLEUI = 0x33,
   OP_BLTI = 0x34,
+  OP_BLTUI = 0x35,
   OP_BEQIB = 0x36,
   OP_BNEIB = 0x37,
   OP_BGEIB = 0x38,
@@ -101,6 +103,7 @@ enum
   OP_STHD = 0x53,
   OP_STWD = 0x54,
   OP_LDBD = 0x55,
+  OP_LDHD = 0x56,
   OP_LDWD = 0x57,
   OP_LDBU = 0x58,
   OP_LDHU = 0x59,
@@ -110,6 +113,8 @@ enum
   OP_BEQ = 0x5D,
   OP_BNE = 0x5E,
   OP_BGE = 0x5F,
+  OP_BGEU = 0x60,
+  OP_BGT = 0x61,
   OP_BGTU = 0x62,
   OP_BLE = 0x63,
   OP_BLEU = 0x64,
@@ -588,6 +593,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_LDBD:
 
+    case OP_LDHD:
+
     case OP_LDBU:
 
     case OP_LDHU:
@@ -639,6 +646,18 @@ bool MVM_PipStep(VMGPContext *ctx)
         }
 
         ctx->regs[rd] = (uint32_t)(int32_t)(int8_t)ctx->mem[addr];
+      }
+      else if (op == OP_LDHD)
+      {
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 2u))
+        {
+          MVM_LOG_E(ctx, "mem-oob", "LDHd addr OOB: 0x%X\n", addr);
+          MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 2u);
+
+          return false;
+        }
+
+        ctx->regs[rd] = (uint32_t)(int32_t)(int16_t)vm_read_u16_le(ctx->mem + addr);
       }
       else if (op == OP_LDBU)
       {
@@ -866,6 +885,8 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_BGEI:
 
+    case OP_BGEUI:
+
     case OP_BGTI:
 
     case OP_BGTUI:
@@ -875,6 +896,8 @@ bool MVM_PipStep(VMGPContext *ctx)
     case OP_BLEUI:
 
     case OP_BLTI:
+
+    case OP_BLTUI:
     {
       immq = (int8_t)b2;
       immu = b2;
@@ -894,6 +917,11 @@ bool MVM_PipStep(VMGPContext *ctx)
       if (op == OP_BGEI)
       {
         take = (vm_reg_s32(ctx->regs[rd]) >= immq);
+      }
+
+      if (op == OP_BGEUI)
+      {
+        take = (ctx->regs[rd] >= immu);
       }
 
       if (op == OP_BGTI)
@@ -921,9 +949,14 @@ bool MVM_PipStep(VMGPContext *ctx)
         take = (vm_reg_s32(ctx->regs[rd]) < immq);
       }
 
+      if (op == OP_BLTUI)
+      {
+        take = (ctx->regs[rd] < immu);
+      }
+
       ctx->pc += take ? (uint32_t)(rel * 4) : 4u;
       break;
-    } /* End of case OP_BLTI */
+    } /* End of case OP_BLTUI */
 
     case OP_BEQIB:
 
@@ -1028,6 +1061,10 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_BGE:
 
+    case OP_BGEU:
+
+    case OP_BGT:
+
     case OP_BGTU:
 
     case OP_BLE:
@@ -1058,6 +1095,16 @@ bool MVM_PipStep(VMGPContext *ctx)
       if (op == OP_BGE)
       {
         take = (vm_reg_s32(ctx->regs[rd]) >= vm_reg_s32(ctx->regs[rs]));
+      }
+
+      if (op == OP_BGEU)
+      {
+        take = (ctx->regs[rd] >= ctx->regs[rs]);
+      }
+
+      if (op == OP_BGT)
+      {
+        take = (vm_reg_s32(ctx->regs[rd]) > vm_reg_s32(ctx->regs[rs]));
       }
 
       if (op == OP_BGTU)
@@ -1426,6 +1473,12 @@ static const char *opcode_name(uint8_t op)
       break;
     } /* End of case OP_BGEI */
 
+    case OP_BGEUI:
+    {
+      opcodeName = "BGEUI";
+      break;
+    } /* End of case OP_BGEUI */
+
     case OP_BGTI:
     {
       opcodeName = "BGTI";
@@ -1455,6 +1508,12 @@ static const char *opcode_name(uint8_t op)
       opcodeName = "BLTI";
       break;
     } /* End of case OP_BLTI */
+
+    case OP_BLTUI:
+    {
+      opcodeName = "BLTUI";
+      break;
+    } /* End of case OP_BLTUI */
 
     case OP_BEQIB:
     {
@@ -1630,6 +1689,12 @@ static const char *opcode_name(uint8_t op)
       break;
     } /* End of case OP_LDBD */
 
+    case OP_LDHD:
+    {
+      opcodeName = "LDHd";
+      break;
+    } /* End of case OP_LDHD */
+
     case OP_LDWD:
     {
       opcodeName = "LDWd";
@@ -1683,6 +1748,18 @@ static const char *opcode_name(uint8_t op)
       opcodeName = "BGE";
       break;
     } /* End of case OP_BGE */
+
+    case OP_BGEU:
+    {
+      opcodeName = "BGEU";
+      break;
+    } /* End of case OP_BGEU */
+
+    case OP_BGT:
+    {
+      opcodeName = "BGT";
+      break;
+    } /* End of case OP_BGT */
 
     case OP_BGTU:
     {

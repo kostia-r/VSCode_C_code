@@ -118,7 +118,9 @@ typedef enum MVM_DrawCommandType_t
   MVM_DRAW_FILL_RECT = 0,
   MVM_DRAW_LINE = 1,
   MVM_DRAW_SPRITE = 2,
-  MVM_DRAW_TEXT = 3
+  MVM_DRAW_TEXT = 3,
+  MVM_DRAW_MAP = 4,
+  MVM_DRAW_SPRITE_SLOTS = 5
 } MVM_DrawCommandType_t;
 
 /**
@@ -139,6 +141,7 @@ typedef struct MVM_DrawCommand_t
   uint16_t text_length;         /**< Captured text byte count for deferred text commands. */
   uint8_t text[VMGP_DRAW_TEXT_SNAPSHOT_BYTES]; /**< Captured text bytes for deferred text commands. */
   uint32_t text_palette[4];     /**< Captured low-index text palette entries for deferred text commands. */
+  VMGPMapState map_state;        /**< Captured tilemap state for deferred map commands. */
 } MVM_DrawCommand_t;
 
 /**

@@ -11,9 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define MAX_STEPS_DEFAULT              (50000000U)
-#define MAX_LOGGED_CALLS_DEFAULT       (20000U)
-#define VM_MAX_STEPS_PER_HOST_FRAME    (1000U)
+#define MAX_STEPS_DEFAULT              (100000000U)
+#define MAX_LOGGED_CALLS_DEFAULT       (100000U)
+#define VM_MAX_STEPS_PER_HOST_FRAME    (10000U)
 #define HOST_MIN_LOOP_DELAY_MS         (1U)
 #define INPUT_REPEAT_DELAY_MS          (180U)
 #define INPUT_REPEAT_INTERVAL_MS       (90U)
@@ -1096,64 +1096,122 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
 }
 
 /**
- * @brief Tries to draw one tile from the current map tile-data area.
+ * @brief Tries to draw one 8x8 tile from one SDK MAP_HEADER tile-data area.
  */
 static int draw_guest_map_tile(SDL_Renderer *renderer,
                                const VMGPContext *ctx,
                                const VMGPMapState *map_state,
                                uint8_t tile_index,
+                               uint8_t tile_attribute,
                                int32_t x,
                                int32_t y)
 {
-  MVM_DrawCommand_t command;
-  VmSpriteHeader sprite;
-  uint32_t sprite_addr;
+  uint32_t format;
+  uint32_t bits_per_pixel;
+  uint32_t byte_count;
+  uint32_t data_addr;
+  uint32_t pixel_index;
+  uint32_t index;
+  uint8_t pixel;
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
 
-  if (!renderer || !ctx || !map_state || !map_state->valid || map_state->tile_data_addr == 0u)
+  if (!renderer || !ctx || !map_state || !map_state->valid || map_state->tile_data_addr == 0u || tile_index == 0u)
   {
     return 0;
   }
 
-  sprite_addr = map_state->tile_data_addr + ((uint32_t)tile_index * 14u);
-  if (!read_guest_sprite_header(ctx, sprite_addr, &sprite))
+  format = (uint32_t)(map_state->format & 0x07u);
+  bits_per_pixel = sprite_format_bits_per_pixel((uint8_t)format);
+  if (bits_per_pixel == 0u)
   {
     return 0;
   }
 
-  memset(&command, 0, sizeof(command));
-  command.type = MVM_DRAW_SPRITE;
-  command.x0 = (int16_t)x;
-  command.y0 = (int16_t)y;
-  command.width = sprite.width;
-  command.height = sprite.height;
-  command.aux = sprite_addr;
-  return draw_guest_sprite(renderer, ctx, &command);
+  byte_count = (64u * bits_per_pixel + 7u) / 8u;
+  data_addr = map_state->tile_data_addr + (((uint32_t)tile_index - 1u) * byte_count);
+  if (!MVM_RuntimeMemRangeOk(ctx, data_addr, byte_count))
+  {
+    return 0;
+  }
+
+  for (index = 0u; index < 64u; ++index)
+  {
+    pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, index, bits_per_pixel);
+    if (pixel_index == 0u && (map_state->flags & 0x01u) != 0u)
+    {
+      continue;
+    }
+
+    switch (format)
+    {
+      case 0x00u:
+        red = pixel_index ? 255u : 0u;
+        green = red;
+        blue = red;
+        break;
+
+      case 0x01u:
+        red = (uint8_t)(pixel_index * 85u);
+        green = red;
+        blue = red;
+        break;
+
+      case 0x02u:
+        red = (uint8_t)(pixel_index * 17u);
+        green = red;
+        blue = red;
+        break;
+
+      case 0x03u:
+      case 0x04u:
+      case 0x05u:
+      case 0x06u:
+        pixel = (uint8_t)(tile_attribute + pixel_index);
+        decode_guest_color(ctx->palette_entries[pixel], &red, &green, &blue);
+        break;
+
+      case 0x07u:
+        pixel = (uint8_t)pixel_index;
+        red = (uint8_t)(((pixel >> 5) & 0x07u) * 255u / 7u);
+        green = (uint8_t)(((pixel >> 2) & 0x07u) * 255u / 7u);
+        blue = (uint8_t)((pixel & 0x03u) * 255u / 3u);
+        break;
+
+      default:
+        return 0;
+    }
+
+    SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
+    SDL_RenderDrawPoint(renderer, x + (int32_t)(index & 7u), y + (int32_t)(index >> 3));
+  }
+
+  return 1;
 }
 
 /**
  * @brief Draws the active VM tilemap using one sprite-atlas attempt plus fallback tiles.
  */
-static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx)
+static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, const VMGPMapState *map_state)
 {
-  const VMGPMapState *map_state;
   uint32_t stride;
   uint32_t x;
   uint32_t y;
   uint32_t offset;
   uint8_t tile_index;
 
-  if (!renderer || !ctx)
+  if (!renderer || !ctx || !map_state)
   {
     return;
   }
 
-  map_state = &ctx->map_state;
   if (!map_state->valid || map_state->width == 0u || map_state->height == 0u)
   {
     return;
   }
 
-  stride = ((map_state->flags & 0x01u) != 0u) ? 2u : 1u;
+  stride = ((map_state->flags & 0x02u) != 0u) ? 2u : 1u;
 
   for (y = 0u; y < map_state->height; ++y)
   {
@@ -1170,8 +1228,9 @@ static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx)
                           ctx,
                           map_state,
                           tile_index,
-                          (int32_t)map_state->x_pos + (int32_t)(x * 8u),
-                          (int32_t)map_state->y_pos + (int32_t)(y * 8u));
+                          (stride > 1u) ? ctx->mem[offset + 1u] : 0u,
+                          (int32_t)map_state->x_pan + (int32_t)(x * 8u) - (int32_t)map_state->x_pos,
+                          (int32_t)map_state->y_pan + (int32_t)(y * 8u) - (int32_t)map_state->y_pos);
     }
   }
 }
@@ -1182,17 +1241,13 @@ static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx)
 static void render_guest_sprite_slots(SDL_Renderer *renderer, const VMGPContext *ctx)
 {
   MVM_DrawCommand_t command;
+  VmSpriteHeader sprite;
   uint32_t index;
-  uint16_t width;
-  uint16_t height;
 
   if (!renderer || !ctx)
   {
     return;
   }
-
-  memset(&command, 0, sizeof(command));
-  command.type = MVM_DRAW_SPRITE;
 
   for (index = 0u; index < ctx->sprite_slot_count; ++index)
   {
@@ -1201,30 +1256,18 @@ static void render_guest_sprite_slots(SDL_Renderer *renderer, const VMGPContext 
       continue;
     }
 
-    width = 0u;
-    height = 0u;
-    if (!MVM_RuntimeMemRangeOk(ctx, ctx->sprite_slots[index].sprite_addr, 14u))
-    {
-      continue;
-    }
-
-    width = vm_read_u16_le(ctx->mem + ctx->sprite_slots[index].sprite_addr + 6u);
-    height = vm_read_u16_le(ctx->mem + ctx->sprite_slots[index].sprite_addr + 8u);
-    if (width == 0u || height == 0u)
-    {
-      continue;
-    }
-
+    memset(&command, 0, sizeof(command));
+    command.type = MVM_DRAW_SPRITE;
     command.x0 = ctx->sprite_slots[index].x;
     command.y0 = ctx->sprite_slots[index].y;
-    command.width = width;
-    command.height = height;
     command.aux = ctx->sprite_slots[index].sprite_addr;
-    if (!draw_guest_sprite(renderer, ctx, &command))
+    if (read_guest_sprite_header(ctx, command.aux, &sprite))
     {
-      SDL_SetRenderDrawColor(renderer, 255u, 0u, 255u, 255u);
-      SDL_RenderDrawRect(renderer, &(SDL_Rect){ command.x0, command.y0, command.width, command.height });
+      command.width = sprite.width;
+      command.height = sprite.height;
     }
+
+    (void)draw_guest_sprite(renderer, ctx, &command);
   }
 }
 
@@ -1698,8 +1741,6 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
     SDL_RenderSetClipRect(backend->renderer, NULL);
   }
 
-  render_guest_map(backend->renderer, ctx);
-
   for (index = 0u; index < ctx->draw_command_count; ++index)
   {
     command = &ctx->draw_commands[index];
@@ -1751,12 +1792,18 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
         }
         break;
 
+      case MVM_DRAW_MAP:
+        render_guest_map(backend->renderer, ctx, &command->map_state);
+        break;
+
+      case MVM_DRAW_SPRITE_SLOTS:
+        render_guest_sprite_slots(backend->renderer, ctx);
+        break;
+
       default:
         break;
     }
   }
-
-  render_guest_sprite_slots(backend->renderer, ctx);
 
   for (index = 0u; index < ctx->draw_command_count; ++index)
   {
