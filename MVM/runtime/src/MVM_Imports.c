@@ -41,11 +41,19 @@
 #define MVM_POINTER_DOWN_MASK    0x00000040u
 #define MVM_POINTER_ALTDOWN_MASK 0x00000080u
 #define MVM_KEY_FIRE2_MASK       0x00000100u
+#define MVM_SE_YES_ASCII         202u
+#define MVM_SE_NO_ASCII          203u
+#define MVM_SE_CLEAR_ASCII       204u
+#define MVM_SE_JOY_LEFT_ASCII    205u
+#define MVM_SE_JOY_RIGHT_ASCII   206u
+#define MVM_SE_JOY_UP_ASCII      210u
+#define MVM_SE_JOY_DOWN_ASCII    211u
+#define MVM_SE_JOY_FIRE_ASCII    214u
 #define MVM_SE_OPTION_ASCII      217u
 #define MVM_CAPS_VIDEO           0u
-#define MVM_CAPS_INPUT           1u
-#define MVM_CAPS_SOUND           2u
-#define MVM_CAPS_COMM            3u
+#define MVM_CAPS_COMM            1u
+#define MVM_CAPS_INPUT           2u
+#define MVM_CAPS_SOUND           3u
 #define MVM_CAPS_SYSTEM          4u
 #define MVM_INPUT_NUMERIC_KEYPAD 0x0008u
 
@@ -3298,7 +3306,7 @@ MVM_IMPORT_IMPL(vSetPaletteEntry)
   uint32_t index;
 
   index = ctx->regs[VM_REG_P0] & 0xFFu;
-  ctx->palette_entries[index] = ctx->regs[VM_REG_P1];
+  ctx->palette_entries[index] = ctx->regs[VM_REG_P1] & 0xFFFFu;
   ctx->regs[VM_REG_R0] = 0u;
 
   MVM_LOG_D(ctx,
@@ -3336,7 +3344,7 @@ MVM_IMPORT_IMPL(vSetPalette)
   {
     for (index = 0u; index < count && MVM_RuntimeMemRangeOk(ctx, src + index * 4u, 4u); ++index)
     {
-      ctx->palette_entries[index] = vm_read_u32_le(ctx->mem + src + index * 4u);
+      ctx->palette_entries[index] = vm_read_u32_le(ctx->mem + src + index * 4u) & 0xFFFFu;
     }
   }
 
@@ -3564,6 +3572,20 @@ MVM_IMPORT_IMPL(vPrint)
     command->color = ctx->fg_color;
     command->aux = str;
     command->aux2 = ctx->active_font;
+    if (str < ctx->mem_size && length != 0u)
+    {
+      uint32_t copy_length;
+
+      copy_length = length;
+      if (copy_length >= VMGP_DRAW_TEXT_SNAPSHOT_BYTES)
+      {
+        copy_length = VMGP_DRAW_TEXT_SNAPSHOT_BYTES - 1u;
+      }
+
+      memcpy(command->text, ctx->mem + str, copy_length);
+      command->text[copy_length] = 0u;
+      command->text_length = (uint16_t)copy_length;
+    }
   }
 
   MVM_LOG_D(ctx,
@@ -3606,8 +3628,9 @@ MVM_IMPORT_IMPL(vGetButtonData)
  * Ownership: Uses scalar arguments only during the call.
  * Blocking: Non-blocking.
  * Status: Implemented for the documented ASCII keypad aliases and the
- *         SonyEricsson option key used by the reference runtimes. Other
- *         implementation-defined key codes currently return not pressed.
+ *         SonyEricsson T300/T310 soft-key aliases used by the reference
+ *         runtimes. Other implementation-defined key codes currently return
+ *         not pressed.
  */
 MVM_IMPORT_IMPL(vTestKey)
 {
@@ -3625,6 +3648,7 @@ MVM_IMPORT_IMPL(vTestKey)
       break;
 
     case '2':
+    case MVM_SE_JOY_UP_ASCII:
       pressed = ((ctx->button_state & MVM_KEY_UP_MASK) != 0u) ? 1u : 0u;
       break;
 
@@ -3634,24 +3658,28 @@ MVM_IMPORT_IMPL(vTestKey)
       break;
 
     case '4':
+    case MVM_SE_JOY_LEFT_ASCII:
       pressed = ((ctx->button_state & MVM_KEY_LEFT_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '5':
     case '*':
+    case MVM_SE_YES_ASCII:
+    case MVM_SE_JOY_FIRE_ASCII:
       pressed = ((ctx->button_state & MVM_KEY_FIRE_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '#':
-      pressed = ((ctx->button_state & MVM_KEY_FIRE2_MASK) != 0u) ? 1u : 0u;
-      break;
-
-    case '0':
-    case MVM_SE_OPTION_ASCII:
+    case MVM_SE_NO_ASCII:
       pressed = ((ctx->button_state & MVM_KEY_SELECT_MASK) != 0u) ? 1u : 0u;
       break;
 
+    case MVM_SE_OPTION_ASCII:
+      pressed = ((ctx->button_state & MVM_KEY_FIRE2_MASK) != 0u) ? 1u : 0u;
+      break;
+
     case '6':
+    case MVM_SE_JOY_RIGHT_ASCII:
       pressed = ((ctx->button_state & MVM_KEY_RIGHT_MASK) != 0u) ? 1u : 0u;
       break;
 
@@ -3661,12 +3689,18 @@ MVM_IMPORT_IMPL(vTestKey)
       break;
 
     case '8':
+    case MVM_SE_JOY_DOWN_ASCII:
       pressed = ((ctx->button_state & MVM_KEY_DOWN_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '9':
       pressed = ((ctx->button_state & (MVM_KEY_DOWN_MASK | MVM_KEY_RIGHT_MASK))
                  == (MVM_KEY_DOWN_MASK | MVM_KEY_RIGHT_MASK)) ? 1u : 0u;
+      break;
+
+    case '0':
+    case MVM_SE_CLEAR_ASCII:
+      pressed = 0u;
       break;
 
     default:

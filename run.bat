@@ -16,7 +16,7 @@ if not exist "%CD%\Build" (
 
 for %%I in ("%CD%") do set "APP_NAME=%%~nxI"
 set "EXE=%CD%\%APP_NAME%.exe"
-set "DEFAULT_MPN=%CD%\mpn\45596_decrypted.mpn"
+set "DEFAULT_MPN=%CD%\mpn\decrypted.mpn"
 
 if not exist "%EXE%" (
     echo Executable not found: %EXE%

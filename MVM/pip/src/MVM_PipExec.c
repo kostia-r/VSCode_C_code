@@ -674,8 +674,8 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        MVM_WatchMemoryWrite(ctx, addr, 4, "STWD");
         vm_write_u32_le(ctx->mem + addr, ctx->regs[rd]);
+        MVM_WatchMemoryWrite(ctx, addr, 4, "STWD");
       }
       else if (op == OP_STHD)
       {
@@ -687,8 +687,8 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        MVM_WatchMemoryWrite(ctx, addr, 2, "STHD");
         vm_write_u16_le(ctx->mem + addr, (uint16_t)(ctx->regs[rd] & 0xFFFFu));
+        MVM_WatchMemoryWrite(ctx, addr, 2, "STHD");
       }
       else
       {
@@ -700,8 +700,8 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        MVM_WatchMemoryWrite(ctx, addr, 1, "STBD");
         ctx->mem[addr] = (uint8_t)(ctx->regs[rd] & 0xFFu);
+        MVM_WatchMemoryWrite(ctx, addr, 1, "STBD");
       }
 
       ctx->pc += 8;
@@ -1085,7 +1085,7 @@ bool MVM_PipStep(VMGPContext *ctx)
         take = (ctx->regs[rd] < ctx->regs[rs]);
       }
 
-      ctx->pc = take ? (ctx->pc + 4 + (uint32_t)vm_sext24(ext)) : (ctx->pc + 8);
+      ctx->pc = take ? (ctx->pc + (uint32_t)vm_sext24(ext)) : (ctx->pc + 8);
       break;
     } /* End of case OP_BLTU */
 

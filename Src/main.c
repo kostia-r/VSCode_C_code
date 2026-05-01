@@ -897,30 +897,33 @@ static uint8_t decode_debug_text_char(const VMGPContext *ctx, uint32_t str_addr,
 }
 
 /**
- * @brief Draws one string with a tiny host-side 5x7 debug font fallback.
+ * @brief Draws one byte string with a tiny host-side 5x7 debug font fallback.
  */
-static int draw_debug_text(SDL_Renderer *renderer, const VMGPContext *ctx, uint32_t str_addr, int32_t x, int32_t y)
+static int draw_debug_text_bytes(SDL_Renderer *renderer,
+                                 const VMGPContext *ctx,
+                                 const uint8_t *text,
+                                 uint32_t char_count,
+                                 uint32_t str_addr,
+                                 int32_t x,
+                                 int32_t y)
 {
   const int32_t char_advance = 7;
-  uint32_t char_count;
   uint32_t char_index;
   uint32_t row;
   uint32_t col;
   const uint8_t *glyph;
   uint8_t ch;
 
-  if (!renderer || !ctx || str_addr >= ctx->mem_size)
+  if (!renderer || !ctx || !text)
   {
     return 0;
   }
-
-  char_count = MVM_RuntimeStrLen(ctx->mem + str_addr, ctx->mem_size - str_addr);
 
   for (char_index = 0u; char_index < char_count; ++char_index)
   {
     uint8_t raw_ch;
 
-    raw_ch = ctx->mem[str_addr + char_index];
+    raw_ch = text[char_index];
     ch = decode_debug_text_char(ctx, str_addr, char_index, raw_ch);
 
     if (raw_ch == 0x01u)
@@ -993,20 +996,35 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   uint8_t bg_red;
   uint8_t bg_green;
   uint8_t bg_blue;
+  const uint8_t *text_bytes;
 
   if (!renderer || !ctx || !command || command->aux2 == 0u)
   {
     return 0;
   }
 
+  str_addr = command->aux;
+  text_bytes = NULL;
+  char_count = 0u;
+  if (command->text_length != 0u)
+  {
+    text_bytes = command->text;
+    char_count = command->text_length;
+  }
+  else if (str_addr < ctx->mem_size)
+  {
+    text_bytes = ctx->mem + str_addr;
+    char_count = MVM_RuntimeStrLen(ctx->mem + str_addr, ctx->mem_size - str_addr);
+  }
+
   if (!read_guest_font_header(ctx, command->aux2, &font))
   {
-    return draw_debug_text(renderer, ctx, command->aux, command->x0, command->y0);
+    return draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
   }
 
   if ((font.bpp != 1u && font.bpp != 2u) || font.width == 0u || font.height == 0u)
   {
-    return draw_debug_text(renderer, ctx, command->aux, command->x0, command->y0);
+    return draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
   }
 
   /*
@@ -1017,7 +1035,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
    */
   if (font.char_table_addr == 0u)
   {
-    return draw_debug_text(renderer, ctx, command->aux, command->x0, command->y0);
+    return draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
   }
 
   pixel_count = (uint32_t)font.width * (uint32_t)font.height;
@@ -1030,13 +1048,11 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
     return 0;
   }
 
-  str_addr = command->aux;
-  if (str_addr >= ctx->mem_size)
+  if (!text_bytes)
   {
     return 0;
   }
 
-  char_count = MVM_RuntimeStrLen(ctx->mem + str_addr, ctx->mem_size - str_addr);
   base_x = command->x0;
   base_y = command->y0;
   drawn_pixels = 0u;
@@ -1046,7 +1062,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
 
   for (char_index = 0u; char_index < char_count; ++char_index)
   {
-    ch = ctx->mem[str_addr + char_index];
+    ch = text_bytes[char_index];
     if (!MVM_RuntimeMemRangeOk(ctx, font.char_table_addr + ch, 1u))
     {
       continue;
@@ -1145,7 +1161,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
     }
   }
 
-  return drawn_pixels != 0u ? 1 : draw_debug_text(renderer, ctx, command->aux, command->x0, command->y0);
+  return drawn_pixels != 0u ? 1 : draw_debug_text_bytes(renderer, ctx, text_bytes, char_count, str_addr, command->x0, command->y0);
 }
 
 /**
@@ -1678,7 +1694,7 @@ static void sync_backend_input_to_vm(MpnVM_t *vm, SdlBackend *backend)
   }
 
   ctx = (VMGPContext *)vm;
-  ctx->button_state = backend->pulse_button_state;
+  ctx->button_state = backend->raw_button_state | backend->pulse_button_state;
   backend->pulse_button_state = 0u;
 }
 

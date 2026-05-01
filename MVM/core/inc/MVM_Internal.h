@@ -35,6 +35,7 @@
 #define VMGP_MAX_STREAMS                                        (16U)
 #define VMGP_MAX_SPRITE_SLOTS                                   (255U)
 #define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
+#define VMGP_DRAW_TEXT_SNAPSHOT_BYTES                           (64U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
 #define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
@@ -135,6 +136,8 @@ typedef struct MVM_DrawCommand_t
   uint32_t color;              /**< Guest-encoded foreground color. */
   uint32_t aux;                /**< Guest pointer or extra metadata. */
   uint32_t aux2;               /**< Secondary guest pointer or extra metadata. */
+  uint16_t text_length;         /**< Captured text byte count for deferred text commands. */
+  uint8_t text[VMGP_DRAW_TEXT_SNAPSHOT_BYTES]; /**< Captured text bytes for deferred text commands. */
 } MVM_DrawCommand_t;
 
 /**
