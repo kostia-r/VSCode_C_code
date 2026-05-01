@@ -32,6 +32,16 @@
 #define STREAM_CREATE_FLAG 0x0800u
 #define STREAM_TRUNC_FLAG  0x1000u
 #define STREAM_DELETE_FLAG 0x4000u
+#define MVM_KEY_UP_MASK          0x00000001u
+#define MVM_KEY_DOWN_MASK        0x00000002u
+#define MVM_KEY_LEFT_MASK        0x00000004u
+#define MVM_KEY_RIGHT_MASK       0x00000008u
+#define MVM_KEY_FIRE_MASK        0x00000010u
+#define MVM_KEY_SELECT_MASK      0x00000020u
+#define MVM_POINTER_DOWN_MASK    0x00000040u
+#define MVM_POINTER_ALTDOWN_MASK 0x00000080u
+#define MVM_KEY_FIRE2_MASK       0x00000100u
+#define MVM_SE_OPTION_ASCII      217u
 
 /**********************************************************************************************************************
  *  LOCAL DATA TYPES AND STRUCTURES
@@ -153,6 +163,7 @@ static bool MVM_lHeapFindBlockByPayload(const VMGPContext *ctx,
 static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_addr);
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr);
 static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx);
+static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawCommandType_t type);
 
 /* Import handlers use SDK-visible names by design. */
 MVM_IMPORT_PROTO(DbgPrintf);               /* Stub */
@@ -741,6 +752,13 @@ static bool MVM_lReadStreamBytes(const VMGPContext *ctx, const VMGPStream *strea
     return false;
   }
 
+  if (stream->overlay_data)
+  {
+    memcpy(dst, stream->overlay_data + pos, size);
+
+    return true;
+  }
+
   return MVM_ReadImageRange(ctx, stream->file_offset + pos, dst, size);
 } /* End of MVM_lReadStreamBytes */
 
@@ -1012,6 +1030,9 @@ static bool MVM_lReadSpriteHeader(const VMGPContext *ctx,
                                   uint16_t *width,
                                   uint16_t *height)
 {
+  uint16_t legacy_width;
+  uint16_t legacy_height;
+
   if (!ctx || !width || !height)
   {
     return false;
@@ -1024,6 +1045,27 @@ static bool MVM_lReadSpriteHeader(const VMGPContext *ctx,
 
   *width = vm_read_u16_le(ctx->mem + sprite_addr + 6u);
   *height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+
+  if (*width == 0u || *height == 0u)
+  {
+    legacy_width = vm_read_u16_le(ctx->mem + sprite_addr + 0u);
+    legacy_height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+    if (legacy_width != 0u && legacy_height != 0u)
+    {
+      *width = legacy_width;
+      *height = legacy_height;
+    }
+    else
+    {
+      legacy_width = vm_read_u16_le(ctx->mem + sprite_addr + 4u);
+      legacy_height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+      if (legacy_width != 0u && legacy_height != 0u)
+      {
+        *width = legacy_width;
+        *height = legacy_height;
+      }
+    }
+  }
 
   return true;
 } /* End of MVM_lReadSpriteHeader */
@@ -1401,6 +1443,22 @@ static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx)
 
   return free_bytes;
 } /* End of MVM_lHeapMaxFreeBlock */
+
+static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawCommandType_t type)
+{
+  MVM_DrawCommand_t *command;
+
+  if (!ctx || ctx->draw_command_count >= VMGP_MAX_DRAW_COMMANDS)
+  {
+    return NULL;
+  }
+
+  command = &ctx->draw_commands[ctx->draw_command_count++];
+  memset(command, 0, sizeof(*command));
+  command->type = type;
+
+  return command;
+} /* End of MVM_lAllocDrawCommand */
 
 /**
  * @brief SDK: Allocates one guest-memory block and returns one guest pointer in `r0`.
@@ -1985,11 +2043,15 @@ MVM_IMPORT_IMPL(vStreamOpen)
   uint32_t resource_id;
   VMGPStream *stream;
   const VMGPResource *resource;
+  uint32_t stream_type;
+  void *overlay_mem;
 
   mode = ctx->regs[VM_REG_P1];
   resource_id = mode >> 16;
   stream = NULL;
   resource = NULL;
+  stream_type = mode & 0xFFu;
+  overlay_mem = NULL;
 
   stream = MVM_lAllocStream(ctx);
 
@@ -2024,16 +2086,40 @@ MVM_IMPORT_IMPL(vStreamOpen)
 
   stream->mode = mode;
   stream->pos = 0u;
+
+  if (resource_id != 0u && stream_type == 7u && (mode & STREAM_WRITE_FLAG) != 0u)
+  {
+    overlay_mem = MVM_AcquireInitBuffer(ctx, stream->size);
+
+    if (!overlay_mem || !MVM_ReadImageRange(ctx, stream->file_offset, overlay_mem, stream->size))
+    {
+      memset(stream, 0, sizeof(*stream));
+      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+      MVM_LOG_W(ctx,
+                "stream-open",
+                "vStreamOpen(mode=%08X resid=%u) rejected: writable resource overlay unavailable\n",
+                mode,
+                resource_id);
+
+      return true;
+    }
+
+    stream->overlay_data = (uint8_t *)overlay_mem;
+    stream->overlay_size = stream->size;
+  }
+
   ctx->regs[VM_REG_R0] = stream->handle;
   MVM_EmitEvent(ctx, MVM_EVENT_RESOURCE_OPENED, resource_id, stream->handle);
 
   MVM_LOG_D(ctx,
             "stream-open",
-            "vStreamOpen(mode=%08X resid=%u) -> handle=%u size=%u\n",
+            "vStreamOpen(mode=%08X resid=%u) -> handle=%u size=%u overlay=%u\n",
             mode,
             resource_id,
             stream->handle,
-            stream->size);
+            stream->size,
+            stream->overlay_data ? 1u : 0u);
 
   return true;
 } /* End of vStreamOpen */
@@ -2175,10 +2261,12 @@ MVM_IMPORT_IMPL(vStreamWrite)
   VMGPStream *stream;
   uint32_t buffer;
   uint32_t count;
+  uint32_t writable;
 
   stream = MVM_lFindStream(ctx, ctx->regs[VM_REG_P0]);
   buffer = ctx->regs[VM_REG_P1];
   count = ctx->regs[VM_REG_P2];
+  writable = 0u;
 
   if (!stream || !MVM_RuntimeMemRangeOk(ctx, buffer, count))
   {
@@ -2201,14 +2289,37 @@ MVM_IMPORT_IMPL(vStreamWrite)
     return true;
   }
 
-  stream->pos += count;
+  writable = count;
+
+  if (stream->overlay_data)
+  {
+    writable = (stream->pos < stream->overlay_size) ? (stream->overlay_size - stream->pos) : 0u;
+
+    if (count < writable)
+    {
+      writable = count;
+    }
+
+    memcpy(stream->overlay_data + stream->pos, ctx->mem + buffer, writable);
+    stream->pos += writable;
+    ctx->regs[VM_REG_R0] = writable;
+  }
+  else
+  {
+    stream->pos += count;
+
+    if (stream->pos > stream->size)
+    {
+      stream->size = stream->pos;
+    }
+
+    ctx->regs[VM_REG_R0] = count;
+  }
 
   if (stream->pos > stream->size)
   {
     stream->size = stream->pos;
   }
-
-  ctx->regs[VM_REG_R0] = count;
 
   MVM_LOG_D(ctx,
             "stream-write",
@@ -2988,6 +3099,8 @@ MVM_IMPORT_IMPL(vFlipScreen)
     return false;
   }
 
+  ++ctx->frame_serial;
+
   MVM_LOG_D(ctx,
             "frame-ready",
             "vFlipScreen(p0=%08X p1=%08X p2=%08X p3=%08X)\n",
@@ -3038,6 +3151,7 @@ MVM_IMPORT_IMPL(vPlayResource)
 MVM_IMPORT_IMPL(vClearScreen)
 {
   ctx->clear_color = ctx->regs[VM_REG_P0];
+  ctx->draw_command_count = 0u;
   ctx->regs[VM_REG_R0] = 0u;
 
   MVM_LOG_D(ctx,
@@ -3254,16 +3368,27 @@ MVM_IMPORT_IMPL(vGetPaletteEntry)
  */
 MVM_IMPORT_IMPL(vFillRect)
 {
+  MVM_DrawCommand_t *command;
   int16_t x0;
   int16_t y0;
   int16_t x1;
   int16_t y1;
 
+  command = NULL;
   x0 = (int16_t)(ctx->regs[VM_REG_P0] & 0xFFFFu);
   y0 = (int16_t)(ctx->regs[VM_REG_P1] & 0xFFFFu);
   x1 = (int16_t)(ctx->regs[VM_REG_P2] & 0xFFFFu);
   y1 = (int16_t)(ctx->regs[VM_REG_P3] & 0xFFFFu);
   ctx->regs[VM_REG_R0] = 0u;
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_FILL_RECT);
+  if (command)
+  {
+    command->x0 = x0;
+    command->y0 = y0;
+    command->x1 = x1;
+    command->y1 = y1;
+    command->color = ctx->fg_color;
+  }
 
   MVM_LOG_D(ctx,
             "fill-rect",
@@ -3290,16 +3415,27 @@ MVM_IMPORT_IMPL(vFillRect)
  */
 MVM_IMPORT_IMPL(vDrawLine)
 {
+  MVM_DrawCommand_t *command;
   int16_t x0;
   int16_t y0;
   int16_t x1;
   int16_t y1;
 
+  command = NULL;
   x0 = (int16_t)(ctx->regs[VM_REG_P0] & 0xFFFFu);
   y0 = (int16_t)(ctx->regs[VM_REG_P1] & 0xFFFFu);
   x1 = (int16_t)(ctx->regs[VM_REG_P2] & 0xFFFFu);
   y1 = (int16_t)(ctx->regs[VM_REG_P3] & 0xFFFFu);
   ctx->regs[VM_REG_R0] = 0u;
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_LINE);
+  if (command)
+  {
+    command->x0 = x0;
+    command->y0 = y0;
+    command->x1 = x1;
+    command->y1 = y1;
+    command->color = ctx->fg_color;
+  }
 
   MVM_LOG_D(ctx,
             "draw-line",
@@ -3322,12 +3458,14 @@ MVM_IMPORT_IMPL(vDrawLine)
  */
 MVM_IMPORT_IMPL(vDrawObject)
 {
+  MVM_DrawCommand_t *command;
   int16_t x;
   int16_t y;
   uint32_t sprite_addr;
   uint16_t width;
   uint16_t height;
 
+  command = NULL;
   x = (int16_t)(ctx->regs[VM_REG_P0] & 0xFFFFu);
   y = (int16_t)(ctx->regs[VM_REG_P1] & 0xFFFFu);
   sprite_addr = ctx->regs[VM_REG_P2];
@@ -3345,6 +3483,17 @@ MVM_IMPORT_IMPL(vDrawObject)
               sprite_addr);
 
     return true;
+  }
+
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_SPRITE);
+  if (command)
+  {
+    command->x0 = x;
+    command->y0 = y;
+    command->width = width;
+    command->height = height;
+    command->color = ctx->fg_color;
+    command->aux = sprite_addr;
   }
 
   MVM_LOG_D(ctx,
@@ -3369,12 +3518,14 @@ MVM_IMPORT_IMPL(vDrawObject)
  */
 MVM_IMPORT_IMPL(vPrint)
 {
+  MVM_DrawCommand_t *command;
   uint32_t mode;
   uint32_t x;
   uint32_t y;
   uint32_t str;
   uint32_t length;
 
+  command = NULL;
   mode = ctx->regs[VM_REG_P0];
   x = ctx->regs[VM_REG_P1];
   y = ctx->regs[VM_REG_P2];
@@ -3387,6 +3538,17 @@ MVM_IMPORT_IMPL(vPrint)
   }
 
   ctx->regs[VM_REG_R0] = 0u;
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TEXT);
+  if (command)
+  {
+    command->x0 = (int16_t)(x & 0xFFFFu);
+    command->y0 = (int16_t)(y & 0xFFFFu);
+    command->width = (uint16_t)(length * 6u);
+    command->height = 8u;
+    command->color = ctx->fg_color;
+    command->aux = str;
+    command->aux2 = ctx->active_font;
+  }
 
   MVM_LOG_D(ctx,
             "print",
@@ -3423,23 +3585,85 @@ MVM_IMPORT_IMPL(vGetButtonData)
 } /* End of vGetButtonData */
 
 /**
- * @brief SDK: Tests one key flag against the current button state.
+ * @brief SDK: Tests one key code against the current button state.
  * Call model: `polling`
  * Ownership: Uses scalar arguments only during the call.
  * Blocking: Non-blocking.
- * Status: Partial; evaluates against the VM-side button state.
+ * Status: Implemented for the documented ASCII keypad aliases and the
+ *         SonyEricsson option key used by the reference runtimes. Other
+ *         implementation-defined key codes currently return not pressed.
  */
 MVM_IMPORT_IMPL(vTestKey)
 {
-  uint32_t mask;
+  uint32_t key;
+  uint32_t pressed;
 
-  mask = ctx->regs[VM_REG_P0];
-  ctx->regs[VM_REG_R0] = (ctx->button_state & mask) ? 1u : 0u;
+  key = ctx->regs[VM_REG_P0];
+  pressed = 0u;
+
+  switch (key)
+  {
+    case '1':
+      pressed = ((ctx->button_state & (MVM_KEY_UP_MASK | MVM_KEY_LEFT_MASK))
+                 == (MVM_KEY_UP_MASK | MVM_KEY_LEFT_MASK)) ? 1u : 0u;
+      break;
+
+    case '2':
+      pressed = ((ctx->button_state & MVM_KEY_UP_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '3':
+      pressed = ((ctx->button_state & (MVM_KEY_UP_MASK | MVM_KEY_RIGHT_MASK))
+                 == (MVM_KEY_UP_MASK | MVM_KEY_RIGHT_MASK)) ? 1u : 0u;
+      break;
+
+    case '4':
+      pressed = ((ctx->button_state & MVM_KEY_LEFT_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '5':
+    case '*':
+      pressed = ((ctx->button_state & MVM_KEY_FIRE_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '#':
+      pressed = ((ctx->button_state & MVM_KEY_FIRE2_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '0':
+    case MVM_SE_OPTION_ASCII:
+      pressed = ((ctx->button_state & MVM_KEY_SELECT_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '6':
+      pressed = ((ctx->button_state & MVM_KEY_RIGHT_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '7':
+      pressed = ((ctx->button_state & (MVM_KEY_DOWN_MASK | MVM_KEY_LEFT_MASK))
+                 == (MVM_KEY_DOWN_MASK | MVM_KEY_LEFT_MASK)) ? 1u : 0u;
+      break;
+
+    case '8':
+      pressed = ((ctx->button_state & MVM_KEY_DOWN_MASK) != 0u) ? 1u : 0u;
+      break;
+
+    case '9':
+      pressed = ((ctx->button_state & (MVM_KEY_DOWN_MASK | MVM_KEY_RIGHT_MASK))
+                 == (MVM_KEY_DOWN_MASK | MVM_KEY_RIGHT_MASK)) ? 1u : 0u;
+      break;
+
+    default:
+      pressed = 0u;
+      break;
+  }
+
+  ctx->regs[VM_REG_R0] = pressed;
 
   MVM_LOG_D(ctx,
             "test-key",
-            "vTestKey(mask=%08X) -> %u\n",
-            mask,
+            "vTestKey(key=%08X) -> %u\n",
+            key,
             ctx->regs[VM_REG_R0]);
 
   return true;

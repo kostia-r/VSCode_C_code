@@ -101,6 +101,15 @@ C_INCLUDES += $(addprefix -I,$(MVM_INC))
 Host-specific runners and backend examples live outside the library tree under
 `Examples/` so embedding projects can choose their own platform glue.
 
+Current Windows/SDL runner notes:
+- primary logging stays in the console;
+- the SDL window is used only for graphics/input;
+- desktop keys follow the official Mophun SDK emulator mapping:
+  - `Up/Down/Left/Right` -> guest direction keys;
+  - `Shift` -> `KEY_FIRE`;
+  - `Backspace` -> `KEY_SELECT`;
+  - `Enter` -> `KEY_FIRE2`.
+
 Integration-time glue lives under `Config/`:
 
 - `Config/MVM_Cfg.h` - build-time pool sizes, device-profile parameters, and

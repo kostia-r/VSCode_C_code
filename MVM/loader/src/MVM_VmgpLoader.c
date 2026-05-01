@@ -39,6 +39,16 @@ static uint32_t MVM_lCountVmgpResources(const MpnImageSource_t *image, uint32_t 
 static bool MVM_lBuildVmgpMemory(VMGPContext *ctx);
 
 /**
+ * @brief Applies one minimal relocation/fixup pass to guest data memory.
+ */
+static bool MVM_lApplyVmgpDataRelocations(VMGPContext *ctx);
+
+/**
+ * @brief Resolves one pool value by 1-based pool index.
+ */
+static uint32_t MVM_lResolvePoolIndexValue(const VMGPContext *ctx, uint32_t pool_index_1based, uint32_t depth);
+
+/**
  * @brief Reads one 32-bit little-endian word from the active image source.
  */
 static bool MVM_lReadImageWord(const VMGPContext *ctx, size_t offset, uint32_t *out);
@@ -228,33 +238,71 @@ const VMGPPoolEntry *MVM_GetVmgpPoolEntry(const VMGPContext *ctx, uint32_t pool_
 uint32_t MVM_ResolveVmgpPoolValue(const VMGPContext *ctx, const VMGPPoolEntry *entry)
 {
   uint32_t value = 0;
+  uint8_t poolType;
+  uint8_t itemTarget;
 
   if (!ctx || !entry)
   {
     return 0;
   }
 
-  switch (entry->type)
+  poolType = (uint8_t)(entry->type & 0x0Fu);
+  itemTarget = (uint8_t)(entry->type >> 4);
+
+  switch (poolType)
   {
-    case 0x21: /* .data */
+    case 0x01: /* local symbol */
 
-    case 0x23: /* global .data */
+    case 0x03: /* global symbol */
     {
-      value = ctx->data_offset + entry->value;
+      switch (itemTarget)
+      {
+        case 0x01u:
+        {
+          value = ctx->code_offset + entry->value;
+          break;
+        }
+
+        case 0x02u:
+        {
+          value = ctx->data_offset + entry->value;
+          break;
+        }
+
+        case 0x04u:
+        {
+          value = ctx->bss_offset + entry->value;
+          break;
+        }
+
+        default:
+        {
+          value = entry->value;
+          break;
+        }
+      }
       break;
-    } /* End of case 0x23 */
+    } /* End of case 0x03 */
 
-    case 0x41: /* .bss */
+    case 0x07: /* const32 */
     {
-      value = ctx->bss_offset + entry->value;
+      value = entry->value;
       break;
-    } /* End of case 0x41 */
+    } /* End of case 0x07 */
 
-    case 0x11: /* .text */
-
-    case 0x67: /* absolute const */
+    case 0x08: /* symbol-add */
     {
-    } /* End of case 0x67 */
+      value = MVM_lResolvePoolIndexValue(ctx, entry->aux24, 0u) + entry->value;
+      break;
+    } /* End of case 0x08 */
+
+    case 0x04: /* section-relative relocation */
+
+    case 0x05: /* swap16 relocation */
+
+    case 0x06: /* swap32 relocation */
+
+    case 0x02: /* import symbol */
 
     default:
     {
@@ -303,6 +351,40 @@ const char *MVM_GetVmgpImportName(const VMGPContext *ctx, uint32_t pool_index_1b
 
   return importName;
 } /* End of MVM_GetVmgpImportName */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lResolvePoolIndexValue
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Resolves one pool value recursively by 1-based index.
+ *********************************************************************************************************************/
+static uint32_t MVM_lResolvePoolIndexValue(const VMGPContext *ctx, uint32_t pool_index_1based, uint32_t depth)
+{
+  const VMGPPoolEntry *entry;
+  uint8_t poolType;
+
+  if (!ctx || depth > 32u)
+  {
+    return 0u;
+  }
+
+  entry = MVM_GetVmgpPoolEntry(ctx, pool_index_1based);
+  if (!entry)
+  {
+    return 0u;
+  }
+
+  poolType = (uint8_t)(entry->type & 0x0Fu);
+  if (poolType == 0x08u)
+  {
+    return MVM_lResolvePoolIndexValue(ctx, entry->aux24, depth + 1u) + entry->value;
+  }
+
+  return MVM_ResolveVmgpPoolValue(ctx, entry);
+} /* End of MVM_lResolvePoolIndexValue */
 
 /**********************************************************************************************************************
  *  Name: MVM_GetVmgpResource
@@ -737,6 +819,11 @@ static bool MVM_lBuildVmgpMemory(VMGPContext *ctx)
     return false;
   }
 
+  if (!MVM_lApplyVmgpDataRelocations(ctx))
+  {
+    return false;
+  }
+
   ctx->pc = 0;
   ctx->regs[VM_REG_SP] = ctx->stack_top;
   ctx->regs[VM_REG_ZERO] = 0;
@@ -744,6 +831,108 @@ static bool MVM_lBuildVmgpMemory(VMGPContext *ctx)
 
   return bResult;
 } /* End of MVM_lBuildVmgpMemory */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lApplyVmgpDataRelocations
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Applies one minimal relocation/fixup pass to guest data memory.
+ *********************************************************************************************************************/
+static bool MVM_lApplyVmgpDataRelocations(VMGPContext *ctx)
+{
+  uint32_t i;
+  const VMGPPoolEntry *entry;
+  uint8_t poolType;
+  uint8_t itemTarget;
+  uint32_t targetAddr;
+  uint32_t patchedValue;
+
+  if (!ctx || !ctx->mem || !ctx->pool)
+  {
+    return false;
+  }
+
+  for (i = 1u; i <= ctx->header.pool_slots; ++i)
+  {
+    entry = MVM_GetVmgpPoolEntry(ctx, i);
+    if (!entry)
+    {
+      continue;
+    }
+
+    poolType = (uint8_t)(entry->type & 0x0Fu);
+    itemTarget = (uint8_t)(entry->type >> 4);
+    targetAddr = ctx->data_offset + entry->value;
+
+    if (itemTarget != 0x02u || targetAddr >= ctx->header.data_size)
+    {
+      continue;
+    }
+
+    switch (poolType)
+    {
+      case 0x04u: /* section-relative relocation */
+      {
+        if (!MVM_RuntimeMemRangeOk(ctx, targetAddr, 4u))
+        {
+          return false;
+        }
+
+        patchedValue = vm_read_u32_le(ctx->mem + targetAddr);
+        switch (entry->aux24)
+        {
+          case 0x01u:
+          {
+            patchedValue += ctx->code_offset;
+            break;
+          }
+
+          case 0x02u:
+          {
+            patchedValue += ctx->data_offset;
+            break;
+          }
+
+          case 0x04u:
+          {
+            patchedValue += ctx->bss_offset;
+            break;
+          }
+
+          default:
+          {
+            break;
+          }
+        }
+
+        vm_write_u32_le(ctx->mem + targetAddr, patchedValue);
+        break;
+      }
+
+      case 0x05u: /* swap16 relocation */
+      {
+        /* Little-endian host: guest image bytes are already in the desired order. */
+        break;
+      }
+
+      case 0x06u: /* swap32 relocation */
+      {
+        /* Little-endian host: guest image bytes are already in the desired order. */
+        break;
+      }
+
+      default:
+      {
+        break;
+      }
+    }
+  }
+
+  return true;
+} /* End of MVM_lApplyVmgpDataRelocations */
 
 /**********************************************************************************************************************
  *  Name: MVM_lCountVmgpResources

@@ -34,6 +34,7 @@
 #define VMGP_MAX_REGS                                           (32U)
 #define VMGP_MAX_STREAMS                                        (16U)
 #define VMGP_MAX_SPRITE_SLOTS                                   (255U)
+#define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
 #define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
@@ -67,7 +68,9 @@ typedef struct VMGPStream
   bool used;                /**< Indicates whether the slot is active. */
   uint32_t handle;          /**< External stream handle. */
   size_t file_offset;       /**< Backing image offset of the stream data. */
+  uint8_t *overlay_data;    /**< Optional writable session-local data overlay. */
   uint32_t size;            /**< Stream size in bytes. */
+  uint32_t overlay_size;    /**< Capacity of the writable overlay in bytes. */
   uint32_t pos;             /**< Current read position in bytes. */
   uint32_t resource_id;     /**< Backing resource identifier. */
   uint32_t mode;            /**< Open mode flags passed by the guest. */
@@ -105,6 +108,34 @@ typedef struct VMGPMapState
   uint32_t map_data_addr;   /**< Guest pointer to the tile data array. */
   uint32_t tile_data_addr;  /**< Guest pointer to the tile sprite atlas data. */
 } VMGPMapState;
+
+/**
+ * @brief Identifies one deferred draw-command kind for the simple backend path.
+ */
+typedef enum MVM_DrawCommandType_t
+{
+  MVM_DRAW_FILL_RECT = 0,
+  MVM_DRAW_LINE = 1,
+  MVM_DRAW_SPRITE = 2,
+  MVM_DRAW_TEXT = 3
+} MVM_DrawCommandType_t;
+
+/**
+ * @brief Stores one deferred draw command emitted by graphics imports.
+ */
+typedef struct MVM_DrawCommand_t
+{
+  MVM_DrawCommandType_t type;  /**< Command kind to interpret. */
+  int16_t x0;                  /**< Primary x coordinate. */
+  int16_t y0;                  /**< Primary y coordinate. */
+  int16_t x1;                  /**< Secondary x coordinate or width surrogate. */
+  int16_t y1;                  /**< Secondary y coordinate or height surrogate. */
+  uint16_t width;              /**< Width for sprite/text placeholder rendering. */
+  uint16_t height;             /**< Height for sprite/text placeholder rendering. */
+  uint32_t color;              /**< Guest-encoded foreground color. */
+  uint32_t aux;                /**< Guest pointer or extra metadata. */
+  uint32_t aux2;               /**< Secondary guest pointer or extra metadata. */
+} MVM_DrawCommand_t;
 
 /**
  * @brief Stores the complete mutable VM execution context.
@@ -163,6 +194,9 @@ struct MpnVM_t
   uint16_t clip_y1;                 /**< Current clip window bottom edge. */
   uint32_t palette_entries[256];    /**< Current palette state in guest encoding. */
   uint32_t clear_color;             /**< Last clear-screen color. */
+  MVM_DrawCommand_t draw_commands[VMGP_MAX_DRAW_COMMANDS]; /**< Deferred draw commands for the current frame. */
+  uint32_t draw_command_count;      /**< Number of deferred draw commands currently stored. */
+  uint32_t frame_serial;            /**< Monotonic frame-present counter bumped by vFlipScreen. */
   uint32_t button_state;            /**< Current polled button bit-mask. */
   VMGPSpriteSlot sprite_slots[VMGP_MAX_SPRITE_SLOTS]; /**< Current sprite-slot table. */
   uint32_t sprite_slot_count;       /**< Number of sprite slots configured by the guest. */
