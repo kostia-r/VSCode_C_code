@@ -1132,7 +1132,7 @@ static bool MVM_lReadMapHeader(const VMGPContext *ctx, uint32_t header_addr, VMG
 
 static uint32_t MVM_lMapCellStride(const VMGPMapState *map_state)
 {
-  if (map_state && (map_state->flags & 0x02u) != 0u)
+  if (map_state && map_state->flags != 0u)
   {
     return 2u;
   }
@@ -1470,6 +1470,10 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
   command = &ctx->draw_commands[ctx->draw_command_count++];
   memset(command, 0, sizeof(*command));
   command->type = type;
+  command->clip_x0 = ctx->clip_x0;
+  command->clip_y0 = ctx->clip_y0;
+  command->clip_x1 = ctx->clip_x1;
+  command->clip_y1 = ctx->clip_y1;
 
   return command;
 } /* End of MVM_lAllocDrawCommand */
@@ -3176,6 +3180,7 @@ MVM_IMPORT_IMPL(vClearScreen)
 {
   ctx->clear_color = ctx->regs[VM_REG_P0];
   ctx->draw_command_count = 0u;
+  ctx->map_snapshot_pool_used = 0u;
   ctx->regs[VM_REG_R0] = 0u;
 
   MVM_LOG_D(ctx,
@@ -4124,13 +4129,15 @@ MVM_IMPORT_IMPL(vMapInit)
 
   MVM_LOG_D(ctx,
             "map-init",
-            "vMapInit(map=%08X) -> %u width=%u height=%u flags=%02X data=%08X\n",
+            "vMapInit(map=%08X) -> %u width=%u height=%u flags=%02X format=%02X data=%08X tile=%08X\n",
             header_addr,
             ctx->regs[VM_REG_R0],
             (uint32_t)ctx->map_state.width,
             (uint32_t)ctx->map_state.height,
             (uint32_t)ctx->map_state.flags,
-            ctx->map_state.map_data_addr);
+            (uint32_t)ctx->map_state.format,
+            ctx->map_state.map_data_addr,
+            ctx->map_state.tile_data_addr);
 
   return true;
 } /* End of vMapInit */
@@ -4251,7 +4258,7 @@ MVM_IMPORT_IMPL(vMapSetAttribute)
             x,
             y,
             attribute,
-            (cell && MVM_lMapCellStride(&ctx->map_state) > 1u) ? 1u : 0u);
+            (cell && (ctx->map_state.flags & 0x02u) != 0u) ? 1u : 0u);
 
   return true;
 } /* End of vMapSetAttribute */
@@ -4370,11 +4377,26 @@ MVM_IMPORT_IMPL(vMapHeaderUpdate)
 MVM_IMPORT_IMPL(vUpdateMap)
 {
   MVM_DrawCommand_t *command;
+  uint32_t stride;
+  uint32_t snapshot_length;
 
   command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_MAP);
   if (command)
   {
     command->map_state = ctx->map_state;
+    stride = MVM_lMapCellStride(&ctx->map_state);
+    snapshot_length = (uint32_t)ctx->map_state.width * (uint32_t)ctx->map_state.height * stride;
+    if (snapshot_length != 0u &&
+        snapshot_length <= (VMGP_DRAW_MAP_SNAPSHOT_POOL_BYTES - ctx->map_snapshot_pool_used) &&
+        MVM_RuntimeMemRangeOk(ctx, ctx->map_state.map_data_addr, snapshot_length))
+    {
+      command->map_snapshot_offset = ctx->map_snapshot_pool_used;
+      command->map_snapshot_length = snapshot_length;
+      memcpy(ctx->map_snapshot_pool + ctx->map_snapshot_pool_used,
+             ctx->mem + ctx->map_state.map_data_addr,
+             snapshot_length);
+      ctx->map_snapshot_pool_used += snapshot_length;
+    }
   }
 
   ctx->regs[VM_REG_R0] = 0u;

@@ -15,6 +15,9 @@
 #include "MVM_Internal.h"
 #include "MVM_BuildCfg.h"
 #include "MVM_Cfg.h"
+#if MVM_CFG_USE_HOST_HEAP
+#include <stdlib.h>
+#endif
 #include <string.h>
 
 /**********************************************************************************************************************
@@ -340,6 +343,25 @@ void *MVM_AcquireInitBuffer(VMGPContext *ctx, size_t required_size)
     return NULL;
   }
 
+#if MVM_CFG_USE_HOST_HEAP
+  if (!ctx->runtime_pool)
+  {
+    if (ctx->init_allocation_count >= VMGP_MAX_INIT_ALLOCATIONS)
+    {
+      return NULL;
+    }
+
+    mem = calloc(1u, required_size);
+    if (!mem)
+    {
+      return NULL;
+    }
+
+    ctx->init_allocations[ctx->init_allocation_count++] = mem;
+    return mem;
+  }
+#endif
+
   if (!ctx->runtime_pool || ctx->runtime_pool_size == 0u)
   {
     return NULL;
@@ -438,10 +460,21 @@ void MVM_SetErrorRaw(VMGPContext *ctx, MVM_Err_t error)
  *********************************************************************************************************************/
 void MVM_FreeRaw(VMGPContext *ctx)
 {
+#if MVM_CFG_USE_HOST_HEAP
+  uint32_t index;
+#endif
+
   if (!ctx)
   {
     return;
   }
+
+#if MVM_CFG_USE_HOST_HEAP
+  for (index = 0u; index < ctx->init_allocation_count; ++index)
+  {
+    free(ctx->init_allocations[index]);
+  }
+#endif
 
   memset(ctx, 0, sizeof(*ctx));
 } /* End of MVM_FreeRaw */

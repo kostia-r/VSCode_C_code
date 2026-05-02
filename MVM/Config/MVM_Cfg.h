@@ -115,6 +115,11 @@ typedef struct MVM_Config_t
 #define MVM_CFG_RUNTIME_POOL_SIZE                               (1024U * 1024U)
 #endif
 
+/* When enabled, VM init buffers are allocated from the host heap instead of the static runtime arena. */
+#ifndef MVM_CFG_USE_HOST_HEAP
+#define MVM_CFG_USE_HOST_HEAP                                   (0U)
+#endif
+
 /* Default soft-watchdog budget. Zero keeps the watchdog disabled. */
 #ifndef MVM_CFG_DEFAULT_WATCHDOG_LIMIT
 #define MVM_CFG_DEFAULT_WATCHDOG_LIMIT                          (0U)

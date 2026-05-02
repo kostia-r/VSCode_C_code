@@ -36,6 +36,8 @@
 #define VMGP_MAX_SPRITE_SLOTS                                   (255U)
 #define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
 #define VMGP_DRAW_TEXT_SNAPSHOT_BYTES                           (64U)
+#define VMGP_DRAW_MAP_SNAPSHOT_POOL_BYTES                       (64U * 1024U)
+#define VMGP_MAX_INIT_ALLOCATIONS                               (8U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
 #define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
@@ -138,10 +140,16 @@ typedef struct MVM_DrawCommand_t
   uint32_t color;              /**< Guest-encoded foreground color. */
   uint32_t aux;                /**< Guest pointer or extra metadata. */
   uint32_t aux2;               /**< Secondary guest pointer or extra metadata. */
+  uint16_t clip_x0;            /**< Clip window left edge captured when the command was emitted. */
+  uint16_t clip_y0;            /**< Clip window top edge captured when the command was emitted. */
+  uint16_t clip_x1;            /**< Clip window right edge captured when the command was emitted. */
+  uint16_t clip_y1;            /**< Clip window bottom edge captured when the command was emitted. */
   uint16_t text_length;         /**< Captured text byte count for deferred text commands. */
   uint8_t text[VMGP_DRAW_TEXT_SNAPSHOT_BYTES]; /**< Captured text bytes for deferred text commands. */
   uint32_t text_palette[4];     /**< Captured low-index text palette entries for deferred text commands. */
   VMGPMapState map_state;        /**< Captured tilemap state for deferred map commands. */
+  uint32_t map_snapshot_offset;   /**< Offset into the per-frame map-data snapshot pool. */
+  uint32_t map_snapshot_length;   /**< Number of captured map-data bytes for deferred map commands. */
 } MVM_DrawCommand_t;
 
 /**
@@ -180,6 +188,8 @@ struct MpnVM_t
   uint8_t *runtime_pool;            /**< Backing runtime arena used during init. */
   size_t runtime_pool_size;         /**< Total runtime arena size in bytes. */
   size_t runtime_pool_used;         /**< Number of runtime arena bytes consumed. */
+  void *init_allocations[VMGP_MAX_INIT_ALLOCATIONS]; /**< Host-heap init buffers owned by this VM instance. */
+  uint32_t init_allocation_count;    /**< Number of host-heap init buffers currently owned by the VM. */
 
   uint8_t *mem;                     /**< Backing VM memory buffer. */
   size_t mem_size;                  /**< Total VM memory size in bytes. */
@@ -203,6 +213,8 @@ struct MpnVM_t
   uint32_t clear_color;             /**< Last clear-screen color. */
   MVM_DrawCommand_t draw_commands[VMGP_MAX_DRAW_COMMANDS]; /**< Deferred draw commands for the current frame. */
   uint32_t draw_command_count;      /**< Number of deferred draw commands currently stored. */
+  uint8_t map_snapshot_pool[VMGP_DRAW_MAP_SNAPSHOT_POOL_BYTES]; /**< Per-frame captured tilemap bytes. */
+  uint32_t map_snapshot_pool_used;  /**< Number of bytes currently used in the map snapshot pool. */
   uint32_t frame_serial;            /**< Monotonic frame-present counter bumped by vFlipScreen. */
   uint32_t button_state;            /**< Current polled button bit-mask. */
   VMGPSpriteSlot sprite_slots[VMGP_MAX_SPRITE_SLOTS]; /**< Current sprite-slot table. */

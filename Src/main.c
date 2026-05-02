@@ -1112,6 +1112,8 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
   uint32_t data_addr;
   uint32_t pixel_index;
   uint32_t index;
+  uint32_t source_x;
+  uint32_t source_y;
   uint8_t pixel;
   uint8_t red;
   uint8_t green;
@@ -1130,6 +1132,15 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
   }
 
   byte_count = (64u * bits_per_pixel + 7u) / 8u;
+  if ((tile_attribute & 0x40u) != 0u)
+  {
+    tile_index = (uint8_t)(tile_index + (map_state->animation_active & 1u));
+  }
+  else if ((tile_attribute & 0x80u) != 0u)
+  {
+    tile_index = (uint8_t)(tile_index + (map_state->animation_active & 3u));
+  }
+
   data_addr = map_state->tile_data_addr + (((uint32_t)tile_index - 1u) * byte_count);
   if (!MVM_RuntimeMemRangeOk(ctx, data_addr, byte_count))
   {
@@ -1138,8 +1149,20 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
 
   for (index = 0u; index < 64u; ++index)
   {
-    pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, index, bits_per_pixel);
-    if (pixel_index == 0u && (map_state->flags & 0x01u) != 0u)
+    source_x = index & 7u;
+    source_y = index >> 3;
+    if ((tile_attribute & 0x02u) != 0u)
+    {
+      source_x = 7u - source_x;
+    }
+
+    if ((tile_attribute & 0x04u) != 0u)
+    {
+      source_y = 7u - source_y;
+    }
+
+    pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, (source_y * 8u) + source_x, bits_per_pixel);
+    if (pixel_index == 0u && (map_state->flags & 0x01u) != 0u && (tile_attribute & 0x01u) != 0u)
     {
       continue;
     }
@@ -1191,46 +1214,99 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
 }
 
 /**
- * @brief Draws the active VM tilemap using one sprite-atlas attempt plus fallback tiles.
+ * @brief Draws one captured VM tilemap command.
  */
-static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, const VMGPMapState *map_state)
+static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, const MVM_DrawCommand_t *command)
 {
+  const VMGPMapState *map_state;
+  const uint8_t *snapshot;
   uint32_t stride;
-  uint32_t x;
-  uint32_t y;
+  uint32_t map_x;
+  uint32_t map_y;
+  uint32_t screen_x;
+  uint32_t screen_y;
   uint32_t offset;
+  int32_t source_x;
+  int32_t source_y;
+  int32_t dest_origin_x;
+  int32_t dest_origin_y;
+  int32_t pixel_offset_x;
+  int32_t pixel_offset_y;
   uint8_t tile_index;
+  uint8_t tile_attribute;
 
-  if (!renderer || !ctx || !map_state)
+  if (!renderer || !ctx || !command)
   {
     return;
   }
 
+  map_state = &command->map_state;
   if (!map_state->valid || map_state->width == 0u || map_state->height == 0u)
   {
     return;
   }
 
-  stride = ((map_state->flags & 0x02u) != 0u) ? 2u : 1u;
-
-  for (y = 0u; y < map_state->height; ++y)
+  stride = (map_state->flags != 0u) ? 2u : 1u;
+  snapshot = NULL;
+  if (command->map_snapshot_length >= ((uint32_t)map_state->width * (uint32_t)map_state->height * stride) &&
+      command->map_snapshot_offset <= VMGP_DRAW_MAP_SNAPSHOT_POOL_BYTES &&
+      command->map_snapshot_length <= (VMGP_DRAW_MAP_SNAPSHOT_POOL_BYTES - command->map_snapshot_offset))
   {
-    for (x = 0u; x < map_state->width; ++x)
+    snapshot = ctx->map_snapshot_pool + command->map_snapshot_offset;
+  }
+
+  source_x = (int32_t)map_state->x_pos;
+  source_y = (int32_t)map_state->y_pos;
+  dest_origin_x = (int32_t)map_state->x_pan;
+  dest_origin_y = (int32_t)map_state->y_pan;
+
+  if (source_x < 0)
+  {
+    dest_origin_x -= source_x;
+    source_x = 0;
+  }
+
+  if (source_y < 0)
+  {
+    dest_origin_y -= source_y;
+    source_y = 0;
+  }
+
+  map_x = (uint32_t)source_x >> 3;
+  map_y = (uint32_t)source_y >> 3;
+  pixel_offset_x = source_x & 7;
+  pixel_offset_y = source_y & 7;
+
+  for (screen_y = 0u; (map_y + screen_y) < map_state->height; ++screen_y)
+  {
+    for (screen_x = 0u; (map_x + screen_x) < map_state->width; ++screen_x)
     {
-      offset = map_state->map_data_addr + ((y * (uint32_t)map_state->width) + x) * stride;
-      if (!MVM_RuntimeMemRangeOk(ctx, offset, stride))
+      offset = map_state->map_data_addr +
+               (((map_y + screen_y) * (uint32_t)map_state->width) + (map_x + screen_x)) * stride;
+      if (snapshot)
       {
-        continue;
+        offset = (((map_y + screen_y) * (uint32_t)map_state->width) + (map_x + screen_x)) * stride;
+        tile_index = snapshot[offset];
+        tile_attribute = (stride > 1u) ? snapshot[offset + 1u] : 0u;
+      }
+      else
+      {
+        if (!MVM_RuntimeMemRangeOk(ctx, offset, stride))
+        {
+          continue;
+        }
+
+        tile_index = ctx->mem[offset];
+        tile_attribute = (stride > 1u) ? ctx->mem[offset + 1u] : 0u;
       }
 
-      tile_index = ctx->mem[offset];
       draw_guest_map_tile(renderer,
                           ctx,
                           map_state,
                           tile_index,
-                          (stride > 1u) ? ctx->mem[offset + 1u] : 0u,
-                          (int32_t)map_state->x_pan + (int32_t)(x * 8u) - (int32_t)map_state->x_pos,
-                          (int32_t)map_state->y_pan + (int32_t)(y * 8u) - (int32_t)map_state->y_pos);
+                          tile_attribute,
+                          dest_origin_x + (int32_t)(screen_x * 8u) - pixel_offset_x,
+                          dest_origin_y + (int32_t)(screen_y * 8u) - pixel_offset_y);
     }
   }
 }
@@ -1268,6 +1344,32 @@ static void render_guest_sprite_slots(SDL_Renderer *renderer, const VMGPContext 
     }
 
     (void)draw_guest_sprite(renderer, ctx, &command);
+  }
+}
+
+/**
+ * @brief Restores the clip window captured with one deferred draw command.
+ */
+static void apply_command_clip(SDL_Renderer *renderer, const MVM_DrawCommand_t *command)
+{
+  SDL_Rect clip_rect;
+
+  if (!renderer || !command)
+  {
+    return;
+  }
+
+  if (command->clip_x1 > command->clip_x0 && command->clip_y1 > command->clip_y0)
+  {
+    clip_rect.x = (int)command->clip_x0;
+    clip_rect.y = (int)command->clip_y0;
+    clip_rect.w = (int)(command->clip_x1 - command->clip_x0);
+    clip_rect.h = (int)(command->clip_y1 - command->clip_y0);
+    SDL_RenderSetClipRect(renderer, &clip_rect);
+  }
+  else
+  {
+    SDL_RenderSetClipRect(renderer, NULL);
   }
 }
 
@@ -1706,7 +1808,6 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
 {
   VMGPContext *ctx;
   const MVM_DrawCommand_t *command;
-  SDL_Rect clip_rect;
   SDL_Rect rect;
   uint32_t index;
   uint32_t color;
@@ -1728,19 +1829,6 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
   set_renderer_guest_color(backend->renderer, color);
   SDL_RenderClear(backend->renderer);
 
-  if (ctx->clip_x1 > ctx->clip_x0 && ctx->clip_y1 > ctx->clip_y0)
-  {
-    clip_rect.x = (int)ctx->clip_x0;
-    clip_rect.y = (int)ctx->clip_y0;
-    clip_rect.w = (int)(ctx->clip_x1 - ctx->clip_x0);
-    clip_rect.h = (int)(ctx->clip_y1 - ctx->clip_y0);
-    SDL_RenderSetClipRect(backend->renderer, &clip_rect);
-  }
-  else
-  {
-    SDL_RenderSetClipRect(backend->renderer, NULL);
-  }
-
   for (index = 0u; index < ctx->draw_command_count; ++index)
   {
     command = &ctx->draw_commands[index];
@@ -1750,6 +1838,7 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
       continue;
     }
 
+    apply_command_clip(backend->renderer, command);
     set_renderer_guest_color(backend->renderer, command->color);
 
     switch (command->type)
@@ -1793,7 +1882,7 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
         break;
 
       case MVM_DRAW_MAP:
-        render_guest_map(backend->renderer, ctx, &command->map_state);
+        render_guest_map(backend->renderer, ctx, command);
         break;
 
       case MVM_DRAW_SPRITE_SLOTS:
@@ -1814,6 +1903,7 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
     }
 
     set_renderer_guest_color(backend->renderer, command->color);
+    apply_command_clip(backend->renderer, command);
     if (!draw_guest_text(backend->renderer, ctx, command))
     {
       SDL_SetRenderDrawColor(backend->renderer, 255u, 255u, 0u, 255u);
@@ -1833,6 +1923,8 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
   }
 
   SDL_RenderPresent(backend->renderer);
+  ctx->draw_command_count = 0u;
+  ctx->map_snapshot_pool_used = 0u;
 }
 
 /**
