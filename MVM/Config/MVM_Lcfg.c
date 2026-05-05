@@ -28,12 +28,10 @@
 /**
  * @brief Stores the default runtime pool for the built-in integration config.
  */
-#if !MVM_CFG_USE_HOST_HEAP
 typedef struct MVM_DefRuntimePool_t
 {
   uint8_t au8Memory[MVM_CFG_RUNTIME_POOL_SIZE]; /**< Static VM runtime arena storage. */
 } MVM_DefRuntimePool_t;
-#endif
 
 /**********************************************************************************************************************
  *  LOCAL FUNCTION PROTOTYPES
@@ -48,9 +46,7 @@ static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size)
  *  LOCAL DATA
  *********************************************************************************************************************/
 
-#if !MVM_CFG_USE_HOST_HEAP
 static MVM_DefRuntimePool_t MVM_lDefRuntimePool;
-#endif
 
 static const MpnDevProfile_t MVM_lDevProfiles[] =
 {
@@ -171,18 +167,10 @@ const MVM_Config_t MVM_Config =
   .syscall_count = 0u,
 
   /* Static arena shared by guest RAM and VM-owned loader metadata. */
-#if MVM_CFG_USE_HOST_HEAP
-  .runtime_pool = NULL,
-#else
   .runtime_pool = MVM_lDefRuntimePool.au8Memory,
-#endif
 
   /* Total number of bytes available in the static runtime arena. */
-#if MVM_CFG_USE_HOST_HEAP
-  .runtime_pool_size = 0u,
-#else
   .runtime_pool_size = sizeof(MVM_lDefRuntimePool.au8Memory),
-#endif
 
   /* Default no-progress step budget. Zero keeps the watchdog disabled. */
   .watchdog_limit = MVM_CFG_DEFAULT_WATCHDOG_LIMIT
