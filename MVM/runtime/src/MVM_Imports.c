@@ -265,7 +265,7 @@ MVM_IMPORT_PROTO(vDotProduct);             /* Stub */
 MVM_IMPORT_PROTO(vDrawBillboard);          /* Stub */
 MVM_IMPORT_PROTO(vDrawFlatPolygon);        /* Stub */
 MVM_IMPORT_PROTO(vDrawPolygon);            /* Stub */
-MVM_IMPORT_PROTO(vDrawTile);               /* Stub */
+MVM_IMPORT_PROTO(vDrawTile);               /* Partially implemented */
 MVM_IMPORT_PROTO(vFileClose);              /* Fully implemented */
 MVM_IMPORT_PROTO(vFileCreate);             /* Fully implemented */
 MVM_IMPORT_PROTO(vFileDelete);             /* Fully implemented */
@@ -3885,6 +3885,50 @@ MVM_IMPORT_IMPL(vDrawObject)
 } /* End of vDrawObject */
 
 /**
+ * @brief SDK: Draws one raw 8x8 tile at one screen position.
+ * Call model: `sync/fire-and-forget`
+ * Ownership: Retains the guest tile-data pointer symbolically in one draw command.
+ * Blocking: Non-blocking.
+ * Status: Implemented for the simple SDL backend path.
+ */
+MVM_IMPORT_IMPL(vDrawTile)
+{
+  MVM_DrawCommand_t *command;
+  uint32_t data_addr;
+  uint32_t format;
+  int16_t x;
+  int16_t y;
+
+  data_addr = ctx->regs[VM_REG_P0];
+  format = ctx->regs[VM_REG_P1];
+  x = (int16_t)(ctx->regs[VM_REG_P2] & 0xFFFFu);
+  y = (int16_t)(ctx->regs[VM_REG_P3] & 0xFFFFu);
+  ctx->regs[VM_REG_R0] = 0u;
+
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TILE);
+  if (command)
+  {
+    command->x0 = x;
+    command->y0 = y;
+    command->width = 8u;
+    command->height = 8u;
+    command->color = ctx->fg_color;
+    command->aux = data_addr;
+    command->aux2 = format;
+  }
+
+  MVM_LOG_D(ctx,
+            "draw-tile",
+            "vDrawTile(data=%08X format=%08X x=%d y=%d)\n",
+            data_addr,
+            format,
+            (int32_t)x,
+            (int32_t)y);
+
+  return true;
+} /* End of vDrawTile */
+
+/**
  * @brief SDK: Draws one text string using the current font and color state.
  * Call model: `sync/fire-and-forget`
  * Ownership: Reads guest memory only for the duration of the call and does not retain the string pointer.
@@ -4746,6 +4790,27 @@ MVM_IMPORT_IMPL(vMapHeaderUpdate)
 MVM_IMPORT_IMPL(vUpdateMap)
 {
   MVM_DrawCommand_t *command;
+  uint8_t speed;
+  uint8_t old_count;
+
+  if (ctx->map_state.valid && (ctx->map_state.flags & 0x08u) != 0u)
+  {
+    speed = ctx->map_state.animation_speed;
+    old_count = ctx->map_state.animation_count;
+    ++ctx->map_state.animation_count;
+
+    if (old_count >= speed)
+    {
+      ctx->map_state.animation_count = 0u;
+      ctx->map_state.animation_active = (uint8_t)((ctx->map_state.animation_active + 1u) & 0x0Fu);
+    }
+
+    if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.header_addr + 5u, 2u))
+    {
+      ctx->mem[ctx->map_state.header_addr + 5u] = ctx->map_state.animation_count;
+      ctx->mem[ctx->map_state.header_addr + 6u] = ctx->map_state.animation_active;
+    }
+  }
 
   command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_MAP);
   if (command)
@@ -4757,13 +4822,16 @@ MVM_IMPORT_IMPL(vUpdateMap)
 
   MVM_LOG_D(ctx,
             "map-update",
-            "vUpdateMap(valid=%u pos=%d,%d size=%ux%u data=%08X)\n",
+            "vUpdateMap(valid=%u pos=%d,%d size=%ux%u data=%08X anim=%u/%u/%u)\n",
             ctx->map_state.valid ? 1u : 0u,
             (int32_t)ctx->map_state.x_pos,
             (int32_t)ctx->map_state.y_pos,
             (uint32_t)ctx->map_state.width,
             (uint32_t)ctx->map_state.height,
-            ctx->map_state.map_data_addr);
+            ctx->map_state.map_data_addr,
+            (uint32_t)ctx->map_state.animation_speed,
+            (uint32_t)ctx->map_state.animation_count,
+            (uint32_t)ctx->map_state.animation_active);
 
   return true;
 } /* End of vUpdateMap */
@@ -5310,16 +5378,6 @@ MVM_DEFINE_ZERO_STUB(vDrawFlatPolygon)
  * Stub behavior: Logs the call and returns zero.
  */
 MVM_DEFINE_ZERO_STUB(vDrawPolygon)
-
-/**
- * @brief SDK: Draws one tile primitive.
- * Call model: `sync/fire-and-forget`
- * Ownership: No guest memory ownership is retained.
- * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
- */
-MVM_DEFINE_ZERO_STUB(vDrawTile)
 
 /**
  * @brief SDK: Finds the palette index for one RGB value.

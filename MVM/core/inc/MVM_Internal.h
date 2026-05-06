@@ -120,7 +120,8 @@ typedef enum MVM_DrawCommandType_t
   MVM_DRAW_SPRITE = 2,
   MVM_DRAW_TEXT = 3,
   MVM_DRAW_MAP = 4,
-  MVM_DRAW_SPRITE_SLOTS = 5
+  MVM_DRAW_SPRITE_SLOTS = 5,
+  MVM_DRAW_TILE = 6
 } MVM_DrawCommandType_t;
 
 /**

@@ -1191,6 +1191,123 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
 }
 
 /**
+ * @brief Draws one raw 8x8 tile emitted through vDrawTile().
+ */
+static int draw_guest_tile(SDL_Renderer *renderer, const VMGPContext *ctx, const MVM_DrawCommand_t *command)
+{
+  uint32_t raw_format;
+  uint32_t format;
+  uint32_t bits_per_pixel;
+  uint32_t byte_count;
+  uint32_t pixel_index;
+  uint32_t index;
+  uint32_t palette_offset;
+  uint8_t pixel;
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+
+  if (!renderer || !ctx || !command || command->aux == 0u)
+  {
+    return 0;
+  }
+
+  raw_format = command->aux2;
+  format = raw_format & 0x07u;
+  bits_per_pixel = sprite_format_bits_per_pixel((uint8_t)format);
+  if (bits_per_pixel == 0u)
+  {
+    return 0;
+  }
+
+  byte_count = (64u * bits_per_pixel + 7u) / 8u;
+  if (!MVM_RuntimeMemRangeOk(ctx, command->aux, byte_count))
+  {
+    return 0;
+  }
+
+  palette_offset = (raw_format >> 8) & 0xFFu;
+
+  for (index = 0u; index < 64u; ++index)
+  {
+    pixel_index = read_packed_sprite_pixel(ctx->mem + command->aux, index, bits_per_pixel);
+    if (pixel_index == 0u && (raw_format & 0x08u) != 0u)
+    {
+      continue;
+    }
+
+    switch (format)
+    {
+      case 0x00u:
+        red = pixel_index ? 255u : 0u;
+        green = red;
+        blue = red;
+        break;
+
+      case 0x01u:
+        red = (uint8_t)(pixel_index * 85u);
+        green = red;
+        blue = red;
+        break;
+
+      case 0x02u:
+        red = (uint8_t)(pixel_index * 17u);
+        green = red;
+        blue = red;
+        break;
+
+      case 0x03u:
+      case 0x04u:
+      case 0x05u:
+      case 0x06u:
+        pixel = (uint8_t)(palette_offset + pixel_index);
+        decode_guest_color(ctx->palette_entries[pixel], &red, &green, &blue);
+        break;
+
+      case 0x07u:
+        pixel = (uint8_t)pixel_index;
+        red = (uint8_t)(((pixel >> 5) & 0x07u) * 255u / 7u);
+        green = (uint8_t)(((pixel >> 2) & 0x07u) * 255u / 7u);
+        blue = (uint8_t)((pixel & 0x03u) * 255u / 3u);
+        break;
+
+      default:
+        return 0;
+    }
+
+    SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
+    SDL_RenderDrawPoint(renderer,
+                        command->x0 + (int32_t)(index & 7u),
+                        command->y0 + (int32_t)(index >> 3));
+  }
+
+  return 1;
+}
+
+/**
+ * @brief Applies the SDK tilemap auto-animation attribute to one tile index.
+ */
+static uint8_t apply_guest_map_autoanim(const VMGPMapState *map_state, uint8_t tile_index, uint8_t tile_attribute)
+{
+  uint8_t animation_bits;
+  uint8_t frame_count;
+
+  if (!map_state || (map_state->flags & 0x08u) == 0u)
+  {
+    return tile_index;
+  }
+
+  animation_bits = (uint8_t)(tile_attribute & 0xC0u);
+  if (animation_bits == 0u)
+  {
+    return tile_index;
+  }
+
+  frame_count = (animation_bits == 0xC0u) ? 8u : (uint8_t)(animation_bits >> 5);
+  return (uint8_t)(tile_index + ((frame_count - 1u) & map_state->animation_active));
+}
+
+/**
  * @brief Draws the active VM tilemap using one sprite-atlas attempt plus fallback tiles.
  */
 static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, const VMGPMapState *map_state)
@@ -1200,6 +1317,7 @@ static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, con
   uint32_t y;
   uint32_t offset;
   uint8_t tile_index;
+  uint8_t tile_attribute;
 
   if (!renderer || !ctx || !map_state)
   {
@@ -1224,11 +1342,13 @@ static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, con
       }
 
       tile_index = ctx->mem[offset];
+      tile_attribute = (stride > 1u) ? ctx->mem[offset + 1u] : 0u;
+      tile_index = apply_guest_map_autoanim(map_state, tile_index, tile_attribute);
       draw_guest_map_tile(renderer,
                           ctx,
                           map_state,
                           tile_index,
-                          (stride > 1u) ? ctx->mem[offset + 1u] : 0u,
+                          tile_attribute,
                           (int32_t)map_state->x_pan + (int32_t)(x * 8u) - (int32_t)map_state->x_pos,
                           (int32_t)map_state->y_pan + (int32_t)(y * 8u) - (int32_t)map_state->y_pos);
     }
@@ -1798,6 +1918,10 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
 
       case MVM_DRAW_SPRITE_SLOTS:
         render_guest_sprite_slots(backend->renderer, ctx);
+        break;
+
+      case MVM_DRAW_TILE:
+        (void)draw_guest_tile(backend->renderer, ctx, command);
         break;
 
       default:
