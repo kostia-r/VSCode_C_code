@@ -330,6 +330,23 @@ Tasks:
   - gameplay input;
   - visible rendering correctness;
   - basic sound requests.
+- Track and fix target-game graphics regressions found during Phase 9:
+  - keep the cleared MPN persistent/second-run flag as the root fix for the
+    full-screen lava corruption;
+  - revert memory-model experiments that switched desktop runs back to host
+    heap allocation while the static allocation path is the target baseline;
+  - revert deferred SDL/rendering changes that were added only to chase the
+    full-screen lava symptom;
+  - verify whether the loading screen `LEVEL 10` text is wrong source data or
+    a text renderer artifact, because the actual loaded level is level 1;
+  - fix loading-screen text artifacts in `LEVEL`, `REQUIRED`, `PERFECT`, and
+    `START`;
+  - restore the loading-screen reveal effect without dirty intermediate
+    pixels;
+  - restore the bottom lava bubbling/animation and confirm sprite/map layer
+    order matches the reference emulator;
+  - keep a clean comparison set: reference video/log, current video/log, and a
+    fixed input script of Shift, Down, Shift.
 - Keep `Src/main.c` as a thin runner or move it to examples.
 
 Done when:
@@ -338,6 +355,8 @@ Done when:
 - Input works through the real keyboard path.
 - Graphics are rendered through the backend instead of log-only fallbacks.
 - At least one target game can be played at a basic level on desktop.
+- The target game level intro and first gameplay screen match the reference
+  for level text, font pixels, lava animation, and map/sprite layer order.
 
 ## Phase 10: Persistent Data And Snapshot Support
 

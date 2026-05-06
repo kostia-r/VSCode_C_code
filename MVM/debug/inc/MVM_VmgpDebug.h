@@ -77,9 +77,11 @@ typedef struct VMGPPoolEntry
  */
 typedef struct VMGPResource
 {
-  uint32_t id;      /**< 1-based resource identifier visible to guest code. */
-  uint32_t offset;  /**< Resource payload offset inside the resource section. */
-  uint32_t size;    /**< Resource payload size in bytes. */
+  uint32_t id;            /**< 1-based resource identifier visible to guest code. */
+  uint32_t offset;        /**< Resource payload offset inside the resource section. */
+  uint32_t size;          /**< Resource payload size in bytes. */
+  uint8_t *overlay_data;  /**< Session-local writable resource overlay, when modified. */
+  uint32_t overlay_size;  /**< Capacity of the session-local writable overlay. */
 } VMGPResource;
 
 /**********************************************************************************************************************

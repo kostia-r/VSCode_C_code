@@ -519,31 +519,42 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         return false;
       }
+      entry = NULL;
+      immu = ((ext >> 24) == 0x00)
+          ? ((entry = MVM_GetVmgpPoolEntry(ctx, vm_imm24_u(ext))) ? MVM_ResolveVmgpPoolValue(ctx, entry) : 0u)
+          : (uint32_t)vm_sext24(ext);
+
+      if ((ext >> 24) == 0x00 && !entry)
+      {
+        MVM_LOG_E(ctx, "pool-oob", "%s pool index OOB at pc=0x%X\n", opcode_name(op), ctx->pc);
+        MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, vm_imm24_u(ext), ctx->pc);
+
+        return false;
+      }
 
       if (op == OP_ADDI)
       {
-        ctx->regs[rd] = ctx->regs[rs] + (uint32_t)vm_sext24(ext);
+        ctx->regs[rd] = ctx->regs[rs] + immu;
       }
       else if (op == OP_ANDI)
       {
-        ctx->regs[rd] = ctx->regs[rs] & (uint32_t)vm_sext24(ext);
+        ctx->regs[rd] = ctx->regs[rs] & immu;
       }
       else if (op == OP_MULI)
       {
-        ctx->regs[rd] = ctx->regs[rs] * (uint32_t)vm_sext24(ext);
+        ctx->regs[rd] = ctx->regs[rs] * immu;
       }
       else if (op == OP_ORI)
       {
-        ctx->regs[rd] = ctx->regs[rs] | (uint32_t)vm_sext24(ext);
+        ctx->regs[rd] = ctx->regs[rs] | immu;
       }
       else if (op == OP_DIVUI)
       {
-        immu = (uint32_t)vm_sext24(ext);
         ctx->regs[rd] = (immu == 0) ? 0u : (ctx->regs[rs] / immu);
       }
       else
       {
-        imm = vm_sext24(ext);
+        imm = (int32_t)immu;
 
         if (imm == 0)
         {

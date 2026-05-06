@@ -40,10 +40,36 @@ static bool MVM_lRunTrace(VMGPContext *ctx, uint32_t max_steps, uint32_t max_log
  *********************************************************************************************************************/
 void MVM_WatchMemoryWrite(const VMGPContext *ctx, uint32_t addr, uint32_t size, const char *tag)
 {
-  (void)ctx;
-  (void)addr;
-  (void)size;
-  (void)tag;
+  const uint32_t font_watch_start = 0x00000116u;
+  const uint32_t font_watch_end = 0x0000015Du;
+  uint32_t end;
+
+  if (!ctx || size == 0u)
+  {
+    return;
+  }
+
+  end = addr + size - 1u;
+  if (end < addr)
+  {
+    end = 0xFFFFFFFFu;
+  }
+
+  if (addr <= font_watch_end && end >= font_watch_start)
+  {
+    MVM_LOG_D(ctx,
+              "mem-watch",
+              "font-range-write tag=%s addr=%08X size=%u pc=%08X r0=%08X p0=%08X p1=%08X p2=%08X p3=%08X\n",
+              tag ? tag : "?",
+              addr,
+              size,
+              ctx->pc,
+              ctx->regs[VM_REG_R0],
+              ctx->regs[VM_REG_P0],
+              ctx->regs[VM_REG_P1],
+              ctx->regs[VM_REG_P2],
+              ctx->regs[VM_REG_P3]);
+  }
 } /* End of MVM_WatchMemoryWrite */
 
 /**********************************************************************************************************************

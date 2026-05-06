@@ -32,6 +32,7 @@
 #define STREAM_CREATE_FLAG 0x0800u
 #define STREAM_TRUNC_FLAG  0x1000u
 #define STREAM_DELETE_FLAG 0x4000u
+#define STREAM_RESOURCE_OVERLAY_MIN_BYTES 4096u
 #define MVM_KEY_UP_MASK          0x00000001u
 #define MVM_KEY_DOWN_MASK        0x00000002u
 #define MVM_KEY_LEFT_MASK        0x00000004u
@@ -103,6 +104,11 @@ static const MVM_ImportBinding_t *MVM_lFindImportBinding(const char *name);
  * @brief Returns one active resource stream by handle.
  */
 static VMGPStream *MVM_lFindStream(VMGPContext *ctx, uint32_t handle);
+
+/**
+ * @brief Returns one mutable resource metadata entry by guest-visible id.
+ */
+static VMGPResource *MVM_lFindMutableResource(VMGPContext *ctx, uint32_t resource_id);
 
 /**
  * @brief Allocates one free resource stream slot.
@@ -178,6 +184,8 @@ static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_ad
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr);
 static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx);
 static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawCommandType_t type);
+static uint32_t MVM_lReadPackedLsbPixel(const uint8_t *data, uint32_t pixel_index, uint32_t bits_per_pixel);
+static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t text_length);
 
 /* Import handlers use SDK-visible names by design. */
 MVM_IMPORT_PROTO(DbgPrintf);               /* Stub */
@@ -732,6 +740,26 @@ static VMGPStream *MVM_lFindStream(VMGPContext *ctx, uint32_t handle)
 
   return NULL;
 } /* End of MVM_lFindStream */
+
+static VMGPResource *MVM_lFindMutableResource(VMGPContext *ctx, uint32_t resource_id)
+{
+  uint32_t index;
+
+  if (!ctx || !ctx->resources)
+  {
+    return NULL;
+  }
+
+  for (index = 0u; index < ctx->resource_count; ++index)
+  {
+    if (ctx->resources[index].id == resource_id)
+    {
+      return &ctx->resources[index];
+    }
+  }
+
+  return NULL;
+} /* End of MVM_lFindMutableResource */
 
 static VMGPStream *MVM_lAllocStream(VMGPContext *ctx)
 {
@@ -1474,6 +1502,204 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
   return command;
 } /* End of MVM_lAllocDrawCommand */
 
+static uint32_t MVM_lReadPackedLsbPixel(const uint8_t *data, uint32_t pixel_index, uint32_t bits_per_pixel)
+{
+  uint32_t byte_index;
+  uint32_t shift;
+  uint32_t mask;
+
+  if (!data || bits_per_pixel == 0u || bits_per_pixel > 8u)
+  {
+    return 0u;
+  }
+
+  if (bits_per_pixel == 8u)
+  {
+    return data[pixel_index];
+  }
+
+  byte_index = (pixel_index * bits_per_pixel) >> 3;
+  shift = (pixel_index & ((8u / bits_per_pixel) - 1u)) * bits_per_pixel;
+  mask = (1u << bits_per_pixel) - 1u;
+
+  return (uint32_t)((data[byte_index] >> shift) & mask);
+} /* End of MVM_lReadPackedLsbPixel */
+
+static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t text_length)
+{
+  static uint32_t dumped_mask = 0u;
+  uint32_t dump_bit;
+  uint32_t font_addr;
+  uint32_t font_data_addr;
+  uint32_t char_table_addr;
+  uint32_t bits_per_char;
+  uint32_t bytes_per_char;
+  uint8_t bpp;
+  uint8_t width;
+  uint8_t height;
+  uint8_t palindex;
+  uint32_t char_index;
+
+  if (!ctx || !text || text_length == 0u)
+  {
+    return;
+  }
+
+  dump_bit = 0u;
+  if (strncmp(text, "Level", 5u) == 0)
+  {
+    dump_bit = 1u << 0;
+  }
+  else if (strncmp(text, "Required", 8u) == 0)
+  {
+    dump_bit = 1u << 1;
+  }
+  else if (strncmp(text, "Perfect", 7u) == 0)
+  {
+    dump_bit = 1u << 2;
+  }
+  else if (strncmp(text, "LIFE LOST", 9u) == 0)
+  {
+    dump_bit = 1u << 3;
+  }
+
+  if (dump_bit == 0u || (dumped_mask & dump_bit) != 0u)
+  {
+    return;
+  }
+  dumped_mask |= dump_bit;
+
+  font_addr = ctx->active_font;
+  if (!MVM_RuntimeMemRangeOk(ctx, font_addr, 12u))
+  {
+    MVM_LOG_D(ctx, "font-dump", "font-dump text=\"%s\" skipped: invalid font=%08X\n", text, font_addr);
+    return;
+  }
+
+  font_data_addr = vm_read_u32_le(ctx->mem + font_addr + 0u);
+  char_table_addr = vm_read_u32_le(ctx->mem + font_addr + 4u);
+  bpp = ctx->mem[font_addr + 8u];
+  width = ctx->mem[font_addr + 9u];
+  height = ctx->mem[font_addr + 10u];
+  palindex = ctx->mem[font_addr + 11u];
+
+  if ((bpp != 1u && bpp != 2u) || width == 0u || height == 0u ||
+      !MVM_RuntimeMemRangeOk(ctx, char_table_addr, 256u))
+  {
+    MVM_LOG_D(ctx,
+              "font-dump",
+              "font-dump text=\"%s\" skipped: font=%08X data=%08X table=%08X bpp=%u w=%u h=%u pal=%u\n",
+              text,
+              font_addr,
+              font_data_addr,
+              char_table_addr,
+              bpp,
+              width,
+              height,
+              palindex);
+    return;
+  }
+
+  bits_per_char = (uint32_t)bpp * (uint32_t)width * (uint32_t)height;
+  bytes_per_char = (bits_per_char + 7u) / 8u;
+  MVM_LOG_D(ctx,
+            "font-dump",
+            "font-dump text=\"%s\" font=%08X data=%08X table=%08X bpp=%u w=%u h=%u pal=%u bytes=%u pal0=%04X pal1=%04X pal2=%04X pal3=%04X\n",
+            text,
+            font_addr,
+            font_data_addr,
+            char_table_addr,
+            bpp,
+            width,
+            height,
+            palindex,
+            bytes_per_char,
+            ctx->palette_entries[0] & 0xFFFFu,
+            ctx->palette_entries[1] & 0xFFFFu,
+            ctx->palette_entries[2] & 0xFFFFu,
+            ctx->palette_entries[3] & 0xFFFFu);
+
+  for (char_index = 0u; char_index < text_length; ++char_index)
+  {
+    uint8_t ch;
+    uint8_t glyph_index;
+    uint32_t glyph_addr;
+    uint32_t byte_index;
+    uint32_t row;
+    char bytes_text[96];
+    char raster_text[384];
+    uint32_t out_index;
+
+    ch = (uint8_t)text[char_index];
+    if (ch == ' ')
+    {
+      continue;
+    }
+
+    glyph_index = ctx->mem[char_table_addr + ch];
+    if (glyph_index == 0xFFu)
+    {
+      MVM_LOG_D(ctx, "font-dump", "font-dump char='%c' code=%02X glyph=FF\n", ch, ch);
+      continue;
+    }
+
+    glyph_addr = font_data_addr + ((uint32_t)glyph_index * bytes_per_char);
+    if (!MVM_RuntimeMemRangeOk(ctx, glyph_addr, bytes_per_char))
+    {
+      MVM_LOG_D(ctx, "font-dump", "font-dump char='%c' code=%02X glyph=%02X invalid addr=%08X\n", ch, ch, glyph_index, glyph_addr);
+      continue;
+    }
+
+    out_index = 0u;
+    for (byte_index = 0u; byte_index < bytes_per_char && out_index + 3u < sizeof(bytes_text); ++byte_index)
+    {
+      int written;
+
+      written = snprintf(bytes_text + out_index,
+                         sizeof(bytes_text) - out_index,
+                         "%02X%s",
+                         ctx->mem[glyph_addr + byte_index],
+                         (byte_index + 1u < bytes_per_char) ? " " : "");
+      if (written <= 0)
+      {
+        break;
+      }
+      out_index += (uint32_t)written;
+    }
+    bytes_text[out_index < sizeof(bytes_text) ? out_index : sizeof(bytes_text) - 1u] = '\0';
+
+    out_index = 0u;
+    for (row = 0u; row < (uint32_t)height && out_index + (uint32_t)width + 2u < sizeof(raster_text); ++row)
+    {
+      uint32_t col;
+
+      if (row != 0u)
+      {
+        raster_text[out_index++] = '/';
+      }
+
+      for (col = 0u; col < (uint32_t)width; ++col)
+      {
+        uint32_t pixel;
+
+        pixel = MVM_lReadPackedLsbPixel(ctx->mem + glyph_addr, row * (uint32_t)width + col, (uint32_t)bpp);
+        raster_text[out_index++] = (pixel == 0u) ? '.' : (char)('0' + pixel);
+      }
+    }
+    raster_text[out_index] = '\0';
+
+    MVM_LOG_D(ctx,
+              "font-dump",
+              "font-dump char='%c' code=%02X glyph=%02X addr=%08X bytes=[%s] raster=%s\n",
+              (ch >= 0x20u && ch < 0x7Fu) ? ch : '.',
+              ch,
+              glyph_index,
+              glyph_addr,
+              bytes_text,
+              raster_text);
+  }
+} /* End of MVM_lMaybeDumpTextFont */
+
 /**
  * @brief SDK: Allocates one guest-memory block and returns one guest pointer in `r0`.
  * Call model: `sync/result`
@@ -1985,33 +2211,84 @@ MVM_IMPORT_IMPL(vitoa)
   uint32_t buffer;
   uint32_t length;
   uint32_t index;
+  uint32_t digit_count;
+  uint32_t pad_count;
+  uint32_t digit_start;
+  uint32_t is_negative;
   char temp[32];
+  char digits[32];
   int written;
 
   value = vm_reg_s32(ctx->regs[VM_REG_P0]);
   buffer = ctx->regs[VM_REG_P1];
   length = ctx->regs[VM_REG_P2];
   index = 0u;
+  digit_start = 0u;
+  is_negative = 0u;
   written = 0;
   memset(temp, 0, sizeof(temp));
+  memset(digits, 0, sizeof(digits));
 
-  written = snprintf(temp, sizeof(temp), "%d", value);
+  written = snprintf(digits, sizeof(digits), "%d", value);
 
   if (written < 0)
   {
     written = 0;
   }
 
-  if (length > 0u && (uint32_t)written < length)
+  digit_count = (uint32_t)written;
+  if (digit_count >= sizeof(digits))
   {
-    for (index = (uint32_t)written; index < length && index < (sizeof(temp) - 1u); ++index)
+    digit_count = sizeof(digits) - 1u;
+  }
+
+  if (digit_count != 0u && digits[0] == '-')
+  {
+    is_negative = 1u;
+    digit_start = 1u;
+  }
+
+  pad_count = 0u;
+  if (length > digit_count)
+  {
+    pad_count = length - digit_count;
+  }
+  if (pad_count >= sizeof(temp))
+  {
+    pad_count = sizeof(temp) - 1u;
+  }
+
+  index = 0u;
+  if (is_negative)
+  {
+    temp[index] = '-';
+    ++index;
+    while (index < (1u + pad_count) && index < (sizeof(temp) - 1u))
     {
       temp[index] = (char)ctx->regs[VM_REG_P3];
+      ++index;
     }
-
-    temp[index] = '\0';
-    written = (int)index;
   }
+  else
+  {
+    index = 0u;
+    while (index < pad_count && index < (sizeof(temp) - 1u))
+    {
+      temp[index] = (char)ctx->regs[VM_REG_P3];
+      ++index;
+    }
+  }
+
+  for (digit_count = digit_start;
+       digit_count < (uint32_t)written && index < (sizeof(temp) - 1u);
+       ++digit_count)
+  {
+    temp[index] = digits[digit_count];
+    ++index;
+  }
+
+  temp[index] = '\0';
+  written = (int)index;
 
   if (buffer < ctx->mem_size)
   {
@@ -2056,8 +2333,9 @@ MVM_IMPORT_IMPL(vStreamOpen)
   uint32_t mode;
   uint32_t resource_id;
   VMGPStream *stream;
-  const VMGPResource *resource;
+  VMGPResource *resource;
   uint32_t stream_type;
+  uint32_t overlay_size;
   void *overlay_mem;
 
   mode = ctx->regs[VM_REG_P1];
@@ -2065,6 +2343,7 @@ MVM_IMPORT_IMPL(vStreamOpen)
   stream = NULL;
   resource = NULL;
   stream_type = mode & 0xFFu;
+  overlay_size = 0u;
   overlay_mem = NULL;
 
   stream = MVM_lAllocStream(ctx);
@@ -2078,7 +2357,7 @@ MVM_IMPORT_IMPL(vStreamOpen)
 
   if (resource_id != 0u)
   {
-    resource = MVM_GetVmgpResource(ctx, resource_id);
+    resource = MVM_lFindMutableResource(ctx, resource_id);
 
     if (!resource)
     {
@@ -2101,26 +2380,44 @@ MVM_IMPORT_IMPL(vStreamOpen)
   stream->mode = mode;
   stream->pos = 0u;
 
+  if (resource && resource->overlay_data)
+  {
+    stream->overlay_data = resource->overlay_data;
+    stream->overlay_size = resource->overlay_size;
+  }
+
   if (resource_id != 0u && stream_type == 7u && (mode & STREAM_WRITE_FLAG) != 0u)
   {
-    overlay_mem = MVM_AcquireInitBuffer(ctx, stream->size);
-
-    if (!overlay_mem || !MVM_ReadImageRange(ctx, stream->file_offset, overlay_mem, stream->size))
+    if (!resource->overlay_data)
     {
-      memset(stream, 0, sizeof(*stream));
-      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+      overlay_size = stream->size;
+      if (overlay_size < STREAM_RESOURCE_OVERLAY_MIN_BYTES)
+      {
+        overlay_size = STREAM_RESOURCE_OVERLAY_MIN_BYTES;
+      }
 
-      MVM_LOG_W(ctx,
-                "stream-open",
-                "vStreamOpen(mode=%08X resid=%u) rejected: writable resource overlay unavailable\n",
-                mode,
-                resource_id);
+      overlay_mem = MVM_AcquireInitBuffer(ctx, overlay_size);
 
-      return true;
+      if (!overlay_mem || !MVM_ReadImageRange(ctx, stream->file_offset, overlay_mem, stream->size))
+      {
+        memset(stream, 0, sizeof(*stream));
+        ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+        MVM_LOG_W(ctx,
+                  "stream-open",
+                  "vStreamOpen(mode=%08X resid=%u) rejected: writable resource overlay unavailable\n",
+                  mode,
+                  resource_id);
+
+        return true;
+      }
+
+      resource->overlay_data = (uint8_t *)overlay_mem;
+      resource->overlay_size = overlay_size;
     }
 
-    stream->overlay_data = (uint8_t *)overlay_mem;
-    stream->overlay_size = stream->size;
+    stream->overlay_data = resource->overlay_data;
+    stream->overlay_size = resource->overlay_size;
   }
 
   ctx->regs[VM_REG_R0] = stream->handle;
@@ -2214,11 +2511,13 @@ MVM_IMPORT_IMPL(vStreamRead)
   uint32_t buffer;
   uint32_t count;
   uint32_t available;
+  uint32_t first_byte;
 
   stream = MVM_lFindStream(ctx, ctx->regs[VM_REG_P0]);
   buffer = ctx->regs[VM_REG_P1];
   count = ctx->regs[VM_REG_P2];
   available = 0u;
+  first_byte = 0u;
 
   if (!stream || buffer >= ctx->mem_size)
   {
@@ -2247,18 +2546,23 @@ MVM_IMPORT_IMPL(vStreamRead)
   }
 
   MVM_WatchMemoryWrite(ctx, buffer, count, "vStreamRead");
+  if (count != 0u && MVM_RuntimeMemRangeOk(ctx, buffer, 1u))
+  {
+    first_byte = ctx->mem[buffer];
+  }
   stream->pos += count;
   ctx->regs[VM_REG_R0] = count;
   MVM_EmitEvent(ctx, MVM_EVENT_RESOURCE_READ, stream->resource_id, count);
 
   MVM_LOG_D(ctx,
             "stream-read",
-            "vStreamRead(handle=%u buf=%08X count=%u) -> %u pos=%u\n",
+            "vStreamRead(handle=%u buf=%08X count=%u) -> %u pos=%u first=%02X\n",
             ctx->regs[VM_REG_P0],
             buffer,
             ctx->regs[VM_REG_P2],
             count,
-            stream->pos);
+            stream->pos,
+            first_byte);
 
   return true;
 } /* End of vStreamRead */
@@ -2273,14 +2577,18 @@ MVM_IMPORT_IMPL(vStreamRead)
 MVM_IMPORT_IMPL(vStreamWrite)
 {
   VMGPStream *stream;
+  VMGPResource *resource;
   uint32_t buffer;
   uint32_t count;
   uint32_t writable;
+  uint32_t first_byte;
 
   stream = MVM_lFindStream(ctx, ctx->regs[VM_REG_P0]);
+  resource = NULL;
   buffer = ctx->regs[VM_REG_P1];
   count = ctx->regs[VM_REG_P2];
   writable = 0u;
+  first_byte = 0u;
 
   if (!stream || !MVM_RuntimeMemRangeOk(ctx, buffer, count))
   {
@@ -2304,6 +2612,10 @@ MVM_IMPORT_IMPL(vStreamWrite)
   }
 
   writable = count;
+  if (count != 0u)
+  {
+    first_byte = ctx->mem[buffer];
+  }
 
   if (stream->overlay_data)
   {
@@ -2335,14 +2647,24 @@ MVM_IMPORT_IMPL(vStreamWrite)
     stream->size = stream->pos;
   }
 
+  if (stream->overlay_data && stream->resource_id != 0u)
+  {
+    resource = MVM_lFindMutableResource(ctx, stream->resource_id);
+    if (resource && stream->size > resource->size)
+    {
+      resource->size = stream->size;
+    }
+  }
+
   MVM_LOG_D(ctx,
             "stream-write",
-            "vStreamWrite(handle=%u buf=%08X count=%u) -> %u pos=%u\n",
+            "vStreamWrite(handle=%u buf=%08X count=%u) -> %u pos=%u first=%02X\n",
             ctx->regs[VM_REG_P0],
             buffer,
             count,
             ctx->regs[VM_REG_R0],
-            stream->pos);
+            stream->pos,
+            first_byte);
 
   return true;
 } /* End of vStreamWrite */
@@ -3195,14 +3517,43 @@ MVM_IMPORT_IMPL(vClearScreen)
  */
 MVM_IMPORT_IMPL(vSetActiveFont)
 {
+  uint32_t font_data;
+  uint32_t char_table;
+  uint32_t bpp;
+  uint32_t width;
+  uint32_t height;
+  uint32_t palindex;
+
   ctx->previous_font = ctx->active_font;
   ctx->active_font = ctx->regs[VM_REG_P0];
   ctx->regs[VM_REG_R0] = ctx->previous_font;
+  font_data = 0u;
+  char_table = 0u;
+  bpp = 0u;
+  width = 0u;
+  height = 0u;
+  palindex = 0u;
+
+  if (MVM_RuntimeMemRangeOk(ctx, ctx->active_font, 12u))
+  {
+    font_data = vm_read_u32_le(ctx->mem + ctx->active_font);
+    char_table = vm_read_u32_le(ctx->mem + ctx->active_font + 4u);
+    bpp = ctx->mem[ctx->active_font + 8u];
+    width = ctx->mem[ctx->active_font + 9u];
+    height = ctx->mem[ctx->active_font + 10u];
+    palindex = ctx->mem[ctx->active_font + 11u];
+  }
 
   MVM_LOG_D(ctx,
             "font-select",
-            "vSetActiveFont(font=%08X) -> prev=%08X\n",
+            "vSetActiveFont(font=%08X data=%08X table=%08X bpp=%u w=%u h=%u pal=%u) -> prev=%08X\n",
             ctx->active_font,
+            font_data,
+            char_table,
+            bpp,
+            width,
+            height,
+            palindex,
             ctx->regs[VM_REG_R0]);
 
   return true;
@@ -3548,6 +3899,9 @@ MVM_IMPORT_IMPL(vPrint)
   uint32_t y;
   uint32_t str;
   uint32_t length;
+  char text_preview[VMGP_DRAW_TEXT_SNAPSHOT_BYTES];
+  uint32_t preview_length;
+  uint32_t preview_index;
 
   command = NULL;
   mode = ctx->regs[VM_REG_P0];
@@ -3555,11 +3909,30 @@ MVM_IMPORT_IMPL(vPrint)
   y = ctx->regs[VM_REG_P2];
   str = ctx->regs[VM_REG_P3];
   length = 0u;
+  preview_length = 0u;
 
   if (str < ctx->mem_size)
   {
     length = MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str);
   }
+
+  if (str < ctx->mem_size && length != 0u)
+  {
+    preview_length = length;
+    if (preview_length >= VMGP_DRAW_TEXT_SNAPSHOT_BYTES)
+    {
+      preview_length = VMGP_DRAW_TEXT_SNAPSHOT_BYTES - 1u;
+    }
+
+    for (preview_index = 0u; preview_index < preview_length; ++preview_index)
+    {
+      uint8_t ch;
+
+      ch = ctx->mem[str + preview_index];
+      text_preview[preview_index] = (ch >= 0x20u && ch < 0x7Fu) ? (char)ch : '.';
+    }
+  }
+  text_preview[preview_length] = '\0';
 
   ctx->regs[VM_REG_R0] = 0u;
   command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TEXT);
@@ -3594,15 +3967,18 @@ MVM_IMPORT_IMPL(vPrint)
 
   MVM_LOG_D(ctx,
             "print",
-            "vPrint(mode=%08X x=%u y=%u str=%08X len=%u font=%08X fg=%08X bg=%08X)\n",
+            "vPrint(mode=%08X x=%u y=%u str=%08X len=%u text=\"%s\" font=%08X fg=%08X bg=%08X)\n",
             mode,
             x,
             y,
             str,
             length,
+            text_preview,
             ctx->active_font,
             ctx->fg_color,
             ctx->bg_color);
+
+  MVM_lMaybeDumpTextFont(ctx, text_preview, preview_length);
 
   return true;
 } /* End of vPrint */
