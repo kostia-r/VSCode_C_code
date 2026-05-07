@@ -133,6 +133,16 @@ MVM_Err_t MVM_GetLastError(const MpnVM_t *vm);
 MVM_RetCode_t MVM_SetWdgLimit(MpnVM_t *vm, uint32_t no_progress_steps);
 
 /**
+ * @brief Sets the host tick provider used by time-based imports and bounded execution.
+ */
+MVM_RetCode_t MVM_SetTickProvider(MpnVM_t *vm, void *user, uint32_t (*get_ticks_ms)(void *user));
+
+/**
+ * @brief Updates the current VM button-state bitmask.
+ */
+MVM_RetCode_t MVM_SetButtonState(MpnVM_t *vm, uint32_t button_state);
+
+/**
  * @brief Returns the configured no-progress step limit for the soft watchdog.
  */
 uint32_t MVM_GetWdgLimit(const MpnVM_t *vm);

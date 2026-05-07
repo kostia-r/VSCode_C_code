@@ -875,6 +875,50 @@ MVM_RetCode_t MVM_SetWdgLimit(MpnVM_t *vm, uint32_t no_progress_steps)
 } /* End of MVM_SetWdgLimit */
 
 /**********************************************************************************************************************
+ *  Name: MVM_SetTickProvider
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Configures the host tick provider used by runtime imports.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_SetTickProvider(MpnVM_t *vm, void *user, uint32_t (*get_ticks_ms)(void *user))
+{
+  if (!vm || !get_ticks_ms)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  vm->platform.user = user;
+  vm->platform.get_ticks_ms = get_ticks_ms;
+  vm->tick_count = get_ticks_ms(user);
+
+  return MVM_OK;
+} /* End of MVM_SetTickProvider */
+
+/**********************************************************************************************************************
+ *  Name: MVM_SetButtonState
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Updates the current polled platform button bitmask.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_SetButtonState(MpnVM_t *vm, uint32_t button_state)
+{
+  if (!vm)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  vm->button_state = button_state;
+
+  return MVM_OK;
+} /* End of MVM_SetButtonState */
+
+/**********************************************************************************************************************
  *  Name: MVM_GetWdgLimit
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous

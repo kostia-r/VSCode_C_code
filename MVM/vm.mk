@@ -29,5 +29,6 @@ MVM_SRC := \
   $(MVM_ROOT)/loader/src/MVM_VmgpLoader.c \
   $(MVM_ROOT)/pip/src/MVM_PipExec.c \
   $(MVM_ROOT)/runtime/src/MVM_Imports.c \
+  $(MVM_ROOT)/runtime/src/MVM_Render.c \
   $(MVM_ROOT)/runtime/src/MVM_RuntimeCommon.c \
   $(MVM_ROOT)/runtime/src/MVM_RuntimeDispatch.c
