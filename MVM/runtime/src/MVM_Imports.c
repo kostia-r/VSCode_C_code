@@ -172,6 +172,10 @@ static bool MVM_lRectanglesOverlap(int32_t ax,
 static bool MVM_lReadMapHeader(const VMGPContext *ctx, uint32_t header_addr, VMGPMapState *map_state);
 static uint32_t MVM_lMapCellStride(const VMGPMapState *map_state);
 static uint8_t *MVM_lMapCellPtr(const VMGPContext *ctx, const VMGPMapState *map_state, uint32_t x, uint32_t y);
+static uint32_t MVM_lMapTileBytes(const VMGPMapState *map_state);
+static uint8_t MVM_lMapAttributeMask(const VMGPContext *ctx, const VMGPMapState *map_state);
+static VMGPMapUpdateCache *MVM_lMapUpdateCache(VMGPContext *ctx, const VMGPMapState *map_state);
+static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *map_state);
 static bool MVM_lHeapReadBlock(const VMGPContext *ctx, uint32_t block_addr, uint32_t *size, bool *used);
 static void MVM_lHeapWriteBlock(VMGPContext *ctx, uint32_t block_addr, uint32_t size, bool used);
 static void MVM_lHeapCompact(VMGPContext *ctx);
@@ -837,11 +841,6 @@ static bool MVM_lReadLzHeader(const uint8_t *p,
     *compressed_size = packed_size;
   }
 
-  if (raw_size == 0x200u && packed_size > 1u && packed_size < raw_size)
-  {
-    raw_size = packed_size - 1u;
-  }
-
   if (uncompressed_size)
   {
     *uncompressed_size = raw_size;
@@ -1194,6 +1193,394 @@ static uint8_t *MVM_lMapCellPtr(const VMGPContext *ctx, const VMGPMapState *map_
   return ctx->mem + offset;
 } /* End of MVM_lMapCellPtr */
 
+static uint32_t MVM_lMapTileBytes(const VMGPMapState *map_state)
+{
+  uint32_t bits_per_pixel;
+
+  if (!map_state)
+  {
+    return 0u;
+  }
+
+  switch (map_state->format & 0x07u)
+  {
+    case 0x00u:
+    case 0x03u:
+      bits_per_pixel = 1u;
+      break;
+
+    case 0x01u:
+    case 0x04u:
+      bits_per_pixel = 2u;
+      break;
+
+    case 0x02u:
+    case 0x05u:
+      bits_per_pixel = 4u;
+      break;
+
+    case 0x06u:
+    case 0x07u:
+      bits_per_pixel = 8u;
+      break;
+
+    default:
+      return 0u;
+  }
+
+  return (64u * bits_per_pixel + 7u) / 8u;
+} /* End of MVM_lMapTileBytes */
+
+static uint8_t MVM_lMapAttributeMask(const VMGPContext *ctx, const VMGPMapState *map_state)
+{
+  uint8_t flags;
+  uint8_t format;
+
+  if (!map_state)
+  {
+    return 0u;
+  }
+
+  flags = map_state->flags;
+  format = (uint8_t)(map_state->format & 0x07u);
+
+  if (ctx && ctx->device_profile && ctx->device_profile->screen_width < 0x11Eu)
+  {
+    if (format >= 6u)
+    {
+      return (uint8_t)((flags & 0x08u) | 0xC1u);
+    }
+
+    return ((flags & 0x08u) != 0u) ? 0xFFu : (uint8_t)(flags | 0xF7u);
+  }
+
+  if (format > 5u)
+  {
+    flags = (uint8_t)(((flags & 0x08u) != 0u) ? (flags | 0xC0u) : flags);
+    flags = (uint8_t)((flags & 0xC1u) | 0x10u);
+
+    if (ctx && ctx->device_profile && ctx->device_profile->screen_width >= 0x132u)
+    {
+      flags = (uint8_t)(flags | ((map_state->flags >> 3u) & 0x06u));
+    }
+  }
+
+  return flags;
+} /* End of MVM_lMapAttributeMask */
+
+static VMGPMapUpdateCache *MVM_lMapUpdateCache(VMGPContext *ctx, const VMGPMapState *map_state)
+{
+  VMGPMapUpdateCache *free_slot;
+  uint32_t index;
+
+  if (!ctx || !map_state || map_state->header_addr == 0u)
+  {
+    return NULL;
+  }
+
+  free_slot = NULL;
+  for (index = 0u; index < VMGP_MAX_MAP_UPDATE_CACHES; ++index)
+  {
+    VMGPMapUpdateCache *cache = &ctx->map_update_caches[index];
+
+    if (cache->used)
+    {
+      if (cache->header_addr == map_state->header_addr)
+      {
+        return cache;
+      }
+    }
+    else if (!free_slot)
+    {
+      free_slot = cache;
+    }
+  }
+
+  if (!free_slot)
+  {
+    free_slot = &ctx->map_update_caches[0];
+  }
+
+  memset(free_slot, 0, sizeof(*free_slot));
+  free_slot->used = true;
+  free_slot->header_addr = map_state->header_addr;
+
+  return free_slot;
+} /* End of MVM_lMapUpdateCache */
+
+static bool MVM_lMapTileVisible(const VMGPContext *ctx, int32_t x, int32_t y)
+{
+  int32_t screen_width;
+  int32_t screen_height;
+
+  screen_width = (ctx && ctx->device_profile) ? (int32_t)ctx->device_profile->screen_width : 101;
+  screen_height = (ctx && ctx->device_profile) ? (int32_t)ctx->device_profile->screen_height : 80;
+
+  return (x < screen_width) && ((x + 8) > 0) && (y < screen_height) && ((y + 8) > 0);
+} /* End of MVM_lMapTileVisible */
+
+static bool MVM_lMapTileInDirtyRect(uint32_t tile_x,
+                                    uint32_t tile_y,
+                                    uint32_t min_x,
+                                    uint32_t min_y,
+                                    uint32_t max_x,
+                                    uint32_t max_y)
+{
+  return tile_x >= min_x && tile_x <= max_x && tile_y >= min_y && tile_y <= max_y;
+} /* End of MVM_lMapTileInDirtyRect */
+
+static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *map_state)
+{
+  VMGPMapUpdateCache *cache;
+  MVM_DrawCommand_t *command;
+  uint32_t stride;
+  uint32_t tile_bytes;
+  uint32_t tile_count_x;
+  uint32_t tile_count_y;
+  uint32_t min_dirty_x;
+  uint32_t min_dirty_y;
+  uint32_t max_dirty_x;
+  uint32_t max_dirty_y;
+  uint32_t emitted;
+  uint32_t dirty_candidate;
+  uint32_t x;
+  uint32_t y;
+  uint8_t attr_mask;
+  bool cache_valid;
+  bool dirty_available;
+  bool full_update;
+
+  if (!ctx ||
+      !map_state ||
+      !map_state->valid ||
+      map_state->width == 0u ||
+      map_state->height == 0u ||
+      map_state->map_data_addr == 0u ||
+      map_state->tile_data_addr == 0u)
+  {
+    return 0u;
+  }
+
+  stride = MVM_lMapCellStride(map_state);
+  tile_bytes = MVM_lMapTileBytes(map_state);
+  if (tile_bytes == 0u)
+  {
+    return 0u;
+  }
+
+  cache = MVM_lMapUpdateCache(ctx, map_state);
+  cache_valid = cache &&
+                cache->map_data_addr == map_state->map_data_addr &&
+                cache->tile_data_addr == map_state->tile_data_addr;
+  dirty_available = cache_valid;
+  full_update = true;
+
+  tile_count_x = (((ctx->device_profile ? ctx->device_profile->screen_width : 101u) + 7u) / 8u) + 1u;
+  tile_count_y = (((ctx->device_profile ? ctx->device_profile->screen_height : 80u) + 7u) / 8u) + 1u;
+
+  min_dirty_x = 0u;
+  min_dirty_y = 0u;
+  max_dirty_x = map_state->width - 1u;
+  max_dirty_y = map_state->height - 1u;
+
+  if (dirty_available)
+  {
+    int32_t dx;
+    int32_t dy;
+    uint32_t right_edge;
+    uint32_t bottom_edge;
+
+    dx = (int32_t)map_state->x_pos - (int32_t)cache->x_pos;
+    dy = (int32_t)map_state->y_pos - (int32_t)cache->y_pos;
+    right_edge = (uint32_t)((int32_t)map_state->x_pos + ((int32_t)tile_count_x - 1) * 8);
+    bottom_edge = (uint32_t)((int32_t)map_state->y_pos + ((int32_t)tile_count_y - 1) * 8);
+
+    min_dirty_x = right_edge / 8u;
+    max_dirty_x = min_dirty_x;
+    min_dirty_y = (map_state->y_pos > 0) ? ((uint32_t)map_state->y_pos / 8u) : 0u;
+    max_dirty_y = min_dirty_y + tile_count_y;
+
+    if (dx != 0 || dy != 0)
+    {
+      if (dx > 0)
+      {
+        min_dirty_x = right_edge / 8u;
+        max_dirty_x = min_dirty_x + ((uint32_t)dx + 7u) / 8u;
+      }
+      else if (dx < 0)
+      {
+        min_dirty_x = (map_state->x_pos > 0) ? ((uint32_t)map_state->x_pos / 8u) : 0u;
+        max_dirty_x = min_dirty_x + ((uint32_t)(-dx) + 7u) / 8u;
+      }
+
+      if (dy > 0)
+      {
+        min_dirty_y = bottom_edge / 8u;
+        max_dirty_y = min_dirty_y + ((uint32_t)dy + 7u) / 8u;
+      }
+      else if (dy < 0)
+      {
+        min_dirty_y = (map_state->y_pos > 0) ? ((uint32_t)map_state->y_pos / 8u) : 0u;
+        max_dirty_y = min_dirty_y + ((uint32_t)(-dy) + 7u) / 8u;
+      }
+    }
+
+    if (min_dirty_x >= map_state->width)
+    {
+      min_dirty_x = map_state->width - 1u;
+    }
+    if (max_dirty_x >= map_state->width)
+    {
+      max_dirty_x = map_state->width - 1u;
+    }
+    if (min_dirty_y >= map_state->height)
+    {
+      min_dirty_y = map_state->height - 1u;
+    }
+    if (max_dirty_y >= map_state->height)
+    {
+      max_dirty_y = map_state->height - 1u;
+    }
+  }
+
+  attr_mask = MVM_lMapAttributeMask(ctx, map_state);
+  emitted = 0u;
+  dirty_candidate = 0u;
+
+  for (y = 0u; y < map_state->height; ++y)
+  {
+    for (x = 0u; x < map_state->width; ++x)
+    {
+      uint32_t offset;
+      uint32_t tile_addr;
+      uint32_t raw_format;
+      uint8_t tile_index;
+      uint8_t tile_attribute;
+      uint8_t masked_attribute;
+      int32_t screen_x;
+      int32_t screen_y;
+
+      if (!full_update && !MVM_lMapTileInDirtyRect(x, y, min_dirty_x, min_dirty_y, max_dirty_x, max_dirty_y))
+      {
+        continue;
+      }
+
+      screen_x = (int32_t)map_state->x_pan + (int32_t)(x * 8u) - (int32_t)map_state->x_pos;
+      screen_y = (int32_t)map_state->y_pan + (int32_t)(y * 8u) - (int32_t)map_state->y_pos;
+      if (!MVM_lMapTileVisible(ctx, screen_x, screen_y))
+      {
+        continue;
+      }
+
+      offset = map_state->map_data_addr + ((y * (uint32_t)map_state->width) + x) * stride;
+      if (!MVM_RuntimeMemRangeOk(ctx, offset, stride))
+      {
+        continue;
+      }
+
+      tile_index = ctx->mem[offset];
+      if (tile_index == 0u)
+      {
+        continue;
+      }
+
+      tile_attribute = (stride > 1u) ? ctx->mem[offset + 1u] : 0u;
+      masked_attribute = (uint8_t)(tile_attribute & attr_mask);
+      raw_format = map_state->format & 0x07u;
+      --tile_index;
+
+      if ((map_state->format & 0x07u) < 6u)
+      {
+        uint8_t palette_offset;
+
+        palette_offset = (uint8_t)(masked_attribute & 0xFEu);
+        raw_format |= ((uint32_t)palette_offset << 8u);
+        if ((masked_attribute & 0x01u) != 0u)
+        {
+          raw_format |= 0x08u;
+        }
+      }
+      else
+      {
+        uint8_t animation_bits;
+
+        raw_format |= (uint32_t)((masked_attribute & 0x07u) << 3u);
+        animation_bits = (uint8_t)(masked_attribute & 0xC0u);
+        if (animation_bits != 0u)
+        {
+          uint8_t frame_count;
+
+          frame_count = (animation_bits == 0xC0u) ? 8u : (uint8_t)(animation_bits >> 5u);
+          tile_index = (uint8_t)(tile_index + ((frame_count - 1u) & map_state->animation_active));
+        }
+      }
+
+      tile_addr = map_state->tile_data_addr + ((uint32_t)tile_index * tile_bytes);
+      if (!MVM_RuntimeMemRangeOk(ctx, tile_addr, tile_bytes))
+      {
+        continue;
+      }
+
+      if (dirty_available && MVM_lMapTileInDirtyRect(x, y, min_dirty_x, min_dirty_y, max_dirty_x, max_dirty_y))
+      {
+        ++dirty_candidate;
+      }
+
+      command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TILE);
+      if (!command)
+      {
+        if (cache)
+        {
+          cache->map_data_addr = map_state->map_data_addr;
+          cache->tile_data_addr = map_state->tile_data_addr;
+          cache->x_pos = map_state->x_pos;
+          cache->y_pos = map_state->y_pos;
+          cache->animation_active = map_state->animation_active;
+        }
+
+        return emitted;
+      }
+
+      command->x0 = (int16_t)screen_x;
+      command->y0 = (int16_t)screen_y;
+      command->width = 8u;
+      command->height = 8u;
+      command->color = ctx->fg_color;
+      command->aux = tile_addr;
+      command->aux2 = raw_format;
+      ++emitted;
+    }
+  }
+
+  if (cache)
+  {
+    cache->map_data_addr = map_state->map_data_addr;
+    cache->tile_data_addr = map_state->tile_data_addr;
+    cache->x_pos = map_state->x_pos;
+    cache->y_pos = map_state->y_pos;
+    cache->animation_active = map_state->animation_active;
+  }
+
+  MVM_LOG_D(ctx,
+            "map-dirty",
+            "map-dirty(valid=%u full=%u dirty=%u rect=%u,%u-%u,%u pos=%d,%d size=%ux%u data=%08X tile=%08X)\n",
+            dirty_available ? 1u : 0u,
+            emitted,
+            dirty_candidate,
+            min_dirty_x,
+            min_dirty_y,
+            max_dirty_x,
+            max_dirty_y,
+            (int32_t)map_state->x_pos,
+            (int32_t)map_state->y_pos,
+            (uint32_t)map_state->width,
+            (uint32_t)map_state->height,
+            map_state->map_data_addr,
+            map_state->tile_data_addr);
+
+  return emitted;
+} /* End of MVM_lEmitMapTileCommands */
+
 /**
  * @brief Reads one heap block header from guest memory.
  */
@@ -1489,6 +1876,7 @@ static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx)
 static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawCommandType_t type)
 {
   MVM_DrawCommand_t *command;
+  uint32_t snapshot;
 
   if (!ctx || ctx->draw_command_count >= VMGP_MAX_DRAW_COMMANDS)
   {
@@ -1498,6 +1886,32 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
   command = &ctx->draw_commands[ctx->draw_command_count++];
   memset(command, 0, sizeof(*command));
   command->type = type;
+  command->palette_valid = 0u;
+  command->palette_snapshot = 0u;
+  command->clip_x0 = ctx->clip_x0;
+  command->clip_y0 = ctx->clip_y0;
+  command->clip_x1 = ctx->clip_x1;
+  command->clip_y1 = ctx->clip_y1;
+
+  if (ctx->draw_palette_count > 0u)
+  {
+    snapshot = ctx->draw_palette_count - 1u;
+    if (memcmp(ctx->draw_palettes[snapshot], ctx->palette_entries, sizeof(ctx->palette_entries)) == 0)
+    {
+      command->palette_valid = 1u;
+      command->palette_snapshot = (uint16_t)snapshot;
+
+      return command;
+    }
+  }
+
+  if (ctx->draw_palette_count < VMGP_MAX_DRAW_PALETTE_SNAPSHOTS)
+  {
+    snapshot = ctx->draw_palette_count++;
+    memcpy(ctx->draw_palettes[snapshot], ctx->palette_entries, sizeof(ctx->palette_entries));
+    command->palette_valid = 1u;
+    command->palette_snapshot = (uint16_t)snapshot;
+  }
 
   return command;
 } /* End of MVM_lAllocDrawCommand */
@@ -3497,7 +3911,9 @@ MVM_IMPORT_IMPL(vPlayResource)
 MVM_IMPORT_IMPL(vClearScreen)
 {
   ctx->clear_color = ctx->regs[VM_REG_P0];
+  ++ctx->clear_serial;
   ctx->draw_command_count = 0u;
+  ctx->draw_palette_count = 0u;
   ctx->regs[VM_REG_R0] = 0u;
 
   MVM_LOG_D(ctx,
@@ -4544,13 +4960,19 @@ MVM_IMPORT_IMPL(vMapInit)
 
   MVM_LOG_D(ctx,
             "map-init",
-            "vMapInit(map=%08X) -> %u width=%u height=%u flags=%02X data=%08X\n",
+            "vMapInit(map=%08X) -> %u width=%u height=%u flags=%02X format=%02X data=%08X tile=%08X pan=%d,%d pos=%d,%d\n",
             header_addr,
             ctx->regs[VM_REG_R0],
             (uint32_t)ctx->map_state.width,
             (uint32_t)ctx->map_state.height,
             (uint32_t)ctx->map_state.flags,
-            ctx->map_state.map_data_addr);
+            (uint32_t)ctx->map_state.format,
+            ctx->map_state.map_data_addr,
+            ctx->map_state.tile_data_addr,
+            (int32_t)ctx->map_state.x_pan,
+            (int32_t)ctx->map_state.y_pan,
+            (int32_t)ctx->map_state.x_pos,
+            (int32_t)ctx->map_state.y_pos);
 
   return true;
 } /* End of vMapInit */
@@ -4564,6 +4986,18 @@ MVM_IMPORT_IMPL(vMapInit)
  */
 MVM_IMPORT_IMPL(vMapDispose)
 {
+  uint32_t index;
+
+  for (index = 0u; index < VMGP_MAX_MAP_UPDATE_CACHES; ++index)
+  {
+    if (ctx->map_update_caches[index].used &&
+        ctx->map_update_caches[index].header_addr == ctx->map_state.header_addr)
+    {
+      memset(&ctx->map_update_caches[index], 0, sizeof(ctx->map_update_caches[index]));
+      break;
+    }
+  }
+
   memset(&ctx->map_state, 0, sizeof(ctx->map_state));
   ctx->regs[VM_REG_R0] = 0u;
 
@@ -4789,9 +5223,36 @@ MVM_IMPORT_IMPL(vMapHeaderUpdate)
  */
 MVM_IMPORT_IMPL(vUpdateMap)
 {
-  MVM_DrawCommand_t *command;
+  uint8_t sample[8];
+  uint8_t map_cells[16];
+  uint8_t tile_a[16];
+  uint8_t tile_b[16];
   uint8_t speed;
   uint8_t old_count;
+  uint32_t sample_count;
+  uint32_t effect_cells;
+  uint32_t effect_nonzero_cells;
+  uint32_t effect_max_tile;
+  uint32_t effect_unique_mask;
+  uint32_t tile_a_nonzero;
+  uint32_t tile_b_nonzero;
+  uint32_t tile_size;
+  uint32_t index;
+  uint32_t emitted_tiles;
+
+  memset(sample, 0, sizeof(sample));
+  memset(map_cells, 0, sizeof(map_cells));
+  memset(tile_a, 0, sizeof(tile_a));
+  memset(tile_b, 0, sizeof(tile_b));
+  sample_count = 0u;
+  effect_cells = 0u;
+  effect_nonzero_cells = 0u;
+  effect_max_tile = 0u;
+  effect_unique_mask = 0u;
+  tile_a_nonzero = 0u;
+  tile_b_nonzero = 0u;
+  tile_size = 0u;
+  emitted_tiles = 0u;
 
   if (ctx->map_state.valid && (ctx->map_state.flags & 0x08u) != 0u)
   {
@@ -4812,26 +5273,159 @@ MVM_IMPORT_IMPL(vUpdateMap)
     }
   }
 
-  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_MAP);
-  if (command)
-  {
-    command->map_state = ctx->map_state;
-  }
+  emitted_tiles = MVM_lEmitMapTileCommands(ctx, &ctx->map_state);
 
   ctx->regs[VM_REG_R0] = 0u;
 
+  if (ctx->map_state.valid && ctx->map_state.map_data_addr != 0u)
+  {
+    sample_count = (ctx->map_state.width != 0u && (ctx->map_state.flags & 0x02u) != 0u) ? 8u : 4u;
+    if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.map_data_addr, sample_count))
+    {
+      for (index = 0u; index < sample_count; ++index)
+      {
+        sample[index] = ctx->mem[ctx->map_state.map_data_addr + index];
+      }
+    }
+    else
+    {
+      sample_count = 0u;
+    }
+  }
+
   MVM_LOG_D(ctx,
             "map-update",
-            "vUpdateMap(valid=%u pos=%d,%d size=%ux%u data=%08X anim=%u/%u/%u)\n",
+            "vUpdateMap(valid=%u pos=%d,%d size=%ux%u flags=%02X format=%02X data=%08X tile=%08X anim=%u/%u/%u emitted=%u sample=%02X %02X %02X %02X %02X %02X %02X %02X)\n",
             ctx->map_state.valid ? 1u : 0u,
             (int32_t)ctx->map_state.x_pos,
             (int32_t)ctx->map_state.y_pos,
             (uint32_t)ctx->map_state.width,
             (uint32_t)ctx->map_state.height,
+            (uint32_t)ctx->map_state.flags,
+            (uint32_t)ctx->map_state.format,
             ctx->map_state.map_data_addr,
+            ctx->map_state.tile_data_addr,
             (uint32_t)ctx->map_state.animation_speed,
             (uint32_t)ctx->map_state.animation_count,
-            (uint32_t)ctx->map_state.animation_active);
+            (uint32_t)ctx->map_state.animation_active,
+            emitted_tiles,
+            (sample_count > 0u) ? sample[0] : 0u,
+            (sample_count > 1u) ? sample[1] : 0u,
+            (sample_count > 2u) ? sample[2] : 0u,
+            (sample_count > 3u) ? sample[3] : 0u,
+            (sample_count > 4u) ? sample[4] : 0u,
+            (sample_count > 5u) ? sample[5] : 0u,
+            (sample_count > 6u) ? sample[6] : 0u,
+            (sample_count > 7u) ? sample[7] : 0u);
+
+  if (ctx->map_state.valid &&
+      ctx->map_state.width == 13u &&
+      ctx->map_state.height == 10u &&
+      ctx->map_state.tile_data_addr != 0u &&
+      ctx->map_state.map_data_addr != 0u)
+  {
+    tile_size = 64u;
+    if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.map_data_addr, sizeof(map_cells)))
+    {
+      memcpy(map_cells, ctx->mem + ctx->map_state.map_data_addr, sizeof(map_cells));
+    }
+
+    effect_cells = (uint32_t)ctx->map_state.width * (uint32_t)ctx->map_state.height;
+    if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.map_data_addr, effect_cells * 2u))
+    {
+      for (index = 0u; index < effect_cells; ++index)
+      {
+        uint8_t tile_id = ctx->mem[ctx->map_state.map_data_addr + index * 2u];
+        if (tile_id != 0u)
+        {
+          ++effect_nonzero_cells;
+        }
+        if (tile_id > effect_max_tile)
+        {
+          effect_max_tile = tile_id;
+        }
+        if (tile_id < 32u)
+        {
+          effect_unique_mask |= (1u << tile_id);
+        }
+      }
+    }
+
+    if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.tile_data_addr, tile_size * 2u))
+    {
+      memcpy(tile_a, ctx->mem + ctx->map_state.tile_data_addr, sizeof(tile_a));
+      memcpy(tile_b, ctx->mem + ctx->map_state.tile_data_addr + tile_size, sizeof(tile_b));
+      for (index = 0u; index < tile_size; ++index)
+      {
+        if (ctx->mem[ctx->map_state.tile_data_addr + index] != 0u)
+        {
+          ++tile_a_nonzero;
+        }
+        if (ctx->mem[ctx->map_state.tile_data_addr + tile_size + index] != 0u)
+        {
+          ++tile_b_nonzero;
+        }
+      }
+    }
+
+    MVM_LOG_D(ctx,
+              "map-effect",
+              "effect-map nonzero=%u/%u max=%u unique=%08X cells=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X tileA_nz=%u tileB_nz=%u tileA=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X tileB=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+              effect_nonzero_cells,
+              effect_cells,
+              effect_max_tile,
+              effect_unique_mask,
+              map_cells[0],
+              map_cells[1],
+              map_cells[2],
+              map_cells[3],
+              map_cells[4],
+              map_cells[5],
+              map_cells[6],
+              map_cells[7],
+              map_cells[8],
+              map_cells[9],
+              map_cells[10],
+              map_cells[11],
+              map_cells[12],
+              map_cells[13],
+              map_cells[14],
+              map_cells[15],
+              tile_a_nonzero,
+              tile_b_nonzero,
+              tile_a[0],
+              tile_a[1],
+              tile_a[2],
+              tile_a[3],
+              tile_a[4],
+              tile_a[5],
+              tile_a[6],
+              tile_a[7],
+              tile_a[8],
+              tile_a[9],
+              tile_a[10],
+              tile_a[11],
+              tile_a[12],
+              tile_a[13],
+              tile_a[14],
+              tile_a[15],
+              tile_b[0],
+              tile_b[1],
+              tile_b[2],
+              tile_b[3],
+              tile_b[4],
+              tile_b[5],
+              tile_b[6],
+              tile_b[7],
+              tile_b[8],
+              tile_b[9],
+              tile_b[10],
+              tile_b[11],
+              tile_b[12],
+              tile_b[13],
+              tile_b[14],
+              tile_b[15]);
+  }
 
   return true;
 } /* End of vUpdateMap */

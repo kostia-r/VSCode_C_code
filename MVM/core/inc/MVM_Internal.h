@@ -35,6 +35,8 @@
 #define VMGP_MAX_STREAMS                                        (16U)
 #define VMGP_MAX_SPRITE_SLOTS                                   (255U)
 #define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
+#define VMGP_MAX_DRAW_PALETTE_SNAPSHOTS                         (128U)
+#define VMGP_MAX_MAP_UPDATE_CACHES                              (8U)
 #define VMGP_DRAW_TEXT_SNAPSHOT_BYTES                           (64U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
@@ -111,6 +113,20 @@ typedef struct VMGPMapState
 } VMGPMapState;
 
 /**
+ * @brief Tracks SDK-like dirty update state for one guest tilemap header.
+ */
+typedef struct VMGPMapUpdateCache
+{
+  bool used;                  /**< Indicates whether this cache slot is active. */
+  uint32_t header_addr;       /**< Guest MAP_HEADER address this slot belongs to. */
+  uint32_t map_data_addr;     /**< Last tilemap data pointer. */
+  uint32_t tile_data_addr;    /**< Last tile atlas pointer. */
+  int16_t x_pos;              /**< Last map X scroll value. */
+  int16_t y_pos;              /**< Last map Y scroll value. */
+  uint8_t animation_active;   /**< Last active animation frame. */
+} VMGPMapUpdateCache;
+
+/**
  * @brief Identifies one deferred draw-command kind for the simple backend path.
  */
 typedef enum MVM_DrawCommandType_t
@@ -139,6 +155,12 @@ typedef struct MVM_DrawCommand_t
   uint32_t color;              /**< Guest-encoded foreground color. */
   uint32_t aux;                /**< Guest pointer or extra metadata. */
   uint32_t aux2;               /**< Secondary guest pointer or extra metadata. */
+  uint16_t palette_snapshot;    /**< Index of the captured palette used by this command. */
+  uint8_t palette_valid;        /**< Non-zero when palette_snapshot references a valid entry. */
+  uint16_t clip_x0;             /**< Captured clip window left edge. */
+  uint16_t clip_y0;             /**< Captured clip window top edge. */
+  uint16_t clip_x1;             /**< Captured clip window right edge. */
+  uint16_t clip_y1;             /**< Captured clip window bottom edge. */
   uint16_t text_length;         /**< Captured text byte count for deferred text commands. */
   uint8_t text[VMGP_DRAW_TEXT_SNAPSHOT_BYTES]; /**< Captured text bytes for deferred text commands. */
   uint32_t text_palette[4];     /**< Captured low-index text palette entries for deferred text commands. */
@@ -201,7 +223,10 @@ struct MpnVM_t
   uint16_t clip_x1;                 /**< Current clip window right edge. */
   uint16_t clip_y1;                 /**< Current clip window bottom edge. */
   uint32_t palette_entries[256];    /**< Current palette state in guest encoding. */
+  uint32_t draw_palettes[VMGP_MAX_DRAW_PALETTE_SNAPSHOTS][256]; /**< Per-frame palettes captured for deferred draws. */
+  uint32_t draw_palette_count;  /**< Number of captured palettes for the current frame. */
   uint32_t clear_color;             /**< Last clear-screen color. */
+  uint32_t clear_serial;            /**< Monotonic counter bumped by vClearScreen. */
   MVM_DrawCommand_t draw_commands[VMGP_MAX_DRAW_COMMANDS]; /**< Deferred draw commands for the current frame. */
   uint32_t draw_command_count;      /**< Number of deferred draw commands currently stored. */
   uint32_t frame_serial;            /**< Monotonic frame-present counter bumped by vFlipScreen. */
@@ -209,6 +234,7 @@ struct MpnVM_t
   VMGPSpriteSlot sprite_slots[VMGP_MAX_SPRITE_SLOTS]; /**< Current sprite-slot table. */
   uint32_t sprite_slot_count;       /**< Number of sprite slots configured by the guest. */
   VMGPMapState map_state;           /**< Current tilemap state used by map imports. */
+  VMGPMapUpdateCache map_update_caches[VMGP_MAX_MAP_UPDATE_CACHES]; /**< Persistent dirty update cache per map. */
 
   uint32_t regs[VMGP_MAX_REGS];     /**< Architectural register file. */
   uint32_t pc;                      /**< Program counter. */

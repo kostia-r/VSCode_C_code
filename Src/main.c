@@ -48,12 +48,15 @@ typedef struct SdlBackend
 {
   SDL_Window *window;
   SDL_Renderer *renderer;
+  SDL_Texture *framebuffer;
   uint32_t width;
   uint32_t height;
   uint32_t raw_button_state;
   uint32_t pulse_button_state;
   uint32_t next_repeat_ms[SDL_BACKEND_BUTTON_COUNT];
   uint32_t last_frame_serial;
+  uint32_t last_clear_serial;
+  uint32_t last_draw_command_count;
 } SdlBackend;
 
 /**
@@ -593,6 +596,25 @@ static int read_guest_font_header(const VMGPContext *ctx, uint32_t font_addr, Vm
 }
 
 /**
+ * @brief Reads the palette captured when one deferred draw command was emitted.
+ */
+static uint32_t draw_command_palette_entry(const VMGPContext *ctx,
+                                           const MVM_DrawCommand_t *command,
+                                           uint8_t index)
+{
+  if (ctx &&
+      command &&
+      command->palette_valid != 0u &&
+      command->palette_snapshot < ctx->draw_palette_count &&
+      command->palette_snapshot < VMGP_MAX_DRAW_PALETTE_SNAPSHOTS)
+  {
+    return ctx->draw_palettes[command->palette_snapshot][index];
+  }
+
+  return ctx ? ctx->palette_entries[index] : 0u;
+}
+
+/**
  * @brief Draws one guest SPRITE using a minimal RGB332 software path.
  */
 static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, const MVM_DrawCommand_t *command)
@@ -688,7 +710,7 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
         if (sprite.legacy_layout != 0u)
         {
           pixel = (uint8_t)pixel_index;
-          decode_guest_color(ctx->palette_entries[pixel], &red, &green, &blue);
+          decode_guest_color(draw_command_palette_entry(ctx, command, pixel), &red, &green, &blue);
         }
         else
         {
@@ -713,7 +735,7 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
         {
           continue;
         }
-        decode_guest_color(ctx->palette_entries[pixel], &red, &green, &blue);
+        decode_guest_color(draw_command_palette_entry(ctx, command, pixel), &red, &green, &blue);
         break;
 
       case 0x07u:
@@ -1100,6 +1122,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
  */
 static int draw_guest_map_tile(SDL_Renderer *renderer,
                                const VMGPContext *ctx,
+                               const MVM_DrawCommand_t *command,
                                const VMGPMapState *map_state,
                                uint8_t tile_index,
                                uint8_t tile_attribute,
@@ -1116,6 +1139,7 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
   uint8_t red;
   uint8_t green;
   uint8_t blue;
+  int transparent_zero;
 
   if (!renderer || !ctx || !map_state || !map_state->valid || map_state->tile_data_addr == 0u || tile_index == 0u)
   {
@@ -1136,13 +1160,22 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
     return 0;
   }
 
+  transparent_zero = ((map_state->flags & 0x01u) != 0u) &&
+                     (((map_state->flags & 0x02u) == 0u) || ((tile_attribute & 0x01u) != 0u));
+
   for (index = 0u; index < 64u; ++index)
   {
+    uint32_t pixel_x;
+    uint32_t pixel_y;
+
     pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, index, bits_per_pixel);
-    if (pixel_index == 0u && (map_state->flags & 0x01u) != 0u)
+    if (pixel_index == 0u && transparent_zero)
     {
       continue;
     }
+
+    pixel_x = index & 7u;
+    pixel_y = index >> 3u;
 
     switch (format)
     {
@@ -1169,7 +1202,7 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
       case 0x05u:
       case 0x06u:
         pixel = (uint8_t)(tile_attribute + pixel_index);
-        decode_guest_color(ctx->palette_entries[pixel], &red, &green, &blue);
+        decode_guest_color(draw_command_palette_entry(ctx, command, pixel), &red, &green, &blue);
         break;
 
       case 0x07u:
@@ -1184,7 +1217,7 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
     }
 
     SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
-    SDL_RenderDrawPoint(renderer, x + (int32_t)(index & 7u), y + (int32_t)(index >> 3));
+    SDL_RenderDrawPoint(renderer, x + (int32_t)pixel_x, y + (int32_t)pixel_y);
   }
 
   return 1;
@@ -1261,7 +1294,7 @@ static int draw_guest_tile(SDL_Renderer *renderer, const VMGPContext *ctx, const
       case 0x05u:
       case 0x06u:
         pixel = (uint8_t)(palette_offset + pixel_index);
-        decode_guest_color(ctx->palette_entries[pixel], &red, &green, &blue);
+        decode_guest_color(draw_command_palette_entry(ctx, command, pixel), &red, &green, &blue);
         break;
 
       case 0x07u:
@@ -1310,7 +1343,10 @@ static uint8_t apply_guest_map_autoanim(const VMGPMapState *map_state, uint8_t t
 /**
  * @brief Draws the active VM tilemap using one sprite-atlas attempt plus fallback tiles.
  */
-static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, const VMGPMapState *map_state)
+static void render_guest_map(SDL_Renderer *renderer,
+                             const VMGPContext *ctx,
+                             const MVM_DrawCommand_t *command,
+                             const VMGPMapState *map_state)
 {
   uint32_t stride;
   uint32_t x;
@@ -1346,6 +1382,7 @@ static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, con
       tile_index = apply_guest_map_autoanim(map_state, tile_index, tile_attribute);
       draw_guest_map_tile(renderer,
                           ctx,
+                          command,
                           map_state,
                           tile_index,
                           tile_attribute,
@@ -1358,7 +1395,9 @@ static void render_guest_map(SDL_Renderer *renderer, const VMGPContext *ctx, con
 /**
  * @brief Draws the active VM sprite-slot table as persistent scene state.
  */
-static void render_guest_sprite_slots(SDL_Renderer *renderer, const VMGPContext *ctx)
+static void render_guest_sprite_slots(SDL_Renderer *renderer,
+                                      const VMGPContext *ctx,
+                                      const MVM_DrawCommand_t *source_command)
 {
   MVM_DrawCommand_t command;
   VmSpriteHeader sprite;
@@ -1378,6 +1417,15 @@ static void render_guest_sprite_slots(SDL_Renderer *renderer, const VMGPContext 
 
     memset(&command, 0, sizeof(command));
     command.type = MVM_DRAW_SPRITE;
+    if (source_command)
+    {
+      command.palette_snapshot = source_command->palette_snapshot;
+      command.palette_valid = source_command->palette_valid;
+      command.clip_x0 = source_command->clip_x0;
+      command.clip_y0 = source_command->clip_y0;
+      command.clip_x1 = source_command->clip_x1;
+      command.clip_y1 = source_command->clip_y1;
+    }
     command.x0 = ctx->sprite_slots[index].x;
     command.y0 = ctx->sprite_slots[index].y;
     command.aux = ctx->sprite_slots[index].sprite_addr;
@@ -1388,6 +1436,29 @@ static void render_guest_sprite_slots(SDL_Renderer *renderer, const VMGPContext 
     }
 
     (void)draw_guest_sprite(renderer, ctx, &command);
+  }
+}
+
+static void apply_draw_command_clip(SDL_Renderer *renderer, const MVM_DrawCommand_t *command)
+{
+  SDL_Rect clip_rect;
+
+  if (!renderer || !command)
+  {
+    return;
+  }
+
+  if (command->clip_x1 > command->clip_x0 && command->clip_y1 > command->clip_y0)
+  {
+    clip_rect.x = (int)command->clip_x0;
+    clip_rect.y = (int)command->clip_y0;
+    clip_rect.w = (int)(command->clip_x1 - command->clip_x0);
+    clip_rect.h = (int)(command->clip_y1 - command->clip_y0);
+    SDL_RenderSetClipRect(renderer, &clip_rect);
+  }
+  else
+  {
+    SDL_RenderSetClipRect(renderer, NULL);
   }
 }
 
@@ -1491,12 +1562,15 @@ static int init_sdl_backend(const MpnDevProfile_t *profile, SdlBackend *backend)
 
   backend->window = NULL;
   backend->renderer = NULL;
+  backend->framebuffer = NULL;
   backend->width = 0u;
   backend->height = 0u;
   backend->raw_button_state = 0u;
   backend->pulse_button_state = 0u;
   memset(backend->next_repeat_ms, 0, sizeof(backend->next_repeat_ms));
   backend->last_frame_serial = 0u;
+  backend->last_clear_serial = 0xFFFFFFFFu;
+  backend->last_draw_command_count = 0u;
 
   width = 320u;
   height = 240u;
@@ -1536,7 +1610,7 @@ static int init_sdl_backend(const MpnDevProfile_t *profile, SdlBackend *backend)
 
   backend->renderer = SDL_CreateRenderer(backend->window,
                                          -1,
-                                         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+                                         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE);
   if (!backend->renderer)
   {
     fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
@@ -1549,6 +1623,25 @@ static int init_sdl_backend(const MpnDevProfile_t *profile, SdlBackend *backend)
 
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
   SDL_RenderSetLogicalSize(backend->renderer, (int)width, (int)height);
+
+  backend->framebuffer = SDL_CreateTexture(backend->renderer,
+                                           SDL_PIXELFORMAT_RGBA8888,
+                                           SDL_TEXTUREACCESS_TARGET,
+                                           (int)width,
+                                           (int)height);
+  if (!backend->framebuffer)
+  {
+    fprintf(stderr, "SDL_CreateTexture framebuffer failed: %s\n", SDL_GetError());
+    SDL_DestroyRenderer(backend->renderer);
+    backend->renderer = NULL;
+    SDL_DestroyWindow(backend->window);
+    backend->window = NULL;
+    SDL_Quit();
+
+    return 0;
+  }
+
+  SDL_SetTextureBlendMode(backend->framebuffer, SDL_BLENDMODE_NONE);
 
   backend->width = width;
   backend->height = height;
@@ -1802,6 +1895,12 @@ static void shutdown_sdl_backend(SdlBackend *backend)
     return;
   }
 
+  if (backend->framebuffer)
+  {
+    SDL_DestroyTexture(backend->framebuffer);
+    backend->framebuffer = NULL;
+  }
+
   if (backend->renderer)
   {
     SDL_DestroyRenderer(backend->renderer);
@@ -1826,12 +1925,12 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
 {
   VMGPContext *ctx;
   const MVM_DrawCommand_t *command;
-  SDL_Rect clip_rect;
   SDL_Rect rect;
   uint32_t index;
   uint32_t color;
+  uint32_t first_command;
 
-  if (!backend || !backend->renderer)
+  if (!backend || !backend->renderer || !backend->framebuffer)
   {
     return;
   }
@@ -1844,24 +1943,23 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
   color = 0u;
   ctx = (VMGPContext *)vm;
   color = ctx->clear_color;
+  first_command = backend->last_draw_command_count;
 
-  set_renderer_guest_color(backend->renderer, color);
-  SDL_RenderClear(backend->renderer);
+  if (ctx->clear_serial != backend->last_clear_serial || ctx->draw_command_count < backend->last_draw_command_count)
+  {
+    backend->last_clear_serial = ctx->clear_serial;
+    backend->last_draw_command_count = 0u;
+    first_command = 0u;
 
-  if (ctx->clip_x1 > ctx->clip_x0 && ctx->clip_y1 > ctx->clip_y0)
-  {
-    clip_rect.x = (int)ctx->clip_x0;
-    clip_rect.y = (int)ctx->clip_y0;
-    clip_rect.w = (int)(ctx->clip_x1 - ctx->clip_x0);
-    clip_rect.h = (int)(ctx->clip_y1 - ctx->clip_y0);
-    SDL_RenderSetClipRect(backend->renderer, &clip_rect);
-  }
-  else
-  {
+    SDL_SetRenderTarget(backend->renderer, backend->framebuffer);
     SDL_RenderSetClipRect(backend->renderer, NULL);
+    set_renderer_guest_color(backend->renderer, color);
+    SDL_RenderClear(backend->renderer);
   }
 
-  for (index = 0u; index < ctx->draw_command_count; ++index)
+  SDL_SetRenderTarget(backend->renderer, backend->framebuffer);
+
+  for (index = first_command; index < ctx->draw_command_count; ++index)
   {
     command = &ctx->draw_commands[index];
 
@@ -1870,6 +1968,7 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
       continue;
     }
 
+    apply_draw_command_clip(backend->renderer, command);
     set_renderer_guest_color(backend->renderer, command->color);
 
     switch (command->type)
@@ -1913,11 +2012,11 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
         break;
 
       case MVM_DRAW_MAP:
-        render_guest_map(backend->renderer, ctx, &command->map_state);
+        render_guest_map(backend->renderer, ctx, command, &command->map_state);
         break;
 
       case MVM_DRAW_SPRITE_SLOTS:
-        render_guest_sprite_slots(backend->renderer, ctx);
+        render_guest_sprite_slots(backend->renderer, ctx, command);
         break;
 
       case MVM_DRAW_TILE:
@@ -1929,7 +2028,7 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
     }
   }
 
-  for (index = 0u; index < ctx->draw_command_count; ++index)
+  for (index = first_command; index < ctx->draw_command_count; ++index)
   {
     command = &ctx->draw_commands[index];
     if (command->type != MVM_DRAW_TEXT)
@@ -1937,6 +2036,7 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
       continue;
     }
 
+    apply_draw_command_clip(backend->renderer, command);
     set_renderer_guest_color(backend->renderer, command->color);
     if (!draw_guest_text(backend->renderer, ctx, command))
     {
@@ -1950,12 +2050,18 @@ static void present_sdl_backend(MpnVM_t *vm, SdlBackend *backend)
   }
 
   SDL_RenderSetClipRect(backend->renderer, NULL);
+  backend->last_draw_command_count = ctx->draw_command_count;
 
   if (ctx->frame_serial != backend->last_frame_serial)
   {
     backend->last_frame_serial = ctx->frame_serial;
   }
 
+  SDL_SetRenderTarget(backend->renderer, NULL);
+  SDL_RenderSetClipRect(backend->renderer, NULL);
+  SDL_SetRenderDrawColor(backend->renderer, 0u, 0u, 0u, 255u);
+  SDL_RenderClear(backend->renderer);
+  SDL_RenderCopy(backend->renderer, backend->framebuffer, NULL, NULL);
   SDL_RenderPresent(backend->renderer);
 }
 

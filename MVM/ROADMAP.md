@@ -342,11 +342,19 @@ Tasks:
   - fix loading-screen text artifacts in `LEVEL`, `REQUIRED`, `PERFECT`, and
     `START`;
   - restore the loading-screen reveal effect without dirty intermediate
-    pixels;
-  - restore the bottom lava bubbling/animation and confirm sprite/map layer
-    order matches the reference emulator;
+    pixels; current fix candidate is preserving per-draw palette snapshots for
+    deferred SDL rendering;
+  - known difference: the loading-screen reveal is now visually close enough
+    for Phase 9 playability, but its mechanics still differ from the reference
+    emulator. The reference appears to use a dirty/intermediate tile update
+    path; the current backend keeps full tilemap emission to avoid gameplay
+    regressions such as stale edge pixels and sprite/map lag. Keep this tracked
+    for a later renderer-accuracy pass instead of blocking Phase 9 progress;
+  - done: restore the bottom lava bubbling/animation; keep sprite/map layer
+    order under comparison, but bubbles now emerge from the lava as expected;
   - keep a clean comparison set: reference video/log, current video/log, and a
-    fixed input script of Shift, Down, Shift.
+    fixed input script of Shift, Down, Shift; latest artifacts live in
+    `C:\mophun\MY\videos&logs`.
 - Keep `Src/main.c` as a thin runner or move it to examples.
 
 Done when:
@@ -356,7 +364,8 @@ Done when:
 - Graphics are rendered through the backend instead of log-only fallbacks.
 - At least one target game can be played at a basic level on desktop.
 - The target game level intro and first gameplay screen match the reference
-  for level text, font pixels, lava animation, and map/sprite layer order.
+  for level text, font pixels, lava animation, and map/sprite layer order,
+  except for the documented loading-screen reveal mechanics difference.
 
 ## Phase 10: Persistent Data And Snapshot Support
 
