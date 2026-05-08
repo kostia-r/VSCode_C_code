@@ -160,6 +160,15 @@ typedef struct MVM_MemReqs_t
   uint32_t stack_bytes;          /**< Guest stack budget included in the RAM requirement. */
 } MVM_MemReqs_t;
 
+typedef struct MVM_SoundRequest_t
+{
+  uint32_t data;     /**< Guest data pointer or stream handle passed to vPlayResource. */
+  uint32_t length;   /**< Length of the sound data in bytes. */
+  uint32_t flags;    /**< Playback flags and sound type passed to vPlayResource. */
+  uint32_t raw_p3;   /**< Raw p3 register value captured for diagnostics; not part of the SDK signature. */
+  uint32_t serial;   /**< Monotonic request id assigned by the VM. */
+} MVM_SoundRequest_t;
+
 typedef struct MpnVM_t MpnVM_t;
 
 /**

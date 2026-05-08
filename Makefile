@@ -17,7 +17,7 @@ APP_INC_DIRS := $(SDL2_ROOT)/include/SDL2
 # Build flags
 DEFINES := -DDEBUG
 CFLAGS := -Wall -g3 $(DEFINES)
-LDFLAGS := -L$(SDL2_ROOT)/lib -lSDL2
+LDFLAGS := -L$(SDL2_ROOT)/lib -lSDL2 -lwinmm
 
 # Output paths
 BUILD_PATH := Build

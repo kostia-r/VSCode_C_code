@@ -5,6 +5,11 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <mmsystem.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +26,13 @@
 #define MVM_POINTER_ALTDOWN            (0x00000080U)
 #define MVM_KEY_FIRE2                  (0x00000100U)
 #define SDL_BACKEND_BUTTON_COUNT       (9U)
+#define SOUND_RESOURCE_TYPE_MASK       (0x000000FFU)
+#define SOUND_TYPE_BEEP                (0x00000000U)
+#define SOUND_TYPE_MIDI                (0x00000002U)
+#define SOUND_TYPE_AMR                 (0x00000003U)
+#define SOUND_FLAG_LOOP                (0x00000100U)
+#define SOUND_FLAG_STREAM              (0x00000200U)
+#define SOUND_FLAG_STOP                (0x00000400U)
 
 /*
  * Desktop key mapping aligned with the official Mophun SDK emulator:
@@ -40,6 +52,8 @@ struct SdlBackend
   SDL_Window *window;
   SDL_Renderer *renderer;
   SDL_Texture *framebuffer;
+  SDL_AudioDeviceID audio_device;
+  SDL_AudioSpec audio_spec;
   uint32_t width;
   uint32_t height;
   uint32_t raw_button_state;
@@ -48,6 +62,11 @@ struct SdlBackend
   uint32_t last_frame_serial;
   uint32_t last_clear_serial;
   uint32_t last_draw_command_count;
+#ifdef _WIN32
+  char midi_alias[32];
+  char midi_path[MAX_PATH];
+  uint32_t midi_serial;
+#endif
 };
 
 static const uint32_t MVM_lSdlButtonMasks[SDL_BACKEND_BUTTON_COUNT] =
@@ -185,6 +204,352 @@ static uint32_t sdl_platform_get_ticks_ms(void *user)
   (void)user;
 
   return (uint32_t)SDL_GetTicks();
+}
+
+#ifdef _WIN32
+static void stop_backend_midi(SdlBackend *backend)
+{
+  char command[128];
+
+  if (!backend || backend->midi_alias[0] == '\0')
+  {
+    return;
+  }
+
+  (void)snprintf(command, sizeof(command), "stop %s", backend->midi_alias);
+  (void)mciSendStringA(command, NULL, 0, NULL);
+  (void)snprintf(command, sizeof(command), "close %s", backend->midi_alias);
+  (void)mciSendStringA(command, NULL, 0, NULL);
+
+  backend->midi_alias[0] = '\0';
+  if (backend->midi_path[0] != '\0')
+  {
+    DeleteFileA(backend->midi_path);
+    backend->midi_path[0] = '\0';
+  }
+}
+
+static int play_backend_midi(SdlBackend *backend, const uint8_t *data, uint32_t length, int loop)
+{
+  char temp_path[MAX_PATH];
+  char temp_name[40];
+  char command[MAX_PATH + 96];
+  DWORD written;
+  HANDLE file;
+  MCIERROR error;
+
+  if (!backend || !data || length == 0u)
+  {
+    return 0;
+  }
+
+  stop_backend_midi(backend);
+
+  if (GetTempPathA((DWORD)sizeof(temp_path), temp_path) == 0u)
+  {
+    return 0;
+  }
+
+  ++backend->midi_serial;
+  (void)snprintf(temp_name,
+                 sizeof(temp_name),
+                 "mvm_%08X_%08X.mid",
+                 (unsigned int)GetCurrentProcessId(),
+                 (unsigned int)backend->midi_serial);
+  if (strlen(temp_path) + strlen(temp_name) >= sizeof(backend->midi_path))
+  {
+    backend->midi_alias[0] = '\0';
+    backend->midi_path[0] = '\0';
+    return 0;
+  }
+  (void)strcpy(backend->midi_path, temp_path);
+  (void)strcat(backend->midi_path, temp_name);
+  (void)snprintf(backend->midi_alias, sizeof(backend->midi_alias), "mvm%08X", (unsigned int)backend->midi_serial);
+
+  file = CreateFileA(backend->midi_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, NULL);
+  if (file == INVALID_HANDLE_VALUE)
+  {
+    backend->midi_alias[0] = '\0';
+    backend->midi_path[0] = '\0';
+    return 0;
+  }
+
+  if (!WriteFile(file, data, length, &written, NULL) || written != length)
+  {
+    CloseHandle(file);
+    DeleteFileA(backend->midi_path);
+    backend->midi_alias[0] = '\0';
+    backend->midi_path[0] = '\0';
+    return 0;
+  }
+  CloseHandle(file);
+
+  (void)snprintf(command, sizeof(command), "open \"%s\" type sequencer alias %s", backend->midi_path, backend->midi_alias);
+  error = mciSendStringA(command, NULL, 0, NULL);
+  if (error != 0u)
+  {
+    DeleteFileA(backend->midi_path);
+    backend->midi_alias[0] = '\0';
+    backend->midi_path[0] = '\0';
+    return 0;
+  }
+
+  (void)snprintf(command, sizeof(command), "play %s%s", backend->midi_alias, loop ? " repeat" : "");
+  error = mciSendStringA(command, NULL, 0, NULL);
+  if (error != 0u)
+  {
+    stop_backend_midi(backend);
+    return 0;
+  }
+
+  return 1;
+}
+#else
+static void stop_backend_midi(SdlBackend *backend)
+{
+  (void)backend;
+}
+
+static int play_backend_midi(SdlBackend *backend, const uint8_t *data, uint32_t length, int loop)
+{
+  (void)backend;
+  (void)data;
+  (void)length;
+  (void)loop;
+
+  return 0;
+}
+#endif
+
+static void queue_square_tone(SdlBackend *backend, uint32_t frequency, uint32_t duration_ms, uint32_t volume)
+{
+  int16_t *samples;
+  uint32_t sample_rate;
+  uint32_t sample_count;
+  uint32_t period;
+  uint32_t index;
+  int16_t amplitude;
+
+  if (!backend || backend->audio_device == 0u || frequency == 0u)
+  {
+    return;
+  }
+
+  sample_rate = backend->audio_spec.freq > 0 ? (uint32_t)backend->audio_spec.freq : 22050u;
+  if (duration_ms < 40u)
+  {
+    duration_ms = 40u;
+  }
+  if (duration_ms > 220u)
+  {
+    duration_ms = 220u;
+  }
+
+  sample_count = (sample_rate * duration_ms) / 1000u;
+  if (sample_count == 0u)
+  {
+    return;
+  }
+
+  samples = (int16_t *)malloc(sample_count * sizeof(*samples));
+  if (!samples)
+  {
+    return;
+  }
+
+  period = sample_rate / frequency;
+  if (period == 0u)
+  {
+    period = 1u;
+  }
+
+  if (volume > 255u)
+  {
+    volume = 255u;
+  }
+
+  amplitude = (int16_t)(600 + (int16_t)(volume * 10u));
+  for (index = 0u; index < sample_count; ++index)
+  {
+    uint32_t phase = index % period;
+    samples[index] = (phase < (period / 2u)) ? amplitude : (int16_t)-amplitude;
+  }
+
+  (void)SDL_QueueAudio(backend->audio_device, samples, sample_count * sizeof(*samples));
+  SDL_PauseAudioDevice(backend->audio_device, 0);
+  free(samples);
+}
+
+static int read_le16(const uint8_t *data)
+{
+  return (int)data[0] | ((int)data[1] << 8);
+}
+
+static int read_be16(const uint8_t *data)
+{
+  return ((int)data[0] << 8) | (int)data[1];
+}
+
+static void queue_beep_sequence(SdlBackend *backend, const uint8_t *data, uint32_t length)
+{
+  uint32_t offset;
+  uint32_t tone_count;
+
+  if (!backend || !data)
+  {
+    return;
+  }
+
+  tone_count = 0u;
+  for (offset = 0u; offset + 5u <= length && tone_count < 16u; offset += 5u)
+  {
+    uint32_t frequency = (uint32_t)read_le16(&data[offset]);
+    uint32_t duration_ms = (uint32_t)read_le16(&data[offset + 2u]);
+    uint32_t volume = data[offset + 4u];
+
+    if (frequency != 0u && duration_ms != 0u && volume != 0u)
+    {
+      queue_square_tone(backend, frequency, duration_ms, volume);
+    }
+    ++tone_count;
+  }
+}
+
+static int is_standard_midi_file(const uint8_t *data, uint32_t length, uint16_t *format, uint16_t *tracks)
+{
+  if (!data || length < 14u)
+  {
+    return 0;
+  }
+
+  if (memcmp(data, "MThd", 4u) != 0)
+  {
+    return 0;
+  }
+
+  if (data[4] != 0u || data[5] != 0u || data[6] != 0u || data[7] != 6u)
+  {
+    return 0;
+  }
+
+  if (format)
+  {
+    *format = (uint16_t)read_be16(data + 8u);
+  }
+  if (tracks)
+  {
+    *tracks = (uint16_t)read_be16(data + 10u);
+  }
+
+  return 1;
+}
+
+static void process_backend_sound_requests(MpnVM_t *vm, SdlBackend *backend)
+{
+  MVM_SoundRequest_t request;
+  uint32_t type;
+  uint8_t *sound_data;
+
+  while (MVM_PollSoundRequest(vm, &request))
+  {
+    if ((request.flags & SOUND_FLAG_STOP) != 0u)
+    {
+      stop_backend_midi(backend);
+      if (backend && backend->audio_device != 0u)
+      {
+        SDL_ClearQueuedAudio(backend->audio_device);
+      }
+      continue;
+    }
+
+    if ((request.flags & SOUND_FLAG_STREAM) != 0u)
+    {
+      fprintf(stderr,
+              "vPlayResource stream playback is not implemented yet: handle=%08X length=%u flags=%08X\n",
+              request.data,
+              request.length,
+              request.flags);
+      continue;
+    }
+
+    if (request.length == 0u)
+    {
+      continue;
+    }
+
+    sound_data = (uint8_t *)malloc((size_t)request.length);
+    if (!sound_data)
+    {
+      continue;
+    }
+
+    if (!MVM_ReadGuestMemory(vm, request.data, sound_data, (size_t)request.length))
+    {
+      fprintf(stderr,
+              "vPlayResource guest memory read failed: data=%08X length=%u flags=%08X\n",
+              request.data,
+              request.length,
+              request.flags);
+      free(sound_data);
+      continue;
+    }
+
+    type = request.flags & SOUND_RESOURCE_TYPE_MASK;
+    if (type == SOUND_TYPE_BEEP)
+    {
+      queue_beep_sequence(backend, sound_data, request.length);
+    }
+    else if (type == SOUND_TYPE_MIDI)
+    {
+      uint16_t format = 0u;
+      uint16_t tracks = 0u;
+
+      if (is_standard_midi_file(sound_data, request.length, &format, &tracks))
+      {
+        printf("vPlayResource MIDI request: data=%08X length=%u format=%u tracks=%u loop=%u\n",
+               request.data,
+               request.length,
+               (uint32_t)format,
+               (uint32_t)tracks,
+               (request.flags & SOUND_FLAG_LOOP) != 0u);
+        if (!play_backend_midi(backend,
+                               sound_data,
+                               request.length,
+                               (request.flags & SOUND_FLAG_LOOP) != 0u))
+        {
+          queue_square_tone(backend, 880u, 70u, 80u);
+        }
+      }
+      else
+      {
+        fprintf(stderr,
+                "vPlayResource MIDI data is not SMF: data=%08X length=%u flags=%08X\n",
+                request.data,
+                request.length,
+                request.flags);
+        queue_square_tone(backend, 330u, 70u, 48u);
+      }
+    }
+    else if (type == SOUND_TYPE_AMR)
+    {
+      fprintf(stderr,
+              "vPlayResource AMR playback is not implemented yet: data=%08X length=%u flags=%08X\n",
+              request.data,
+              request.length,
+              request.flags);
+    }
+    else
+    {
+      fprintf(stderr,
+              "vPlayResource unsupported sound type: type=%u data=%08X length=%u flags=%08X\n",
+              type,
+              request.data,
+              request.length,
+              request.flags);
+    }
+
+    free(sound_data);
+  }
 }
 
 static void update_backend_raw_button_mask(SdlBackend *backend, uint32_t mask, int is_down)
@@ -421,6 +786,28 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
   }
 
   SDL_SetTextureBlendMode(backend->framebuffer, SDL_BLENDMODE_NONE);
+
+  {
+    SDL_AudioSpec desired;
+    SDL_AudioSpec obtained;
+
+    SDL_zero(desired);
+    desired.freq = 22050;
+    desired.format = AUDIO_S16SYS;
+    desired.channels = 1;
+    desired.samples = 1024;
+
+    backend->audio_device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, 0);
+    if (backend->audio_device != 0u)
+    {
+      backend->audio_spec = obtained;
+    }
+    else
+    {
+      fprintf(stderr, "SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+    }
+  }
+
   backend->width = width;
   backend->height = height;
 
@@ -439,6 +826,14 @@ void SdlBackend_Destroy(SdlBackend *backend)
     SDL_DestroyTexture(backend->framebuffer);
     backend->framebuffer = NULL;
   }
+
+  if (backend->audio_device != 0u)
+  {
+    SDL_CloseAudioDevice(backend->audio_device);
+    backend->audio_device = 0u;
+  }
+
+  stop_backend_midi(backend);
 
   if (backend->renderer)
   {
@@ -503,6 +898,7 @@ int SdlBackend_PumpEvents(MpnVM_t *vm, SdlBackend *backend)
 
   refresh_backend_button_pulses(backend);
   SdlBackend_SyncInputToVm(vm, backend);
+  process_backend_sound_requests(vm, backend);
 
   return quit_requested;
 }
@@ -518,6 +914,8 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
   {
     return;
   }
+
+  process_backend_sound_requests(vm, backend);
 
   if (!MVM_RenderGetFrameInfo(vm, &frame_info))
   {

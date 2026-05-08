@@ -919,6 +919,63 @@ MVM_RetCode_t MVM_SetButtonState(MpnVM_t *vm, uint32_t button_state)
 } /* End of MVM_SetButtonState */
 
 /**********************************************************************************************************************
+ *  Name: MVM_PollSoundRequest
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: Non-zero when one request was returned.
+ *  Description: Pops the oldest queued platform sound request.
+ *********************************************************************************************************************/
+int MVM_PollSoundRequest(MpnVM_t *vm, MVM_SoundRequest_t *request)
+{
+  if (!vm || !request || vm->sound_request_count == 0u)
+  {
+    return 0;
+  }
+
+  *request = vm->sound_requests[vm->sound_request_read];
+  vm->sound_request_read = (vm->sound_request_read + 1u) % VMGP_MAX_SOUND_REQUESTS;
+  --vm->sound_request_count;
+
+  return 1;
+} /* End of MVM_PollSoundRequest */
+
+/**********************************************************************************************************************
+ *  Name: MVM_ReadGuestMemory
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: Non-zero when the requested range was copied.
+ *  Description: Copies one range from guest-visible VM memory for platform backends.
+ *********************************************************************************************************************/
+int MVM_ReadGuestMemory(const MpnVM_t *vm, uint32_t address, void *dst, size_t size)
+{
+  size_t start;
+
+  if (!vm || !vm->mem || (!dst && size != 0u))
+  {
+    return 0;
+  }
+
+  if (size == 0u)
+  {
+    return 1;
+  }
+
+  start = (size_t)address;
+  if (start > vm->mem_size || size > (vm->mem_size - start))
+  {
+    return 0;
+  }
+
+  memcpy(dst, vm->mem + start, size);
+
+  return 1;
+} /* End of MVM_ReadGuestMemory */
+
+/**********************************************************************************************************************
  *  Name: MVM_GetWdgLimit
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous

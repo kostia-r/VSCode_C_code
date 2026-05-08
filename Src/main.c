@@ -8,7 +8,7 @@
 #include <stdlib.h>
 
 #define MAX_STEPS_DEFAULT              (100000000U)
-#define MAX_LOGGED_CALLS_DEFAULT       (100000U)
+#define MAX_LOGGED_CALLS_DEFAULT       (500000U)
 
 /**
  * @brief Describes parsed command-line options for the VM runner.

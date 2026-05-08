@@ -37,6 +37,7 @@
 #define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
 #define VMGP_MAX_DRAW_PALETTE_SNAPSHOTS                         (128U)
 #define VMGP_MAX_MAP_UPDATE_CACHES                              (8U)
+#define VMGP_MAX_SOUND_REQUESTS                                 (8U)
 #define VMGP_DRAW_TEXT_SNAPSHOT_BYTES                           (64U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
 #define VM_HEAP_EXTRA                                           (128U * 1024U)
@@ -231,6 +232,10 @@ struct MpnVM_t
   uint32_t draw_command_count;      /**< Number of deferred draw commands currently stored. */
   uint32_t frame_serial;            /**< Monotonic frame-present counter bumped by vFlipScreen. */
   uint32_t button_state;            /**< Current polled button bit-mask. */
+  MVM_SoundRequest_t sound_requests[VMGP_MAX_SOUND_REQUESTS]; /**< Pending platform sound requests. */
+  uint32_t sound_request_read;      /**< Oldest pending sound request index. */
+  uint32_t sound_request_count;     /**< Number of pending sound requests. */
+  uint32_t sound_request_serial;    /**< Monotonic sound request id. */
   VMGPSpriteSlot sprite_slots[VMGP_MAX_SPRITE_SLOTS]; /**< Current sprite-slot table. */
   uint32_t sprite_slot_count;       /**< Number of sprite slots configured by the guest. */
   VMGPMapState map_state;           /**< Current tilemap state used by map imports. */

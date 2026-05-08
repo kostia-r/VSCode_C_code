@@ -3875,14 +3875,17 @@ MVM_IMPORT_IMPL(vFlipScreen)
 } /* End of vFlipScreen */
 
 /**
- * @brief SDK: Requests playback of one resource-backed sound or tone.
+ * @brief SDK: Requests playback of one sound resource.
  * Call model: `async/request`
- * Ownership: Uses scalar parameters only; no guest pointers are retained.
+ * Ownership: Captures scalar parameters only; the backend copies guest data before playback.
  * Blocking: Non-blocking.
- * Status: Partial; default integration emits one sound-request event but does not play audio.
+ * Status: Partial; queues one platform sound request.
  */
 MVM_IMPORT_IMPL(vPlayResource)
 {
+  MVM_SoundRequest_t *request;
+  uint32_t write_index;
+
   if (!ctx)
   {
     return false;
@@ -3890,13 +3893,32 @@ MVM_IMPORT_IMPL(vPlayResource)
 
   MVM_LOG_I(ctx,
             "sound-request",
-            "vPlayResource(resource=%08X p1=%08X p2=%08X p3=%08X)\n",
+            "vPlayResource(data=%08X length=%08X flags=%08X raw_p3=%08X)\n",
             ctx->regs[VM_REG_P0],
             ctx->regs[VM_REG_P1],
             ctx->regs[VM_REG_P2],
             ctx->regs[VM_REG_P3]);
+
+  if (ctx->sound_request_count < VMGP_MAX_SOUND_REQUESTS)
+  {
+    write_index = (ctx->sound_request_read + ctx->sound_request_count) % VMGP_MAX_SOUND_REQUESTS;
+    ++ctx->sound_request_count;
+  }
+  else
+  {
+    write_index = ctx->sound_request_read;
+    ctx->sound_request_read = (ctx->sound_request_read + 1u) % VMGP_MAX_SOUND_REQUESTS;
+  }
+
+  request = &ctx->sound_requests[write_index];
+  request->data = ctx->regs[VM_REG_P0];
+  request->length = ctx->regs[VM_REG_P1];
+  request->flags = ctx->regs[VM_REG_P2];
+  request->raw_p3 = ctx->regs[VM_REG_P3];
+  request->serial = ++ctx->sound_request_serial;
+
   MVM_EmitEvent(ctx, MVM_EVENT_SOUND_REQUESTED, ctx->regs[VM_REG_P0], ctx->regs[VM_REG_P1]);
-  ctx->regs[VM_REG_R0] = 0u;
+  ctx->regs[VM_REG_R0] = 1u;
 
   return true;
 } /* End of vPlayResource */

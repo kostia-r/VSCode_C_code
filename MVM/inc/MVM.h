@@ -143,6 +143,16 @@ MVM_RetCode_t MVM_SetTickProvider(MpnVM_t *vm, void *user, uint32_t (*get_ticks_
 MVM_RetCode_t MVM_SetButtonState(MpnVM_t *vm, uint32_t button_state);
 
 /**
+ * @brief Returns and removes the oldest pending sound request, if any.
+ */
+int MVM_PollSoundRequest(MpnVM_t *vm, MVM_SoundRequest_t *request);
+
+/**
+ * @brief Copies one range from guest-visible VM memory.
+ */
+int MVM_ReadGuestMemory(const MpnVM_t *vm, uint32_t address, void *dst, size_t size);
+
+/**
  * @brief Returns the configured no-progress step limit for the soft watchdog.
  */
 uint32_t MVM_GetWdgLimit(const MpnVM_t *vm);
