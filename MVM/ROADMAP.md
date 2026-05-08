@@ -441,6 +441,71 @@ Done when:
 
 Purpose: use multiple games to discover missing opcodes and APIs.
 
+Prerequisite infrastructure before starting broad corpus work:
+
+1. Define the run data model and directory layout:
+  - choose the manifest format;
+  - choose the input-scenario format;
+  - choose the output layout under `Runs/Phase11/`;
+  - define stable run ids from date/time, game file, profile, and scenario.
+2. Define a Phase 11 manifest as the source of truth for automated runs:
+  - explicit `.mpn` game file path;
+  - explicit target device profiles per game, starting with `SE_T310` and
+    `SE_T610`;
+  - per-run duration or step/log limits;
+  - selected input scenario name, including a no-input scenario for first-load
+    smoke runs.
+3. Add the no-input smoke path first:
+  - run each manifest entry for a fixed duration without synthetic key input;
+  - prove that logs and process timeouts work before adding scripted input.
+4. Add a batch runner/orchestrator that reads the manifest and runs every
+  `game + profile + input scenario` combination sequentially.
+5. Store every run under a timestamped output directory with stable names derived
+  from date/time, game file, profile, and scenario.
+6. Write one log file per run, not one shared overwritten log:
+  - include game path;
+  - selected profile;
+  - selected input scenario;
+  - start/end wall-clock time;
+  - exit code;
+  - executed steps;
+  - final VM state/error;
+  - missing imports/unhandled opcodes when present.
+7. Produce a summary file for the whole batch, preferably CSV or JSONL, so the
+  corpus can be sorted by failures and missing APIs.
+8. Add scripted input scenarios:
+  - support a `none` scenario that sends no synthetic key input for initial
+    boot/load diagnostics;
+  - support timed waits and key presses/releases with durations;
+  - support Mophun button names rather than desktop key names, for example
+    `UP`, `DOWN`, `LEFT`, `RIGHT`, `FIRE`, `FIRE2`, and `SELECT`;
+  - allow game-specific scenarios such as start-menu navigation, first gameplay
+    movement, death/restart, and level-transition probes.
+9. Add synthetic input support in the desktop runner/backend:
+  - keep physical keyboard input working;
+  - combine physical input with the scripted synthetic button mask;
+  - drive scripted input from monotonic run time, independent of host frame
+    rate where practical.
+10. Add built-in recording support in the C runner/backend:
+  - capture rendered frames from the SDL logical framebuffer or render target;
+  - mirror queued PCM audio into a recording stream at the backend audio sample
+    rate;
+  - write deterministic intermediate artifacts such as raw frames and WAV audio
+    directly from C;
+  - optionally use a post-run tool such as `ffmpeg` only to mux/encode the final
+    `.mp4`, keeping the captured video/audio source inside the runner.
+11. Keep recording optional through runner arguments so normal interactive runs
+  remain lightweight.
+12. Document the one-command entry point for Phase 11 preparation, for example a
+  script that builds the runner and executes the manifest into `Runs/Phase11/`.
+13. Run a small pre-Phase-11 validation set before the real corpus:
+  - one known-good game;
+  - both `SE_T310` and `SE_T610`;
+  - `none` input;
+  - at least one scripted input scenario;
+  - logs, summary, raw recording artifacts, and final video present for every
+    run.
+
 Tasks:
 
 - Add a local corpus runner script.
@@ -455,17 +520,34 @@ Tasks:
 - Add regression comparison for known-good traces.
 - Use corpus runs to prioritize missing SDK imports and incomplete backend
   behaviors.
+- Triage each corpus batch into concrete fix tickets or checklist items:
+  - loader/format issues;
+  - missing or incorrect opcodes;
+  - missing SDK imports;
+  - runtime/platform behavior gaps;
+  - renderer, input, timing, persistence, or audio regressions.
+- Fix the highest-priority failures found by corpus runs inside the same Phase
+  11 feedback loop.
+- Re-run the affected games and profiles after each fix and keep before/after
+  logs or videos when they explain the regression.
+- Promote stable scenarios to regression checks so fixed failures do not return.
 
 Done when:
 
 - Running a batch of games is one command.
+- Each run has its own log and video/audio diagnostic artifact.
+- The manifest explicitly records which profiles and input scenarios were used.
 - API gaps are visible as a prioritized list.
+- Corpus findings have an active fix-and-rerun loop, not just archived logs.
+- A fixed corpus failure can be verified by re-running the same manifest entry.
 
 ## Phase 12: External Config And Submodule-Friendly Integration
 
 Purpose: make the VM easy to consume as a git submodule without modifying files
 inside the library tree, after the integration boundaries have been validated
-by a real host backend.
+by a real host backend. The target integration experience should be close to
+LVGL-style porting: the VM is added as a library, while the host provides a
+small, explicit platform/driver API instead of editing VM internals.
 
 Tasks:
 
@@ -478,6 +560,24 @@ Tasks:
   structure.
 - Write a minimal integration guide for parent projects.
 - Document platform callback interfaces and backend responsibilities.
+- Shape the host-facing port layer around simple driver-style APIs:
+  - display/framebuffer present or draw callbacks;
+  - input state polling or event injection;
+  - audio sample queue/playback callbacks;
+  - time/tick provider;
+  - random provider;
+  - logging/event sink;
+  - storage/image read and optional write callbacks;
+  - static memory/runtime-pool ownership.
+- Keep the minimal embedded integration path obvious:
+  - add VM sources/include paths;
+  - provide one config object;
+  - allocate VM storage and runtime pool;
+  - initialize from an image source;
+  - call bounded VM execution from the host loop/task;
+  - flush display/audio/input through the platform driver callbacks.
+- Provide a tiny reference port template similar in spirit to an LVGL display
+  and input driver skeleton, without SDL or desktop-only dependencies.
 - Add one small static architecture/data-flow overview for integrators.
 - Add compile-time validation for invalid external-config combinations where
   possible.
@@ -494,6 +594,10 @@ Done when:
 - A parent project can integrate the VM as a submodule using external config
   files.
 - Platform-specific configuration no longer requires patching the library tree.
+- A new platform port can start from a small driver-template file rather than
+  copying the desktop runner.
+- The mandatory host API surface is small enough to document on one integration
+  checklist.
 
 ## Phase 13: Decryption Research
 
@@ -598,6 +702,8 @@ Measurements to add:
 6. Finish device profiles and make `vGetCaps` fully profile-driven.
 7. Build Windows platform backend and get at least one game running with real graphics/input/audio flow.
 8. Add persistent game-owned resource data support and define snapshot boundaries.
-9. Run game corpus and fill missing APIs.
-10. Make config externalizable for submodule-style integration.
-11. Start minimal MCU port.
+9. Prepare the Phase 11 manifest runner, scripted input scenarios, per-run
+   logs, and C-side recording pipeline.
+10. Run game corpus and fill missing APIs.
+11. Make config externalizable for submodule-style integration.
+12. Start minimal MCU port.
