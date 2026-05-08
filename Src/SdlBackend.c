@@ -1,5 +1,6 @@
 #include "SdlBackend.h"
 
+#include "MidiRenderer.h"
 #include "MVM_Render.h"
 
 #define SDL_MAIN_HANDLED
@@ -33,6 +34,7 @@
 #define SOUND_FLAG_LOOP                (0x00000100U)
 #define SOUND_FLAG_STREAM              (0x00000200U)
 #define SOUND_FLAG_STOP                (0x00000400U)
+#define DEFAULT_SOUNDFONT_PATH         "Assets/DefaultSfBank.bytes"
 
 /*
  * Desktop key mapping aligned with the official Mophun SDK emulator:
@@ -54,6 +56,7 @@ struct SdlBackend
   SDL_Texture *framebuffer;
   SDL_AudioDeviceID audio_device;
   SDL_AudioSpec audio_spec;
+  MidiRenderer *midi_renderer;
   uint32_t width;
   uint32_t height;
   uint32_t raw_button_state;
@@ -400,6 +403,11 @@ static void queue_beep_sequence(SdlBackend *backend, const uint8_t *data, uint32
     return;
   }
 
+  if (backend->audio_device != 0u)
+  {
+    SDL_ClearQueuedAudio(backend->audio_device);
+  }
+
   tone_count = 0u;
   for (offset = 0u; offset + 5u <= length && tone_count < 16u; offset += 5u)
   {
@@ -506,16 +514,37 @@ static void process_backend_sound_requests(MpnVM_t *vm, SdlBackend *backend)
 
       if (is_standard_midi_file(sound_data, request.length, &format, &tracks))
       {
+        int16_t *pcm = NULL;
+        uint32_t sample_count = 0u;
+
         printf("vPlayResource MIDI request: data=%08X length=%u format=%u tracks=%u loop=%u\n",
                request.data,
                request.length,
                (uint32_t)format,
                (uint32_t)tracks,
                (request.flags & SOUND_FLAG_LOOP) != 0u);
-        if (!play_backend_midi(backend,
-                               sound_data,
-                               request.length,
-                               (request.flags & SOUND_FLAG_LOOP) != 0u))
+
+        stop_backend_midi(backend);
+        if (backend && backend->audio_device != 0u)
+        {
+          SDL_ClearQueuedAudio(backend->audio_device);
+        }
+
+        if (MidiRenderer_RenderMidi(backend->midi_renderer,
+                                    sound_data,
+                                    request.length,
+                                    (request.flags & SOUND_FLAG_LOOP) != 0u,
+                                    &pcm,
+                                    &sample_count))
+        {
+          (void)SDL_QueueAudio(backend->audio_device, pcm, sample_count * sizeof(*pcm));
+          SDL_PauseAudioDevice(backend->audio_device, 0);
+          free(pcm);
+        }
+        else if (!play_backend_midi(backend,
+                                    sound_data,
+                                    request.length,
+                                    (request.flags & SOUND_FLAG_LOOP) != 0u))
         {
           queue_square_tone(backend, 880u, 70u, 80u);
         }
@@ -801,6 +830,11 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
     if (backend->audio_device != 0u)
     {
       backend->audio_spec = obtained;
+      backend->midi_renderer = MidiRenderer_Create(DEFAULT_SOUNDFONT_PATH, (uint32_t)obtained.freq);
+      if (!backend->midi_renderer)
+      {
+        fprintf(stderr, "MIDI renderer init failed: %s\n", DEFAULT_SOUNDFONT_PATH);
+      }
     }
     else
     {
@@ -834,6 +868,8 @@ void SdlBackend_Destroy(SdlBackend *backend)
   }
 
   stop_backend_midi(backend);
+  MidiRenderer_Destroy(backend->midi_renderer);
+  backend->midi_renderer = NULL;
 
   if (backend->renderer)
   {

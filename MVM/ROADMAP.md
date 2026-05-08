@@ -328,12 +328,9 @@ Tasks:
     expose safe guest-memory reads for platform backends;
   - done: handle `SOUND_FLAG_STOP`, non-stream BEEP sequences, and MIDI/SMF
     request detection in the SDL backend;
-  - done: on Windows, attempt MIDI playback through the system MCI sequencer,
-    with the diagnostic marker tone retained only as fallback;
-  - known limitation: MCI playback depends on the host Windows MIDI stack and
-    is not deterministic like the reference/nofun TinySoundFont path; a real
-    embedded-friendly MIDI renderer such as TinySoundFont/TinyMidiLoader is
-    still needed later.
+  - done: render MIDI through the embedded TinySoundFont/TinyMidiLoader path
+    using the default nofun soundfont; Windows MCI and the diagnostic marker
+    tone remain fallback paths only.
 - Run one playability pass against the target game:
   - start screen;
   - menu flow;
