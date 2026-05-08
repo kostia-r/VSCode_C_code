@@ -437,7 +437,7 @@ Done when:
 - Desktop runner can preserve progress in-place for writable `.mpn` files.
 - Snapshot support is documented as a separate optional layer.
 
-## Phase 11: Game Corpus And Regression Runner
+## Game Corpus And Regression Runner
 
 Purpose: use multiple games to discover missing opcodes and APIs.
 
@@ -446,14 +446,14 @@ Prerequisite infrastructure before starting broad corpus work:
 1. Define the run data model and directory layout:
   - choose the manifest format;
   - choose the input-scenario format;
-  - choose the output layout under `Runs/Phase11/`;
+  - choose the output layout under `Runs/Corpus/`;
   - define stable run ids from date/time, game file, profile, and scenario.
-2. Define a Phase 11 manifest as the source of truth for automated runs:
+2. Define a corpus manifest as the source of truth for automated runs:
   - explicit `.mpn` game file path;
   - explicit target device profiles per game, starting with `SE_T310` and
     `SE_T610`;
   - per-run duration or step/log limits;
-  - selected input scenario name, including a no-input scenario for first-load
+  - per-game JSON input scenarios, including a no-input scenario for first-load
     smoke runs.
 3. Add the no-input smoke path first:
   - run each manifest entry for a fixed duration without synthetic key input;
@@ -476,9 +476,13 @@ Prerequisite infrastructure before starting broad corpus work:
 8. Add scripted input scenarios:
   - support a `none` scenario that sends no synthetic key input for initial
     boot/load diagnostics;
+  - keep game-specific button sequences in the corpus JSON manifest so each
+    game can define its own start/menu/gameplay probes;
   - support timed waits and key presses/releases with durations;
   - support Mophun button names rather than desktop key names, for example
     `UP`, `DOWN`, `LEFT`, `RIGHT`, `FIRE`, `FIRE2`, and `SELECT`;
+  - document the mapping between manifest button names and desktop keyboard
+    keys used by the SDL runner;
   - allow game-specific scenarios such as start-menu navigation, first gameplay
     movement, death/restart, and level-transition probes.
 9. Add synthetic input support in the desktop runner/backend:
@@ -496,8 +500,8 @@ Prerequisite infrastructure before starting broad corpus work:
     `.mp4`, keeping the captured video/audio source inside the runner.
 11. Keep recording optional through runner arguments so normal interactive runs
   remain lightweight.
-12. Document the one-command entry point for Phase 11 preparation, for example a
-  script that builds the runner and executes the manifest into `Runs/Phase11/`.
+12. Document the one-command entry point for corpus preparation, for example a
+  script that builds the runner and executes the manifest into `Runs/Corpus/`.
 13. Run a small pre-Phase-11 validation set before the real corpus:
   - one known-good game;
   - both `SE_T310` and `SE_T610`;
@@ -702,7 +706,7 @@ Measurements to add:
 6. Finish device profiles and make `vGetCaps` fully profile-driven.
 7. Build Windows platform backend and get at least one game running with real graphics/input/audio flow.
 8. Add persistent game-owned resource data support and define snapshot boundaries.
-9. Prepare the Phase 11 manifest runner, scripted input scenarios, per-run
+9. Prepare the corpus manifest runner, scripted input scenarios, per-run
    logs, and C-side recording pipeline.
 10. Run game corpus and fill missing APIs.
 11. Make config externalizable for submodule-style integration.

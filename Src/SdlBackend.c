@@ -15,6 +15,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef MAX_PATH
+#define MAX_PATH                       (260)
+#endif
+
 #define INPUT_REPEAT_DELAY_MS          (180U)
 #define INPUT_REPEAT_INTERVAL_MS       (90U)
 #define MVM_KEY_UP                     (0x00000001U)
@@ -35,6 +39,7 @@
 #define SOUND_FLAG_STREAM              (0x00000200U)
 #define SOUND_FLAG_STOP                (0x00000400U)
 #define DEFAULT_SOUNDFONT_PATH         "Assets/DefaultSfBank.bytes"
+#define RECORDING_FPS                  (30U)
 
 #ifdef DEBUG
 #define SDL_BACKEND_LOG_D(...)         printf(__VA_ARGS__)
@@ -67,10 +72,19 @@ struct SdlBackend
   uint32_t height;
   uint32_t raw_button_state;
   uint32_t pulse_button_state;
+  uint32_t synthetic_button_state;
   uint32_t next_repeat_ms[SDL_BACKEND_BUTTON_COUNT];
   uint32_t last_frame_serial;
   uint32_t last_clear_serial;
   uint32_t last_draw_command_count;
+  FILE *record_frame_file;
+  FILE *record_audio_file;
+  FILE *record_meta_file;
+  uint32_t record_start_ms;
+  uint32_t record_next_frame_ms;
+  uint32_t record_frame_count;
+  uint32_t record_audio_sample_count;
+  uint32_t record_audio_bytes;
 #ifdef _WIN32
   char midi_alias[32];
   char midi_path[MAX_PATH];
@@ -90,6 +104,176 @@ static const uint32_t MVM_lSdlButtonMasks[SDL_BACKEND_BUTTON_COUNT] =
   MVM_POINTER_ALTDOWN,
   MVM_KEY_FIRE2
 };
+
+static uint32_t sdl_platform_get_ticks_ms(void *user);
+
+static int build_record_path(char *dst, size_t dst_size, const char *dir, const char *name)
+{
+  size_t dir_len;
+  const char *separator;
+
+  if (!dst || dst_size == 0u || !dir || !name)
+  {
+    return 0;
+  }
+
+  dir_len = strlen(dir);
+  separator = (dir_len > 0u && (dir[dir_len - 1u] == '\\' || dir[dir_len - 1u] == '/')) ? "" : "\\";
+
+  return snprintf(dst, dst_size, "%s%s%s", dir, separator, name) > 0;
+}
+
+static void write_wav_u16(FILE *file, uint16_t value)
+{
+  fputc((int)(value & 0xFFu), file);
+  fputc((int)((value >> 8) & 0xFFu), file);
+}
+
+static void write_wav_u32(FILE *file, uint32_t value)
+{
+  fputc((int)(value & 0xFFu), file);
+  fputc((int)((value >> 8) & 0xFFu), file);
+  fputc((int)((value >> 16) & 0xFFu), file);
+  fputc((int)((value >> 24) & 0xFFu), file);
+}
+
+static void write_wav_header(FILE *file, uint32_t sample_rate, uint32_t data_bytes)
+{
+  if (!file)
+  {
+    return;
+  }
+
+  fwrite("RIFF", 1u, 4u, file);
+  write_wav_u32(file, 36u + data_bytes);
+  fwrite("WAVE", 1u, 4u, file);
+  fwrite("fmt ", 1u, 4u, file);
+  write_wav_u32(file, 16u);
+  write_wav_u16(file, 1u);
+  write_wav_u16(file, 1u);
+  write_wav_u32(file, sample_rate);
+  write_wav_u32(file, sample_rate * 2u);
+  write_wav_u16(file, 2u);
+  write_wav_u16(file, 16u);
+  fwrite("data", 1u, 4u, file);
+  write_wav_u32(file, data_bytes);
+}
+
+static uint32_t get_record_audio_sample_rate(SdlBackend *backend)
+{
+  if (backend && backend->audio_spec.freq > 0)
+  {
+    return (uint32_t)backend->audio_spec.freq;
+  }
+
+  return 22050u;
+}
+
+static void record_audio_silence(SdlBackend *backend, uint32_t sample_count)
+{
+  int16_t zeros[512];
+
+  if (!backend || !backend->record_audio_file || sample_count == 0u)
+  {
+    return;
+  }
+
+  memset(zeros, 0, sizeof(zeros));
+  while (sample_count != 0u)
+  {
+    uint32_t chunk;
+
+    chunk = sample_count > 512u ? 512u : sample_count;
+    fwrite(zeros, sizeof(zeros[0]), chunk, backend->record_audio_file);
+    backend->record_audio_sample_count += chunk;
+    backend->record_audio_bytes += chunk * (uint32_t)sizeof(zeros[0]);
+    sample_count -= chunk;
+  }
+}
+
+static void record_audio_pad_to_ms(SdlBackend *backend, uint32_t elapsed_ms)
+{
+  uint32_t sample_rate;
+  uint32_t target_samples;
+
+  if (!backend || !backend->record_audio_file)
+  {
+    return;
+  }
+
+  sample_rate = get_record_audio_sample_rate(backend);
+  target_samples = (uint32_t)(((uint64_t)sample_rate * elapsed_ms) / 1000u);
+  if (target_samples > backend->record_audio_sample_count)
+  {
+    record_audio_silence(backend, target_samples - backend->record_audio_sample_count);
+  }
+}
+
+static void record_audio_samples(SdlBackend *backend, const int16_t *samples, uint32_t sample_count)
+{
+  uint32_t now_ms;
+
+  if (!backend || !backend->record_audio_file || !samples || sample_count == 0u)
+  {
+    return;
+  }
+
+  now_ms = sdl_platform_get_ticks_ms(backend);
+  if (now_ms >= backend->record_start_ms)
+  {
+    record_audio_pad_to_ms(backend, now_ms - backend->record_start_ms);
+  }
+
+  fwrite(samples, sizeof(*samples), sample_count, backend->record_audio_file);
+  backend->record_audio_sample_count += sample_count;
+  backend->record_audio_bytes += sample_count * (uint32_t)sizeof(*samples);
+}
+
+static void record_current_frame(SdlBackend *backend)
+{
+  void *pixels;
+  size_t frame_bytes;
+  uint32_t now_ms;
+
+  if (!backend || !backend->record_frame_file || !backend->renderer)
+  {
+    return;
+  }
+
+  now_ms = sdl_platform_get_ticks_ms(backend);
+  if (now_ms < backend->record_start_ms)
+  {
+    return;
+  }
+
+  if ((now_ms - backend->record_start_ms) < backend->record_next_frame_ms)
+  {
+    return;
+  }
+
+  frame_bytes = (size_t)backend->width * (size_t)backend->height * 4u;
+  pixels = malloc(frame_bytes);
+  if (!pixels)
+  {
+    return;
+  }
+
+  if (SDL_RenderReadPixels(backend->renderer,
+                           NULL,
+                           SDL_PIXELFORMAT_ABGR8888,
+                           pixels,
+                           (int)(backend->width * 4u)) == 0)
+  {
+    do
+    {
+      fwrite(pixels, 1u, frame_bytes, backend->record_frame_file);
+      ++backend->record_frame_count;
+      backend->record_next_frame_ms = (backend->record_frame_count * 1000u) / RECORDING_FPS;
+    } while ((now_ms - backend->record_start_ms) >= backend->record_next_frame_ms);
+  }
+
+  free(pixels);
+}
 
 static void decode_guest_color(uint32_t color, uint8_t *red, uint8_t *green, uint8_t *blue)
 {
@@ -385,6 +569,7 @@ static void queue_square_tone(SdlBackend *backend, uint32_t frequency, uint32_t 
   }
 
   (void)SDL_QueueAudio(backend->audio_device, samples, sample_count * sizeof(*samples));
+  record_audio_samples(backend, samples, sample_count);
   SDL_PauseAudioDevice(backend->audio_device, 0);
   free(samples);
 }
@@ -544,6 +729,7 @@ static void process_backend_sound_requests(MpnVM_t *vm, SdlBackend *backend)
                                     &sample_count))
         {
           (void)SDL_QueueAudio(backend->audio_device, pcm, sample_count * sizeof(*pcm));
+          record_audio_samples(backend, pcm, sample_count);
           SDL_PauseAudioDevice(backend->audio_device, 0);
           free(pcm);
         }
@@ -854,12 +1040,117 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
   return backend;
 }
 
+int SdlBackend_StartRecording(SdlBackend *backend, const char *record_dir)
+{
+  char path[MAX_PATH];
+  uint32_t sample_rate;
+
+  if (!backend || !record_dir || !*record_dir)
+  {
+    return 0;
+  }
+
+  SdlBackend_StopRecording(backend);
+
+  if (!build_record_path(path, sizeof(path), record_dir, "frames.rgba"))
+  {
+    return 0;
+  }
+  backend->record_frame_file = fopen(path, "wb");
+  if (!backend->record_frame_file)
+  {
+    return 0;
+  }
+
+  if (!build_record_path(path, sizeof(path), record_dir, "audio.wav"))
+  {
+    SdlBackend_StopRecording(backend);
+    return 0;
+  }
+  backend->record_audio_file = fopen(path, "wb+");
+  if (!backend->record_audio_file)
+  {
+    SdlBackend_StopRecording(backend);
+    return 0;
+  }
+
+  sample_rate = get_record_audio_sample_rate(backend);
+  write_wav_header(backend->record_audio_file, sample_rate, 0u);
+
+  if (build_record_path(path, sizeof(path), record_dir, "recording.txt"))
+  {
+    backend->record_meta_file = fopen(path, "w");
+    if (backend->record_meta_file)
+    {
+      fprintf(backend->record_meta_file,
+              "width=%u\nheight=%u\nfps=%u\naudio_sample_rate=%u\naudio_channels=1\naudio_bits=16\n",
+              backend->width,
+              backend->height,
+              RECORDING_FPS,
+              sample_rate);
+      fflush(backend->record_meta_file);
+    }
+  }
+
+  backend->record_start_ms = sdl_platform_get_ticks_ms(backend);
+  backend->record_next_frame_ms = 0u;
+  backend->record_frame_count = 0u;
+  backend->record_audio_sample_count = 0u;
+  backend->record_audio_bytes = 0u;
+
+  return 1;
+}
+
+void SdlBackend_StopRecording(SdlBackend *backend)
+{
+  uint32_t sample_rate;
+
+  if (!backend)
+  {
+    return;
+  }
+
+  sample_rate = get_record_audio_sample_rate(backend);
+
+  if (backend->record_audio_file && backend->record_frame_count != 0u)
+  {
+    uint32_t video_ms;
+
+    video_ms = (backend->record_frame_count * 1000u + RECORDING_FPS - 1u) / RECORDING_FPS;
+    record_audio_pad_to_ms(backend, video_ms);
+  }
+
+  if (backend->record_audio_file)
+  {
+    fflush(backend->record_audio_file);
+    fseek(backend->record_audio_file, 0L, SEEK_SET);
+    write_wav_header(backend->record_audio_file, sample_rate, backend->record_audio_bytes);
+    fclose(backend->record_audio_file);
+    backend->record_audio_file = NULL;
+  }
+
+  if (backend->record_frame_file)
+  {
+    fclose(backend->record_frame_file);
+    backend->record_frame_file = NULL;
+  }
+
+  if (backend->record_meta_file)
+  {
+    fprintf(backend->record_meta_file, "frames=%u\naudio_bytes=%u\n", backend->record_frame_count, backend->record_audio_bytes);
+    fclose(backend->record_meta_file);
+    backend->record_meta_file = NULL;
+  }
+}
+
 void SdlBackend_Destroy(SdlBackend *backend)
 {
   if (!backend)
   {
     return;
   }
+
+  SdlBackend_StopRecording(backend);
 
   if (backend->framebuffer)
   {
@@ -903,6 +1194,16 @@ void SdlBackend_AttachVmTiming(MpnVM_t *vm, SdlBackend *backend)
   (void)MVM_SetTickProvider(vm, backend, sdl_platform_get_ticks_ms);
 }
 
+void SdlBackend_SetSyntheticButtons(SdlBackend *backend, uint32_t button_mask)
+{
+  if (!backend)
+  {
+    return;
+  }
+
+  backend->synthetic_button_state = button_mask;
+}
+
 void SdlBackend_SyncInputToVm(MpnVM_t *vm, SdlBackend *backend)
 {
   if (!vm || !backend)
@@ -910,7 +1211,10 @@ void SdlBackend_SyncInputToVm(MpnVM_t *vm, SdlBackend *backend)
     return;
   }
 
-  (void)MVM_SetButtonState(vm, backend->raw_button_state | backend->pulse_button_state);
+  (void)MVM_SetButtonState(vm,
+                           backend->raw_button_state |
+                           backend->pulse_button_state |
+                           backend->synthetic_button_state);
   backend->pulse_button_state = 0u;
 }
 
@@ -999,12 +1303,19 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     backend->last_frame_serial = frame_info.frame_serial;
   }
 
+  record_current_frame(backend);
+
   SDL_SetRenderTarget(backend->renderer, NULL);
   SDL_RenderSetClipRect(backend->renderer, NULL);
   SDL_SetRenderDrawColor(backend->renderer, 0u, 0u, 0u, 255u);
   SDL_RenderClear(backend->renderer);
   SDL_RenderCopy(backend->renderer, backend->framebuffer, NULL, NULL);
   SDL_RenderPresent(backend->renderer);
+}
+
+uint32_t SdlBackend_GetTicksMs(SdlBackend *backend)
+{
+  return sdl_platform_get_ticks_ms(backend);
 }
 
 void SdlBackend_Delay(uint32_t delay_ms)

@@ -1,0 +1,60 @@
+{
+  "_comment": "Button names and input-step syntax are documented in Tools/corpus/README.md.",
+  "defaultDurationMs": 1000000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 1000000,
+  "runs": [
+    {
+      "game": "mpn/decrypted.mpn",
+      "profiles": [ "SE_T310", "SE_T610" ],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none",
+          "input": [
+            { "waitMs": 2000 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 800 },
+            { "press": "DOWN", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 500 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 1000 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "LEFT", "durationMs": 500 },
+            { "waitMs": 300 }
+          ]
+        }
+      ]
+    },
+    {
+      "game": "mpn/DeepAbyss_[v1.1]_[T300].mpn",
+      "profiles": [ "SE_T310" ],
+      "durationMs": 45000,
+      "scenarios": [
+        {
+          "name": "none",
+          "input": []
+        },
+        {
+          "name": "start_basic",
+          "input": [
+            { "waitMs": 2000 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 800 },
+            { "press": "FIRE2", "durationMs": 140 },
+            { "waitMs": 1200 },
+            { "press": "DOWN", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 5000 }
+          ]
+        }
+      ]
+    }
+  ]
+}

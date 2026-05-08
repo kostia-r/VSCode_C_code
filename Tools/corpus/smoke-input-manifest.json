@@ -1,0 +1,28 @@
+{
+  "_comment": "Short end-to-end corpus smoke run with synthetic button input.",
+  "defaultDurationMs": 8000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 2000000,
+  "runs": [
+    {
+      "game": "mpn/decrypted.mpn",
+      "profiles": [ "SE_T310" ],
+      "scenarios": [
+        {
+          "name": "start_basic",
+          "input": [
+            { "waitMs": 2500 },
+            { "press": "FIRE", "durationMs": 180 },
+            { "waitMs": 700 },
+            { "press": "FIRE2", "durationMs": 180 },
+            { "waitMs": 700 },
+            { "press": "DOWN", "durationMs": 180 },
+            { "waitMs": 300 },
+            { "press": "FIRE", "durationMs": 180 },
+            { "waitMs": 3000 }
+          ]
+        }
+      ]
+    }
+  ]
+}

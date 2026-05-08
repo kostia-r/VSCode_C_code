@@ -13,6 +13,14 @@ Release/
 *.ilk
 *.dmp
 
+# Generated run artifacts
+Runs/
+*.rgba
+*.wav
+*.mp4
+*.jsonl
+summary.csv
+
 # Editor and OS noise
 *.swp
 *.tmp
