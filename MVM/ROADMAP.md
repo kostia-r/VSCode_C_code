@@ -298,32 +298,33 @@ Done when:
 Purpose: run games interactively on desktop, not only trace them, and push at
 least one target game to a genuinely playable state.
 
+Status: functionally complete pending final cleanup commit.
+
 Tasks:
 
-- Create Windows backend under `Examples/platform/win32`.
-- Use one practical backend foundation such as SDL2 for:
+- Done: create the Windows desktop backend in the current `Src` runner layout.
+- Done: use SDL2 for:
   - window creation;
   - framebuffer presentation;
   - keyboard input;
-  - minimal audio output.
-- Build one host event loop around the bounded VM execution API.
-- Connect keyboard input to `vGetButtonData` / `vTestKey`.
-- Implement framebuffer present through `vFlipScreen`.
-- Implement basic 2D drawing/import behavior needed for menu/UI flow:
+  - audio output.
+- Done: build one host event loop around the bounded VM execution API.
+- Done: connect keyboard input to `vGetButtonData` / `vTestKey`.
+- Done: implement framebuffer present through `vFlipScreen`.
+- Done: implement basic 2D drawing/import behavior needed for menu/UI flow:
   - `vClearScreen`;
   - `vFillRect`;
   - `vDrawLine`;
   - palette operations;
   - clip window and transfer mode handling.
-- Implement the object/sprite drawing path needed by the current game:
+- Done: implement the object/sprite drawing path needed by the current game:
   - `vDrawObject`;
   - visible map/sprite update flow;
   - palette-aware rendering.
-- Implement enough text/font behavior for menu and HUD readability:
+- Done: implement enough text/font behavior for menu and HUD readability:
   - `vSetActiveFont`;
   - `vPrint`.
-- Add minimal audio handling for `vPlayResource`, even if the first version is
-  limited or stub-backed:
+- Done: add audio handling for `vPlayResource`:
   - done: queue SDK-shaped `vPlayResource(data, length, flags)` requests and
     expose safe guest-memory reads for platform backends;
   - done: handle `SOUND_FLAG_STOP`, non-stream BEEP sequences, and MIDI/SMF
@@ -331,26 +332,24 @@ Tasks:
   - done: render MIDI through the embedded TinySoundFont/TinyMidiLoader path
     using the default nofun soundfont; Windows MCI and the diagnostic marker
     tone remain fallback paths only.
-- Run one playability pass against the target game:
+- Done: run one playability pass against the target game:
   - start screen;
   - menu flow;
   - gameplay input;
   - visible rendering correctness;
-  - basic sound requests.
-- Track and fix target-game graphics regressions found during Phase 9:
+  - sound playback.
+- Done: track and fix target-game graphics regressions found during Phase 9:
   - keep the cleared MPN persistent/second-run flag as the root fix for the
     full-screen lava corruption;
   - revert memory-model experiments that switched desktop runs back to host
     heap allocation while the static allocation path is the target baseline;
   - revert deferred SDL/rendering changes that were added only to chase the
     full-screen lava symptom;
-  - verify whether the loading screen `LEVEL 10` text is wrong source data or
-    a text renderer artifact, because the actual loaded level is level 1;
-  - fix loading-screen text artifacts in `LEVEL`, `REQUIRED`, `PERFECT`, and
-    `START`;
-  - restore the loading-screen reveal effect without dirty intermediate
-    pixels; current fix candidate is preserving per-draw palette snapshots for
-    deferred SDL rendering;
+  - done: fix loading-screen level text so level 1 is shown as `LEVEL 01`;
+  - done: fix loading-screen text artifacts in `LEVEL`, `REQUIRED`,
+    `PERFECT`, and `START`;
+  - done: restore a visually close loading-screen reveal effect without
+    blocking Phase 9 on exact dirty-tile mechanics;
   - known difference: the loading-screen reveal is now visually close enough
     for Phase 9 playability, but its mechanics still differ from the reference
     emulator. The reference appears to use a dirty/intermediate tile update
@@ -359,10 +358,17 @@ Tasks:
     for a later renderer-accuracy pass instead of blocking Phase 9 progress;
   - done: restore the bottom lava bubbling/animation; keep sprite/map layer
     order under comparison, but bubbles now emerge from the lava as expected;
-  - keep a clean comparison set: reference video/log, current video/log, and a
-    fixed input script of Shift, Down, Shift; latest artifacts live in
-    `C:\mophun\MY\videos&logs`.
-- Keep `Src/main.c` as a thin runner or move it to examples.
+  - done: keep a clean comparison set: reference video/log, current video/log,
+    and fixed input scripts; latest artifacts live in
+    `C:\mophun\MY\videos&logs`;
+  - done: final playability recording
+    `C:\mophun\MY\videos&logs\Recording 2026-05-08 235410.mp4` reaches
+    gameplay, death/restart flow, level complete, and level 2 without VM
+    errors; latest log ends with `state=4 error=0`.
+- Done: keep `Src/main.c` as a thin runner and move platform/VM/render logic
+  into `VmRunner`, `SdlBackend`, and library-side render replay helpers.
+- Pending final cleanup: keep real error/fallback messages, but gate temporary
+  diagnostics behind debug logging before the Phase 9 close commit.
 
 Done when:
 

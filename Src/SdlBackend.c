@@ -36,6 +36,12 @@
 #define SOUND_FLAG_STOP                (0x00000400U)
 #define DEFAULT_SOUNDFONT_PATH         "Assets/DefaultSfBank.bytes"
 
+#ifdef DEBUG
+#define SDL_BACKEND_LOG_D(...)         printf(__VA_ARGS__)
+#else
+#define SDL_BACKEND_LOG_D(...)         ((void)0)
+#endif
+
 /*
  * Desktop key mapping aligned with the official Mophun SDK emulator:
  * - Up Arrow    -> KEY_UP
@@ -517,12 +523,12 @@ static void process_backend_sound_requests(MpnVM_t *vm, SdlBackend *backend)
         int16_t *pcm = NULL;
         uint32_t sample_count = 0u;
 
-        printf("vPlayResource MIDI request: data=%08X length=%u format=%u tracks=%u loop=%u\n",
-               request.data,
-               request.length,
-               (uint32_t)format,
-               (uint32_t)tracks,
-               (request.flags & SOUND_FLAG_LOOP) != 0u);
+        SDL_BACKEND_LOG_D("vPlayResource MIDI request: data=%08X length=%u format=%u tracks=%u loop=%u\n",
+                          request.data,
+                          request.length,
+                          (uint32_t)format,
+                          (uint32_t)tracks,
+                          (request.flags & SOUND_FLAG_LOOP) != 0u);
 
         stop_backend_midi(backend);
         if (backend && backend->audio_device != 0u)
