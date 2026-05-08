@@ -519,6 +519,7 @@ MVM_RetCode_t MVM_QueryMemReqs(const uint8_t *image,
   source.image_size = image_size;
 
   config.image_read = MVM_lReadMemoryImage;
+  config.image_write = NULL;
   config.image_map = NULL;
   config.image_unmap = NULL;
 

@@ -42,6 +42,11 @@ typedef struct MVM_DefRuntimePool_t
  */
 static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size);
 
+/**
+ * @brief Writes one byte range to one file-backed image source.
+ */
+static int MVM_lWriteFileImage(void *user, size_t offset, const void *src, size_t size);
+
 /**********************************************************************************************************************
  *  LOCAL DATA
  *********************************************************************************************************************/
@@ -148,6 +153,7 @@ const MVM_Config_t MVM_Config =
 
   /* Compile-time image backend used to read the selected VM *.mpn file source. */
   .image_read = MVM_lReadFileImage,
+  .image_write = MVM_lWriteFileImage,
   .image_map = NULL,
   .image_unmap = NULL,
 
@@ -216,6 +222,43 @@ static int MVM_lReadFileImage(void *user, size_t offset, void *dst, size_t size)
 
   return 0;
 } /* End of MVM_lReadFileImage */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lWriteFileImage
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Writes one byte range to one file-backed image source.
+ *********************************************************************************************************************/
+static int MVM_lWriteFileImage(void *user, size_t offset, const void *src, size_t size)
+{
+  FILE *file = (FILE *)user;
+
+  if (!file || !src)
+  {
+    return -1;
+  }
+
+#if defined(_WIN32)
+  if (_fseeki64(file, (__int64)offset, SEEK_SET) != 0)
+#elif defined(_LARGEFILE_SOURCE) || defined(_LARGEFILE64_SOURCE) || defined(_FILE_OFFSET_BITS)
+  if (fseeko(file, (off_t)offset, SEEK_SET) != 0)
+#else
+  if (offset > (size_t)LONG_MAX || fseek(file, (long)offset, SEEK_SET) != 0)
+#endif
+  {
+    return -1;
+  }
+
+  if (fwrite(src, 1u, size, file) != size)
+  {
+    return -1;
+  }
+
+  return fflush(file);
+} /* End of MVM_lWriteFileImage */
 
 /**********************************************************************************************************************
  *  END OF FILE MVM_Lcfg.c

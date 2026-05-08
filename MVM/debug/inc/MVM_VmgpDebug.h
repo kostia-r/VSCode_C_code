@@ -82,6 +82,7 @@ typedef struct VMGPResource
   uint32_t size;          /**< Resource payload size in bytes. */
   uint8_t *overlay_data;  /**< Session-local writable resource overlay, when modified. */
   uint32_t overlay_size;  /**< Capacity of the session-local writable overlay. */
+  bool overlay_dirty;     /**< Indicates that overlay_data must be persisted. */
 } VMGPResource;
 
 /**********************************************************************************************************************

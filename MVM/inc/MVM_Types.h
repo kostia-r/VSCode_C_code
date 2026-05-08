@@ -83,6 +83,11 @@ typedef struct MpnPlatform_t
 typedef int (*MpnImageReadFn_t)(void *user, size_t offset, void *dst, size_t size);
 
 /**
+ * @brief Optionally writes one byte range to a VM image source.
+ */
+typedef int (*MpnImageWriteFn_t)(void *user, size_t offset, const void *src, size_t size);
+
+/**
  * @brief Optionally maps one byte range from a VM image source.
  */
 typedef const uint8_t *(*MpnImageMapFn_t)(void *user, size_t offset, size_t size);

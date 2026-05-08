@@ -178,6 +178,7 @@ struct MpnVM_t
 
   MpnImageSource_t image;           /**< Active VM image source descriptor. */
   MpnImageReadFn_t image_read;      /**< Configured image-backend range-read callback. */
+  MpnImageWriteFn_t image_write;    /**< Optional image-backend range-write callback for persistent data. */
   MpnImageMapFn_t image_map;        /**< Configured image-backend map callback. */
   MpnImageUnmapFn_t image_unmap;    /**< Configured image-backend unmap callback. */
   size_t size;                      /**< Total VM image size in bytes. */
@@ -338,6 +339,16 @@ bool MVM_LoadVmgpPoolRaw(VMGPContext *ctx);
  * @brief Reads one byte range from the active VM image source.
  */
 bool MVM_ReadImageRange(const VMGPContext *ctx, size_t offset, void *dst, size_t size);
+
+/**
+ * @brief Writes one byte range to the active VM image source when supported.
+ */
+bool MVM_WriteImageRange(const VMGPContext *ctx, size_t offset, const void *src, size_t size);
+
+/**
+ * @brief Flushes dirty persistent resource overlays through the active image backend.
+ */
+bool MVM_FlushPersistentData(VMGPContext *ctx);
 
 /**
  * @brief Traces one VM memory write.

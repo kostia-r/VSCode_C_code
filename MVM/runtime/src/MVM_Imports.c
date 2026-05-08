@@ -32,7 +32,6 @@
 #define STREAM_CREATE_FLAG 0x0800u
 #define STREAM_TRUNC_FLAG  0x1000u
 #define STREAM_DELETE_FLAG 0x4000u
-#define STREAM_RESOURCE_OVERLAY_MIN_BYTES 4096u
 #define MVM_KEY_UP_MASK          0x00000001u
 #define MVM_KEY_DOWN_MASK        0x00000002u
 #define MVM_KEY_LEFT_MASK        0x00000004u
@@ -119,6 +118,11 @@ static VMGPStream *MVM_lAllocStream(VMGPContext *ctx);
  * @brief Reads one byte range from one open resource stream.
  */
 static bool MVM_lReadStreamBytes(const VMGPContext *ctx, const VMGPStream *stream, uint32_t pos, void *dst, uint32_t size);
+
+/**
+ * @brief Flushes one dirty persistent resource overlay.
+ */
+static bool MVM_lFlushResourceOverlay(VMGPContext *ctx, VMGPResource *resource);
 
 /**
  * @brief Logs one default zero-result platform stub.
@@ -807,6 +811,61 @@ static bool MVM_lReadStreamBytes(const VMGPContext *ctx, const VMGPStream *strea
 
   return MVM_ReadImageRange(ctx, stream->file_offset + pos, dst, size);
 } /* End of MVM_lReadStreamBytes */
+
+static bool MVM_lFlushResourceOverlay(VMGPContext *ctx, VMGPResource *resource)
+{
+  size_t file_offset;
+
+  if (!ctx || !resource || !resource->overlay_data || !resource->overlay_dirty)
+  {
+    return true;
+  }
+
+  file_offset = (size_t)ctx->res_file_offset + resource->offset;
+  if (!MVM_WriteImageRange(ctx, file_offset, resource->overlay_data, resource->size))
+  {
+    MVM_LOG_W(ctx,
+              "persistent-data",
+              "failed to persist resource id=%u offset=%u size=%u\n",
+              resource->id,
+              resource->offset,
+              resource->size);
+
+    return false;
+  }
+
+  resource->overlay_dirty = false;
+  MVM_LOG_D(ctx,
+            "persistent-data",
+            "persisted resource id=%u offset=%u size=%u\n",
+            resource->id,
+            resource->offset,
+            resource->size);
+
+  return true;
+} /* End of MVM_lFlushResourceOverlay */
+
+bool MVM_FlushPersistentData(VMGPContext *ctx)
+{
+  uint32_t index;
+  bool bResult;
+
+  if (!ctx || !ctx->resources)
+  {
+    return true;
+  }
+
+  bResult = true;
+  for (index = 0u; index < ctx->resource_count; ++index)
+  {
+    if (!MVM_lFlushResourceOverlay(ctx, &ctx->resources[index]))
+    {
+      bResult = false;
+    }
+  }
+
+  return bResult;
+} /* End of MVM_FlushPersistentData */
 
 static bool MVM_lReadLzHeader(const uint8_t *p,
                               size_t remain,
@@ -2805,10 +2864,6 @@ MVM_IMPORT_IMPL(vStreamOpen)
     if (!resource->overlay_data)
     {
       overlay_size = stream->size;
-      if (overlay_size < STREAM_RESOURCE_OVERLAY_MIN_BYTES)
-      {
-        overlay_size = STREAM_RESOURCE_OVERLAY_MIN_BYTES;
-      }
 
       overlay_mem = MVM_AcquireInitBuffer(ctx, overlay_size);
 
@@ -2986,7 +3041,7 @@ MVM_IMPORT_IMPL(vStreamRead)
  * Call model: `sync/result`
  * Ownership: Reads guest memory at `p1` during the call only; the stream handle remains VM-owned.
  * Blocking: Non-blocking.
- * Status: Implemented with one volatile sink model for writable streams in the default integration.
+ * Status: Implemented for writable resource streams through persistent dirty overlays.
  */
 MVM_IMPORT_IMPL(vStreamWrite)
 {
@@ -3043,6 +3098,15 @@ MVM_IMPORT_IMPL(vStreamWrite)
     memcpy(stream->overlay_data + stream->pos, ctx->mem + buffer, writable);
     stream->pos += writable;
     ctx->regs[VM_REG_R0] = writable;
+
+    if (stream->resource_id != 0u)
+    {
+      resource = MVM_lFindMutableResource(ctx, stream->resource_id);
+      if (resource)
+      {
+        resource->overlay_dirty = true;
+      }
+    }
   }
   else
   {
@@ -3059,15 +3123,6 @@ MVM_IMPORT_IMPL(vStreamWrite)
   if (stream->pos > stream->size)
   {
     stream->size = stream->pos;
-  }
-
-  if (stream->overlay_data && stream->resource_id != 0u)
-  {
-    resource = MVM_lFindMutableResource(ctx, stream->resource_id);
-    if (resource && stream->size > resource->size)
-    {
-      resource->size = stream->size;
-    }
   }
 
   MVM_LOG_D(ctx,
@@ -3098,6 +3153,12 @@ MVM_IMPORT_IMPL(vStreamClose)
 
   if (stream)
   {
+    if (stream->resource_id != 0u)
+    {
+      VMGPResource *resource = MVM_lFindMutableResource(ctx, stream->resource_id);
+      (void)MVM_lFlushResourceOverlay(ctx, resource);
+    }
+
     memset(stream, 0, sizeof(*stream));
   }
 
@@ -5584,7 +5645,7 @@ MVM_IMPORT_IMPL(vFileRead)
  * Call model: `sync/result`
  * Ownership: Reads guest memory during the call only.
  * Blocking: Non-blocking.
- * Status: Partial; currently aliases `vStreamWrite()`, which remains stubbed.
+ * Status: Implemented as an alias of `vStreamWrite()`.
  */
 MVM_IMPORT_IMPL(vFileWrite)
 {

@@ -139,6 +139,7 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
   {
     ctx->platform = config->platform;
     ctx->image_read = config->image_read;
+    ctx->image_write = config->image_write;
     ctx->image_map = config->image_map;
     ctx->image_unmap = config->image_unmap;
     ctx->device_profile = config->device_profile;
@@ -151,6 +152,7 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
   else
   {
     ctx->image_read = NULL;
+    ctx->image_write = NULL;
     ctx->image_map = NULL;
     ctx->image_unmap = NULL;
   }
@@ -198,6 +200,35 @@ bool MVM_ReadImageRange(const VMGPContext *ctx, size_t offset, void *dst, size_t
 
   return ctx->image_read(ctx->image.user, offset, dst, size) == 0;
 } /* End of MVM_ReadImageRange */
+
+/**********************************************************************************************************************
+ *  Name: MVM_WriteImageRange
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Writes one byte range to the active image source through the configured backend.
+ *********************************************************************************************************************/
+bool MVM_WriteImageRange(const VMGPContext *ctx, size_t offset, const void *src, size_t size)
+{
+  if (!ctx || !ctx->image_write || !src)
+  {
+    return false;
+  }
+
+  if (size == 0u)
+  {
+    return true;
+  }
+
+  if (offset > ctx->size || size > (ctx->size - offset))
+  {
+    return false;
+  }
+
+  return ctx->image_write(ctx->image.user, offset, src, size) == 0;
+} /* End of MVM_WriteImageRange */
 
 /**********************************************************************************************************************
  *  Name: MVM_InitFromSource
@@ -263,6 +294,7 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm,
   }
 
   config.image_read = MVM_lReadMemoryImage;
+  config.image_write = NULL;
   config.image_map = NULL;
   config.image_unmap = NULL;
 
@@ -443,6 +475,7 @@ void MVM_FreeRaw(VMGPContext *ctx)
     return;
   }
 
+  (void)MVM_FlushPersistentData(ctx);
   memset(ctx, 0, sizeof(*ctx));
 } /* End of MVM_FreeRaw */
 

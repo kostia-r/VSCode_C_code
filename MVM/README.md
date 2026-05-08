@@ -217,6 +217,14 @@ Resource payloads are no longer mirrored into guest RAM by default. Runtime
 stream reads and LZ decompression now fetch resource data through the configured
 image backend, which keeps RAM usage lower on embedded targets.
 
+Writable VMGP resource streams use a persistent dirty-overlay model. On first
+write the resource bytes are copied into the runtime pool, later reads see the
+modified overlay, and close/free flushes dirty bytes through the optional
+`image_write` backend. The bundled desktop file backend opens `.mpn` files as
+read/write when possible and writes modified resource payloads back in-place.
+Memory-buffer `MVM_Init()` runs keep persistence disabled because they have no
+writable image backend.
+
 In other words, the host does not call VM imports directly. The host provides
 storage, one image source, and one platform backend. The VM loads VMGP data,
 executes PIP instructions, resolves imports by name, and then either handles

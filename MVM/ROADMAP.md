@@ -367,8 +367,8 @@ Tasks:
     errors; latest log ends with `state=4 error=0`.
 - Done: keep `Src/main.c` as a thin runner and move platform/VM/render logic
   into `VmRunner`, `SdlBackend`, and library-side render replay helpers.
-- Pending final cleanup: keep real error/fallback messages, but gate temporary
-  diagnostics behind debug logging before the Phase 9 close commit.
+- Done: keep real error/fallback messages while routing diagnostics through
+  level-gated debug logging before the Phase 9 close commit.
 
 Done when:
 
@@ -385,42 +385,57 @@ Done when:
 Purpose: support game progress persistence and, later, optional full VM
 suspend/resume.
 
+Status: done for persistent game-owned data. Writable VMGP resource streams use
+a dirty overlay and flush it back through an optional image-write backend on
+close/free. The default desktop file-backed integration opens `.mpn` files
+read/write when possible, so modified resource payload bytes persist in-place.
+Full VM snapshots are explicitly deferred as a separate optional layer.
+
 Tasks:
 
-- Define a stable game identifier for persistent records:
+- Done: add an optional image-source write callback for persistent resource data.
+- Done: mark modified resource overlays dirty and flush them on stream close and
+  VM free.
+- Done: keep persistence at game-owned resource data level, without register or
+  VM-state snapshots.
+- Deferred: define a stable game identifier for host-managed persistent records:
   - content hash;
   - image metadata fingerprint;
   - avoid relying on file name alone.
-- Add persistent-data export/import APIs for host-managed NvM storage.
-- Define record metadata:
+- Deferred: add persistent-data export/import APIs for host-managed NvM storage
+  when a target needs storage outside the writable image backend.
+- Deferred: define record metadata:
   - game id;
   - profile id/name;
   - format version;
   - payload size;
   - integrity check.
-- Decide what belongs to the persistent payload:
+- Done: decide what belongs to the persistent payload:
   - game-owned save data;
-  - selected VM-owned metadata only when required.
-- Keep host-side storage ownership outside the VM core:
+  - selected VM-owned metadata only when required;
+  - no register snapshots.
+- Done for current model: keep host-side storage ownership outside the VM core:
+  the VM only calls the configured image-write backend.
+- Deferred for non-image storage:
   - export one record/blob;
   - import one previously stored record/blob.
-- Explore optional full snapshot APIs for exact suspend/resume:
+- Deferred: explore optional full snapshot APIs for exact suspend/resume:
   - registers and execution state;
   - guest RAM;
   - allocator metadata;
   - stream/resource runtime state;
   - random/timing state where needed.
-- Define snapshot compatibility rules:
+- Deferred: define snapshot compatibility rules:
   - same game image;
   - same device profile;
   - same snapshot format version.
 
 Done when:
 
-- Host can export one persistent record and store it in NvM.
-- Host can restore one persistent record before game start.
-- Snapshot support is either implemented with explicit limits or documented as
-  a separate optional layer.
+- Game-owned resource data persists across VM runs through the configured image
+  backend.
+- Desktop runner can preserve progress in-place for writable `.mpn` files.
+- Snapshot support is documented as a separate optional layer.
 
 ## Phase 11: Game Corpus And Regression Runner
 
@@ -581,9 +596,8 @@ Measurements to add:
 4. Add level-gated logger and event callbacks.
 5. Build SDK syscall catalog and default stubs.
 6. Finish device profiles and make `vGetCaps` fully profile-driven.
-7. Add persistent-data export/import and define snapshot boundaries.
-8. Build Windows platform backend and get at least one game running with real graphics/input/audio flow.
-9. Add persistent-data export/import and define snapshot boundaries.
-10. Run game corpus and fill missing APIs.
-11. Make config externalizable for submodule-style integration.
-12. Start minimal MCU port.
+7. Build Windows platform backend and get at least one game running with real graphics/input/audio flow.
+8. Add persistent game-owned resource data support and define snapshot boundaries.
+9. Run game corpus and fill missing APIs.
+10. Make config externalizable for submodule-style integration.
+11. Start minimal MCU port.

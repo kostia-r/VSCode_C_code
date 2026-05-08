@@ -55,7 +55,12 @@ static int open_image_source(const char *path, FileImageSource *provider)
 {
   long size;
 
-  provider->file = fopen(path, "rb");
+  provider->file = fopen(path, "rb+");
+  if (!provider->file)
+  {
+    provider->file = fopen(path, "rb");
+  }
+
   if (!provider->file)
   {
     fprintf(stderr, "Failed to open: %s\n", path);

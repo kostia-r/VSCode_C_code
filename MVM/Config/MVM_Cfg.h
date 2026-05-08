@@ -94,6 +94,7 @@ typedef struct MVM_Config_t
 {
   MpnPlatform_t platform;                    /**< Host callback table used by the VM core. */
   MpnImageReadFn_t image_read;               /**< Image-backend range-read callback used by the VM core. */
+  MpnImageWriteFn_t image_write;             /**< Optional image-backend range-write callback used for persistent data. */
   MpnImageMapFn_t image_map;                 /**< Optional image-backend map callback used by the VM core. */
   MpnImageUnmapFn_t image_unmap;             /**< Optional image-backend unmap callback used by the VM core. */
   const MpnDevProfile_t *device_profiles;    /**< Catalog of device profiles offered by this integration. */
