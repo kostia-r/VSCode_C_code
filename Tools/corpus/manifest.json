@@ -5,8 +5,8 @@
   "defaultMaxLoggedCalls": 1000000,
   "runs": [
     {
-      "game": "mpn/decrypted.mpn",
-      "profiles": [ "SE_T310", "SE_T610" ],
+      "game": "mpn/T310/DeepAbyss_v.1.1_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
       "durationMs": 200000,
       "scenarios": [
         {
@@ -32,27 +32,346 @@
       ]
     },
     {
-      "game": "mpn/DeepAbyss_[v1.1]_[T300].mpn",
-      "profiles": [ "SE_T310" ],
-      "durationMs": 45000,
+      "game": "mpn/T310/DeepAbyss_v.1.4_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
       "scenarios": [
         {
           "name": "none",
-          "input": []
-        },
-        {
-          "name": "start_basic",
           "input": [
             { "waitMs": 2000 },
             { "press": "FIRE", "durationMs": 140 },
             { "waitMs": 800 },
-            { "press": "FIRE2", "durationMs": 140 },
-            { "waitMs": 1200 },
             { "press": "DOWN", "durationMs": 120 },
             { "waitMs": 300 },
             { "press": "FIRE", "durationMs": 140 },
-            { "waitMs": 5000 }
+            { "waitMs": 500 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 1000 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "LEFT", "durationMs": 500 },
+            { "waitMs": 300 }
           ]
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/DeepAbyss_v.1.4_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none",
+          "input": [
+            { "waitMs": 2000 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 800 },
+            { "press": "DOWN", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 500 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 1000 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "LEFT", "durationMs": 500 },
+            { "waitMs": 300 }
+          ]
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/VRally2_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/VRally2_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/Alien Scum_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/alphaattack_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/Bouncy_demo_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/CheezyRace_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/DawnVampire_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/FiveStones_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/HoneyCave_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/HoneyCave2_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/lines_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/monkeybusiness_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/MotorcyclingExtreme_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/Prehistorik_Man_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/snowboardx_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/SnowBob_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/SpaceDebris_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/SpaceExplorer_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/SynergenixRally_T310_decrypted.mpn",
+      "profiles": [ "SE_T310"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/1849GoldRush_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/4in1_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/bombjack_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/CMRally4_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/Huntsman_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/IcebloxPlus610_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/jbubble_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/lunar_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/prhstrkmn_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/SpaceExplorer_T610_decrypted.mpn",
+      "profiles": [ "SE_T610"],
+      "durationMs": 200000,
+      "scenarios": [
+        {
+          "name": "none"
         }
       ]
     }

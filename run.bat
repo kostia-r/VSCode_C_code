@@ -16,7 +16,7 @@ if not exist "%CD%\Build" (
 
 for %%I in ("%CD%") do set "APP_NAME=%%~nxI"
 set "EXE=%CD%\%APP_NAME%.exe"
-set "DEFAULT_MPN=%CD%\mpn\decrypted.mpn"
+set "DEFAULT_MPN=%CD%\mpn\T310\DeepAbyss_v.1.1_T310_decrypted.mpn"
 
 if not exist "%EXE%" (
     echo Executable not found: %EXE%
