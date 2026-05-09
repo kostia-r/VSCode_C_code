@@ -227,6 +227,9 @@ foreach ($run in $manifestData.runs) {
                 ) -Encoding UTF8
             }
 
+            # Reset any changes to the game file after each run
+            & git checkout -- $run.game
+
             $recordMetaPath = Join-Path $recordDir "recording.txt"
             $recordMeta = Read-RecordingMeta $recordMetaPath
             $encoded = $false

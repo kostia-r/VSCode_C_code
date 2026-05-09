@@ -96,7 +96,7 @@
       ]
     },
     {
-      "game": "mpn/T610/VRally2_T610_decrypted.mpn",
+      "game": "mpn/T610/VRally_T610_decrypted.mpn",
       "profiles": [ "SE_T610"],
       "durationMs": 200000,
       "scenarios": [
