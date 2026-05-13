@@ -33,6 +33,9 @@
 
 #define VMGP_MAX_REGS                                           (32U)
 #define VMGP_MAX_STREAMS                                        (16U)
+#define VMGP_MAX_FILES                                          (16U)
+#define VMGP_FILE_NAME_BYTES                                    (32U)
+#define VMGP_FILE_INITIAL_BYTES                                 (4096U)
 #define VMGP_MAX_SPRITE_SLOTS                                   (255U)
 #define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
 #define VMGP_MAX_DRAW_PALETTE_SNAPSHOTS                         (128U)
@@ -40,7 +43,8 @@
 #define VMGP_MAX_SOUND_REQUESTS                                 (8U)
 #define VMGP_DRAW_TEXT_SNAPSHOT_BYTES                           (64U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
-#define VM_HEAP_EXTRA                                           (128U * 1024U)
+#define VM_HEAP_EXTRA                                           (256U * 1024U)
+#define VM_STACK_GUARD_EXTRA                                    (0x1000U)
 #define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
 
 /**********************************************************************************************************************
@@ -77,8 +81,22 @@ typedef struct VMGPStream
   uint32_t overlay_size;    /**< Capacity of the writable overlay in bytes. */
   uint32_t pos;             /**< Current read position in bytes. */
   uint32_t resource_id;     /**< Backing resource identifier. */
+  uint32_t file_index;      /**< One-based backing persistent-file slot index, or zero. */
   uint32_t mode;            /**< Open mode flags passed by the guest. */
 } VMGPStream;
+
+/**
+ * @brief Tracks one VM-local persistent file.
+ */
+typedef struct VMGPFile
+{
+  bool used;                          /**< Indicates whether this file slot is allocated. */
+  bool deleted;                       /**< Indicates whether the file was deleted. */
+  char name[VMGP_FILE_NAME_BYTES];    /**< Stable guest-visible file name key. */
+  uint8_t *data;                      /**< VM-owned file contents. */
+  uint32_t size;                      /**< Current logical file size. */
+  uint32_t capacity;                  /**< Allocated file capacity. */
+} VMGPFile;
 
 /**
  * @brief Tracks one configured sprite slot.
@@ -215,8 +233,13 @@ struct MpnVM_t
 
   VMGPStream streams[VMGP_MAX_STREAMS]; /**< Open stream table. */
   uint32_t next_stream_handle;      /**< Next stream handle to allocate. */
+  VMGPFile files[VMGP_MAX_FILES];    /**< VM-local persistent file table. */
   uint32_t active_font;             /**< Guest pointer to the currently selected font. */
   uint32_t previous_font;           /**< Guest pointer to the previously selected font. */
+  uint32_t system_font_size;        /**< Current SDK system-font size selector. */
+  uint32_t system_font_flags;       /**< Current SDK system-font style/effect flags. */
+  uint32_t system_font_width;       /**< Estimated current SDK system-font glyph width. */
+  uint32_t system_font_height;      /**< Estimated current SDK system-font glyph height. */
   uint32_t fg_color;                /**< Current foreground color in guest encoding. */
   uint32_t bg_color;                /**< Current background color in guest encoding. */
   uint32_t transfer_mode;           /**< Current blit/text transfer mode. */
@@ -248,6 +271,12 @@ struct MpnVM_t
   uint32_t logged_calls;            /**< Number of traced calls already logged. */
   uint32_t tick_count;              /**< Cached tick counter value. */
   uint32_t random_state;            /**< Internal pseudo-random state. */
+  uint16_t fixed_time_year;         /**< Host-configured deterministic local/UTC year, or zero when disabled. */
+  uint8_t fixed_time_month;         /**< Host-configured deterministic month. */
+  uint8_t fixed_time_day;           /**< Host-configured deterministic day of month. */
+  uint8_t fixed_time_hour;          /**< Host-configured deterministic hour. */
+  uint8_t fixed_time_minute;        /**< Host-configured deterministic minute. */
+  uint8_t fixed_time_second;        /**< Host-configured deterministic second. */
   uint32_t last_pc;                 /**< Previous PC value used by the watchdog. */
   uint32_t no_progress_steps;       /**< Consecutive steps without PC progress. */
   uint32_t watchdog_limit;          /**< Allowed no-progress step budget. */

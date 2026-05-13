@@ -26,8 +26,6 @@
 #define MVM_IMPORT_IMPL(name)  MVM_IMPORT_PROTO(name)
 #define MVM_BIND_IMPORT(symbol) { .name = #symbol, .handler = symbol }
 
-#define HEAP_BLOCK_HEADER_SIZE (8u)
-#define HEAP_BLOCK_FLAG_USED   (1u)
 #define STREAM_WRITE_FLAG  0x0200u
 #define STREAM_CREATE_FLAG 0x0800u
 #define STREAM_TRUNC_FLAG  0x1000u
@@ -51,9 +49,9 @@
 #define MVM_SE_JOY_FIRE_ASCII    214u
 #define MVM_SE_OPTION_ASCII      217u
 #define MVM_CAPS_VIDEO           0u
-#define MVM_CAPS_COMM            1u
-#define MVM_CAPS_INPUT           2u
-#define MVM_CAPS_SOUND           3u
+#define MVM_CAPS_INPUT           1u
+#define MVM_CAPS_SOUND           2u
+#define MVM_CAPS_COMM            3u
 #define MVM_CAPS_SYSTEM          4u
 #define MVM_INPUT_NUMERIC_KEYPAD 0x0008u
 
@@ -113,6 +111,26 @@ static VMGPResource *MVM_lFindMutableResource(VMGPContext *ctx, uint32_t resourc
  * @brief Allocates one free resource stream slot.
  */
 static VMGPStream *MVM_lAllocStream(VMGPContext *ctx);
+
+/**
+ * @brief Returns one VM-local persistent file by name.
+ */
+static VMGPFile *MVM_lFindFile(VMGPContext *ctx, const char *name);
+
+/**
+ * @brief Creates or returns one VM-local persistent file by name.
+ */
+static VMGPFile *MVM_lOpenFile(VMGPContext *ctx, const char *name, bool create);
+
+/**
+ * @brief Reads one guest ASCII filename into a bounded host buffer.
+ */
+static void MVM_lReadFileName(const VMGPContext *ctx, uint32_t addr, char *dst, size_t dst_size);
+
+/**
+ * @brief Opens one VM-local persistent file stream.
+ */
+static bool MVM_lOpenFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t mode, uint32_t name_addr);
 
 /**
  * @brief Reads one byte range from one open resource stream.
@@ -180,14 +198,12 @@ static uint32_t MVM_lMapTileBytes(const VMGPMapState *map_state);
 static uint8_t MVM_lMapAttributeMask(const VMGPContext *ctx, const VMGPMapState *map_state);
 static VMGPMapUpdateCache *MVM_lMapUpdateCache(VMGPContext *ctx, const VMGPMapState *map_state);
 static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *map_state);
-static bool MVM_lHeapReadBlock(const VMGPContext *ctx, uint32_t block_addr, uint32_t *size, bool *used);
-static void MVM_lHeapWriteBlock(VMGPContext *ctx, uint32_t block_addr, uint32_t size, bool used);
-static void MVM_lHeapCompact(VMGPContext *ctx);
-static bool MVM_lHeapFindBlockByPayload(const VMGPContext *ctx,
-                                        uint32_t payload_addr,
-                                        uint32_t *block_addr,
-                                        uint32_t *size,
-                                        bool *used);
+static uint32_t MVM_lFontCharWidth(const VMGPContext *ctx, uint32_t font_addr);
+static uint32_t MVM_lFontCharHeight(const VMGPContext *ctx, uint32_t font_addr);
+static uint32_t MVM_lSystemFontCharWidth(const VMGPContext *ctx);
+static uint32_t MVM_lSystemFontCharHeight(const VMGPContext *ctx);
+static uint32_t MVM_lPackTextExtent(uint32_t width, uint32_t height);
+static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, uint32_t str, uint32_t font, bool unicode);
 static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_addr);
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr);
 static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx);
@@ -789,6 +805,165 @@ static VMGPStream *MVM_lAllocStream(VMGPContext *ctx)
 
   return NULL;
 } /* End of MVM_lAllocStream */
+
+static VMGPFile *MVM_lFindFile(VMGPContext *ctx, const char *name)
+{
+  uint32_t index;
+
+  if (!ctx || !name)
+  {
+    return NULL;
+  }
+
+  for (index = 0u; index < VMGP_MAX_FILES; ++index)
+  {
+    if (ctx->files[index].used && !ctx->files[index].deleted && strcmp(ctx->files[index].name, name) == 0)
+    {
+      return &ctx->files[index];
+    }
+  }
+
+  return NULL;
+} /* End of MVM_lFindFile */
+
+static VMGPFile *MVM_lOpenFile(VMGPContext *ctx, const char *name, bool create)
+{
+  VMGPFile *file;
+  uint32_t index;
+
+  file = MVM_lFindFile(ctx, name);
+  if (file || !create)
+  {
+    return file;
+  }
+
+  for (index = 0u; index < VMGP_MAX_FILES; ++index)
+  {
+    if (!ctx->files[index].used || ctx->files[index].deleted)
+    {
+      memset(&ctx->files[index], 0, sizeof(ctx->files[index]));
+      ctx->files[index].data = MVM_AcquireInitBuffer(ctx, VMGP_FILE_INITIAL_BYTES);
+
+      if (!ctx->files[index].data)
+      {
+        return NULL;
+      }
+
+      ctx->files[index].used = true;
+      ctx->files[index].capacity = VMGP_FILE_INITIAL_BYTES;
+      strncpy(ctx->files[index].name, name, VMGP_FILE_NAME_BYTES - 1u);
+
+      return &ctx->files[index];
+    }
+  }
+
+  return NULL;
+} /* End of MVM_lOpenFile */
+
+static void MVM_lReadFileName(const VMGPContext *ctx, uint32_t addr, char *dst, size_t dst_size)
+{
+  size_t index;
+
+  if (!dst || dst_size == 0u)
+  {
+    return;
+  }
+
+  dst[0] = '\0';
+  if (!ctx || addr == 0u || addr >= ctx->mem_size)
+  {
+    strncpy(dst, "__default", dst_size - 1u);
+    dst[dst_size - 1u] = '\0';
+
+    return;
+  }
+
+  for (index = 0u; (index + 1u) < dst_size && MVM_RuntimeMemRangeOk(ctx, addr + (uint32_t)index, 1u); ++index)
+  {
+    uint8_t ch;
+
+    ch = ctx->mem[addr + (uint32_t)index];
+    if (ch == 0u)
+    {
+      break;
+    }
+
+    dst[index] = (ch >= 0x20u && ch < 0x7Fu) ? (char)ch : '_';
+  }
+
+  dst[index] = '\0';
+  if (dst[0] == '\0')
+  {
+    strncpy(dst, "__default", dst_size - 1u);
+    dst[dst_size - 1u] = '\0';
+  }
+} /* End of MVM_lReadFileName */
+
+static bool MVM_lOpenFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t mode, uint32_t name_addr)
+{
+  VMGPFile *file;
+  char name[VMGP_FILE_NAME_BYTES];
+  bool create;
+  uint32_t index;
+
+  if (!ctx || !stream)
+  {
+    return false;
+  }
+
+  MVM_lReadFileName(ctx, name_addr, name, sizeof(name));
+
+  file = MVM_lFindFile(ctx, name);
+  if ((mode & STREAM_DELETE_FLAG) != 0u)
+  {
+    if (file)
+    {
+      file->deleted = true;
+      file->size = 0u;
+    }
+
+    memset(stream, 0, sizeof(*stream));
+    ctx->regs[VM_REG_R0] = 0u;
+    MVM_LOG_D(ctx, "file-open", "vStreamOpen(file=%s mode=%08X) delete -> 0\n", name, mode);
+
+    return true;
+  }
+
+  create = ((mode & (STREAM_CREATE_FLAG | STREAM_TRUNC_FLAG)) != 0u);
+  file = MVM_lOpenFile(ctx, name, create);
+  if (!file)
+  {
+    memset(stream, 0, sizeof(*stream));
+    ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+    MVM_LOG_D(ctx, "file-open", "vStreamOpen(file=%s mode=%08X) -> -1 missing file\n", name, mode);
+
+    return true;
+  }
+
+  if ((mode & STREAM_TRUNC_FLAG) != 0u)
+  {
+    file->size = 0u;
+  }
+
+  index = (uint32_t)(file - ctx->files);
+  stream->overlay_data = file->data;
+  stream->overlay_size = file->capacity;
+  stream->size = file->size;
+  stream->file_index = index + 1u;
+  stream->mode = mode;
+  stream->pos = 0u;
+  ctx->regs[VM_REG_R0] = stream->handle;
+
+  MVM_LOG_D(ctx,
+            "file-open",
+            "vStreamOpen(file=%s mode=%08X) -> handle=%u size=%u\n",
+            name,
+            mode,
+            stream->handle,
+            stream->size);
+
+  return true;
+} /* End of MVM_lOpenFileStream */
 
 static bool MVM_lReadStreamBytes(const VMGPContext *ctx, const VMGPStream *stream, uint32_t pos, void *dst, uint32_t size)
 {
@@ -1641,184 +1816,15 @@ static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *m
 } /* End of MVM_lEmitMapTileCommands */
 
 /**
- * @brief Reads one heap block header from guest memory.
- */
-static bool MVM_lHeapReadBlock(const VMGPContext *ctx, uint32_t block_addr, uint32_t *size, bool *used)
-{
-  uint32_t payload_size;
-  uint32_t flags;
-  uint32_t next_addr;
-
-  payload_size = 0u;
-  flags = 0u;
-  next_addr = 0u;
-
-  if (!ctx ||
-      block_addr < ctx->heap_base ||
-      block_addr > ctx->heap_cur ||
-      (ctx->heap_cur - block_addr) < HEAP_BLOCK_HEADER_SIZE ||
-      !MVM_RuntimeMemRangeOk(ctx, block_addr, HEAP_BLOCK_HEADER_SIZE))
-  {
-    return false;
-  }
-
-  payload_size = vm_align4(vm_read_u32_le(ctx->mem + block_addr + 0u));
-  flags = vm_read_u32_le(ctx->mem + block_addr + 4u);
-
-  if (payload_size == 0u)
-  {
-    return false;
-  }
-
-  next_addr = block_addr + HEAP_BLOCK_HEADER_SIZE + payload_size;
-
-  if (next_addr < block_addr || next_addr > ctx->heap_cur)
-  {
-    return false;
-  }
-
-  if (size)
-  {
-    *size = payload_size;
-  }
-
-  if (used)
-  {
-    *used = ((flags & HEAP_BLOCK_FLAG_USED) != 0u);
-  }
-
-  return true;
-} /* End of MVM_lHeapReadBlock */
-
-/**
- * @brief Writes one heap block header into guest memory.
- */
-static void MVM_lHeapWriteBlock(VMGPContext *ctx, uint32_t block_addr, uint32_t size, bool used)
-{
-  vm_write_u32_le(ctx->mem + block_addr + 0u, vm_align4(size));
-  vm_write_u32_le(ctx->mem + block_addr + 4u, used ? HEAP_BLOCK_FLAG_USED : 0u);
-  MVM_WatchMemoryWrite(ctx, block_addr, HEAP_BLOCK_HEADER_SIZE, "heap-header");
-} /* End of MVM_lHeapWriteBlock */
-
-/**
- * @brief Coalesces adjacent free heap blocks and releases trailing free space.
- */
-static void MVM_lHeapCompact(VMGPContext *ctx)
-{
-  uint32_t addr;
-  uint32_t size;
-  uint32_t next_addr;
-  uint32_t next_size;
-  bool used;
-  bool next_used;
-
-  addr = 0u;
-  size = 0u;
-  next_addr = 0u;
-  next_size = 0u;
-  used = false;
-  next_used = false;
-
-  if (!ctx || ctx->heap_cur <= ctx->heap_base)
-  {
-    return;
-  }
-
-  addr = ctx->heap_base;
-
-  while (addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, addr, &size, &used))
-  {
-    next_addr = addr + HEAP_BLOCK_HEADER_SIZE + size;
-
-    if (!used)
-    {
-      while (next_addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, next_addr, &next_size, &next_used) && !next_used)
-      {
-        size += HEAP_BLOCK_HEADER_SIZE + next_size;
-        next_addr += HEAP_BLOCK_HEADER_SIZE + next_size;
-      }
-
-      MVM_lHeapWriteBlock(ctx, addr, size, false);
-
-      if (next_addr == ctx->heap_cur)
-      {
-        ctx->heap_cur = addr;
-        break;
-      }
-    }
-
-    addr = next_addr;
-  }
-} /* End of MVM_lHeapCompact */
-
-/**
- * @brief Finds one heap block by its guest payload pointer.
- */
-static bool MVM_lHeapFindBlockByPayload(const VMGPContext *ctx,
-                                        uint32_t payload_addr,
-                                        uint32_t *block_addr,
-                                        uint32_t *size,
-                                        bool *used)
-{
-  uint32_t addr;
-  uint32_t block_size;
-  bool block_used;
-
-  addr = 0u;
-  block_size = 0u;
-  block_used = false;
-
-  if (!ctx || payload_addr < (ctx->heap_base + HEAP_BLOCK_HEADER_SIZE) || payload_addr >= ctx->heap_cur)
-  {
-    return false;
-  }
-
-  addr = ctx->heap_base;
-
-  while (addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, addr, &block_size, &block_used))
-  {
-    if ((addr + HEAP_BLOCK_HEADER_SIZE) == payload_addr)
-    {
-      if (block_addr)
-      {
-        *block_addr = addr;
-      }
-
-      if (size)
-      {
-        *size = block_size;
-      }
-
-      if (used)
-      {
-        *used = block_used;
-      }
-
-      return true;
-    }
-
-    addr += HEAP_BLOCK_HEADER_SIZE + block_size;
-  }
-
-  return false;
-} /* End of MVM_lHeapFindBlockByPayload */
-
-/**
- * @brief Allocates one guest heap block using first-fit reuse.
+ * @brief Allocates one guest heap block using monotonic guest addresses.
  */
 static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_addr)
 {
   uint32_t addr;
-  uint32_t block_size;
-  uint32_t remainder_addr;
-  uint32_t remainder_size;
-  bool used;
+  uint32_t next_addr;
 
   addr = 0u;
-  block_size = 0u;
-  remainder_addr = 0u;
-  remainder_size = 0u;
-  used = false;
+  next_addr = 0u;
 
   if (!ctx || !payload_addr)
   {
@@ -1826,67 +1832,31 @@ static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_ad
   }
 
   size = vm_align4(size ? size : 4u);
-  MVM_lHeapCompact(ctx);
-  addr = ctx->heap_base;
-
-  while (addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, addr, &block_size, &used))
-  {
-    if (!used && block_size >= size)
-    {
-      if (block_size >= (size + HEAP_BLOCK_HEADER_SIZE + 4u))
-      {
-        remainder_addr = addr + HEAP_BLOCK_HEADER_SIZE + size;
-        remainder_size = block_size - size - HEAP_BLOCK_HEADER_SIZE;
-        MVM_lHeapWriteBlock(ctx, addr, size, true);
-        MVM_lHeapWriteBlock(ctx, remainder_addr, remainder_size, false);
-      }
-      else
-      {
-        MVM_lHeapWriteBlock(ctx, addr, block_size, true);
-      }
-
-      *payload_addr = addr + HEAP_BLOCK_HEADER_SIZE;
-      return true;
-    }
-
-    addr += HEAP_BLOCK_HEADER_SIZE + block_size;
-  }
-
   addr = vm_align4(ctx->heap_cur);
+  next_addr = addr + size;
 
   if (addr > ctx->heap_limit ||
-      (HEAP_BLOCK_HEADER_SIZE + size) > (ctx->heap_limit - addr))
+      next_addr < addr ||
+      next_addr > ctx->heap_limit)
   {
     return false;
   }
 
-  MVM_lHeapWriteBlock(ctx, addr, size, true);
-  ctx->heap_cur = addr + HEAP_BLOCK_HEADER_SIZE + size;
-  *payload_addr = addr + HEAP_BLOCK_HEADER_SIZE;
+  ctx->heap_cur = next_addr;
+  *payload_addr = addr;
 
   return true;
 } /* End of MVM_lHeapAlloc */
 
 /**
- * @brief Frees one guest heap block and compacts adjacent free blocks.
+ * @brief Validates one guest heap pointer.
  */
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr)
 {
-  uint32_t block_addr;
-  uint32_t size;
-  bool used;
-
-  block_addr = 0u;
-  size = 0u;
-  used = false;
-
-  if (!ctx || !MVM_lHeapFindBlockByPayload(ctx, payload_addr, &block_addr, &size, &used) || !used)
+  if (!ctx || payload_addr < ctx->heap_base || payload_addr >= ctx->heap_cur)
   {
     return false;
   }
-
-  MVM_lHeapWriteBlock(ctx, block_addr, size, false);
-  MVM_lHeapCompact(ctx);
 
   return true;
 } /* End of MVM_lHeapFree */
@@ -1896,35 +1866,16 @@ static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr)
  */
 static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx)
 {
-  uint32_t addr;
-  uint32_t size;
   uint32_t free_bytes;
-  bool used;
 
-  addr = 0u;
-  size = 0u;
   free_bytes = 0u;
-  used = false;
 
   if (!ctx)
   {
     return 0u;
   }
 
-  MVM_lHeapCompact(ctx);
-  addr = ctx->heap_base;
-
-  while (addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, addr, &size, &used))
-  {
-    if (!used && size > free_bytes)
-    {
-      free_bytes = size;
-    }
-
-    addr += HEAP_BLOCK_HEADER_SIZE + size;
-  }
-
-  if (ctx->heap_cur <= ctx->heap_limit && (ctx->heap_limit - ctx->heap_cur) > free_bytes)
+  if (ctx->heap_cur < ctx->heap_limit)
   {
     free_bytes = ctx->heap_limit - ctx->heap_cur;
   }
@@ -1974,6 +1925,115 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
 
   return command;
 } /* End of MVM_lAllocDrawCommand */
+
+static uint32_t MVM_lFontCharWidth(const VMGPContext *ctx, uint32_t font_addr)
+{
+  if (MVM_RuntimeMemRangeOk(ctx, font_addr, 12u) && ctx->mem[font_addr + 9u] != 0u)
+  {
+    return ctx->mem[font_addr + 9u];
+  }
+
+  return 6u;
+} /* End of MVM_lFontCharWidth */
+
+static uint32_t MVM_lFontCharHeight(const VMGPContext *ctx, uint32_t font_addr)
+{
+  if (MVM_RuntimeMemRangeOk(ctx, font_addr, 12u) && ctx->mem[font_addr + 10u] != 0u)
+  {
+    return ctx->mem[font_addr + 10u];
+  }
+
+  return 8u;
+} /* End of MVM_lFontCharHeight */
+
+static uint32_t MVM_lSystemFontCharWidth(const VMGPContext *ctx)
+{
+  if (ctx && ctx->active_font != 0u)
+  {
+    return MVM_lFontCharWidth(ctx, ctx->active_font);
+  }
+
+  return (ctx && ctx->system_font_width != 0u) ? ctx->system_font_width : 6u;
+} /* End of MVM_lSystemFontCharWidth */
+
+static uint32_t MVM_lSystemFontCharHeight(const VMGPContext *ctx)
+{
+  if (ctx && ctx->active_font != 0u)
+  {
+    return MVM_lFontCharHeight(ctx, ctx->active_font);
+  }
+
+  return (ctx && ctx->system_font_height != 0u) ? ctx->system_font_height : 8u;
+} /* End of MVM_lSystemFontCharHeight */
+
+static uint32_t MVM_lPackTextExtent(uint32_t width, uint32_t height)
+{
+  if (width > 0xFFFFu)
+  {
+    width = 0xFFFFu;
+  }
+  if (height > 0xFFFFu)
+  {
+    height = 0xFFFFu;
+  }
+
+  return (height << 16) | width;
+} /* End of MVM_lPackTextExtent */
+
+static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, uint32_t str, uint32_t font, bool unicode)
+{
+  MVM_DrawCommand_t *command;
+  uint32_t length;
+  uint32_t copy_length;
+  uint32_t index;
+
+  command = NULL;
+  length = 0u;
+  copy_length = 0u;
+
+  if (str < ctx->mem_size)
+  {
+    length = unicode ? MVM_lUnicodeStrLen(ctx->mem + str, ctx->mem_size - str)
+                     : MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str);
+  }
+
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TEXT);
+  if (command)
+  {
+    command->x0 = (int16_t)(x & 0xFFFFu);
+    command->y0 = (int16_t)(y & 0xFFFFu);
+    command->width = (uint16_t)(length * MVM_lFontCharWidth(ctx, font));
+    command->height = (uint16_t)MVM_lFontCharHeight(ctx, font);
+    command->color = ctx->fg_color;
+    command->aux = str;
+    command->aux2 = font;
+    command->text_palette[0] = ctx->palette_entries[0];
+    command->text_palette[1] = ctx->palette_entries[1];
+    command->text_palette[2] = ctx->palette_entries[2];
+    command->text_palette[3] = ctx->palette_entries[3];
+
+    copy_length = length;
+    if (copy_length >= VMGP_DRAW_TEXT_SNAPSHOT_BYTES)
+    {
+      copy_length = VMGP_DRAW_TEXT_SNAPSHOT_BYTES - 1u;
+    }
+
+    if (str < ctx->mem_size)
+    {
+      for (index = 0u; index < copy_length; ++index)
+      {
+        uint8_t ch;
+
+        ch = unicode ? ctx->mem[str + index * 2u] : ctx->mem[str + index];
+        command->text[index] = (ch >= 0x20u && ch < 0x7Fu) ? ch : (uint8_t)'.';
+      }
+      command->text[copy_length] = 0u;
+      command->text_length = (uint16_t)copy_length;
+    }
+  }
+
+  return length;
+} /* End of MVM_lEmitTextCommand */
 
 static uint32_t MVM_lReadPackedLsbPixel(const uint8_t *data, uint32_t pixel_index, uint32_t bits_per_pixel)
 {
@@ -2804,6 +2864,7 @@ MVM_IMPORT_IMPL(vitoa)
 MVM_IMPORT_IMPL(vStreamOpen)
 {
   uint32_t mode;
+  uint32_t name_addr;
   uint32_t resource_id;
   VMGPStream *stream;
   VMGPResource *resource;
@@ -2812,6 +2873,12 @@ MVM_IMPORT_IMPL(vStreamOpen)
   void *overlay_mem;
 
   mode = ctx->regs[VM_REG_P1];
+  name_addr = ctx->regs[VM_REG_P0];
+  if (mode == 0u && ((ctx->regs[VM_REG_P0] & 0xFFu) == 7u))
+  {
+    mode = ctx->regs[VM_REG_P0];
+    name_addr = 0u;
+  }
   resource_id = mode >> 16;
   stream = NULL;
   resource = NULL;
@@ -2828,27 +2895,46 @@ MVM_IMPORT_IMPL(vStreamOpen)
     return true;
   }
 
-  if (resource_id != 0u)
+  if (stream_type == 0u)
   {
-    resource = MVM_lFindMutableResource(ctx, resource_id);
-
-    if (!resource)
-    {
-      memset(stream, 0, sizeof(*stream));
-      ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
-
-      return true;
-    }
-
-    stream->file_offset = ctx->res_file_offset + resource->offset;
-    stream->size = resource->size;
-    stream->resource_id = resource_id;
+    return MVM_lOpenFileStream(ctx, stream, mode, name_addr);
   }
-  else
+
+  if (stream_type != 7u)
   {
-    stream->file_offset = ctx->res_file_offset;
-    stream->size = ctx->header.res_size;
+    memset(stream, 0, sizeof(*stream));
+    ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+    MVM_LOG_D(ctx,
+              "stream-open",
+              "vStreamOpen(mode=%08X resid=%u type=%u) -> -1 unsupported host file stream\n",
+              mode,
+              resource_id,
+              stream_type);
+
+    return true;
   }
+
+  resource = MVM_lFindMutableResource(ctx, resource_id);
+
+  if (!resource)
+  {
+    memset(stream, 0, sizeof(*stream));
+    ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
+
+    MVM_LOG_D(ctx,
+              "stream-open",
+              "vStreamOpen(mode=%08X resid=%u type=%u) -> -1 missing resource\n",
+              mode,
+              resource_id,
+              stream_type);
+
+    return true;
+  }
+
+  stream->file_offset = ctx->res_file_offset + resource->offset;
+  stream->size = resource->size;
+  stream->resource_id = resource_id;
 
   stream->mode = mode;
   stream->pos = 0u;
@@ -3098,6 +3184,16 @@ MVM_IMPORT_IMPL(vStreamWrite)
     memcpy(stream->overlay_data + stream->pos, ctx->mem + buffer, writable);
     stream->pos += writable;
     ctx->regs[VM_REG_R0] = writable;
+
+    if (stream->pos > stream->size)
+    {
+      stream->size = stream->pos;
+    }
+
+    if (stream->file_index != 0u && stream->file_index <= VMGP_MAX_FILES)
+    {
+      ctx->files[stream->file_index - 1u].size = stream->size;
+    }
 
     if (stream->resource_id != 0u)
     {
@@ -3586,7 +3682,7 @@ MVM_IMPORT_IMPL(vGetCaps)
            MVM_RuntimeMemRangeOk(ctx, out, 4u))
   {
     vm_write_u16_le(ctx->mem + out + 0u, 4u);
-    vm_write_u16_le(ctx->mem + out + 2u, 0u);
+    vm_write_u16_le(ctx->mem + out + 2u, 0x0027u);
     result = 1u;
   }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_SYSTEM) != 0u &&
@@ -3676,6 +3772,31 @@ MVM_IMPORT_IMPL(vGetTimeDate)
     return true;
   }
 
+  if (ctx->fixed_time_year != 0u)
+  {
+    vm_write_u16_le(ctx->mem + out + 0u, ctx->fixed_time_year);
+    vm_write_u16_le(ctx->mem + out + 2u, ctx->fixed_time_day);
+    ctx->mem[out + 4u] = ctx->fixed_time_month;
+    ctx->mem[out + 5u] = ctx->fixed_time_hour;
+    ctx->mem[out + 6u] = ctx->fixed_time_minute;
+    ctx->mem[out + 7u] = ctx->fixed_time_second;
+    MVM_WatchMemoryWrite(ctx, out, 8u, "vGetTimeDate");
+    ctx->regs[VM_REG_R0] = 0u;
+
+    MVM_LOG_D(ctx,
+              "time-date",
+              "vGetTimeDate(out=%08X) -> fixed %04u-%02u-%02u %02u:%02u:%02u\n",
+              out,
+              (uint32_t)ctx->fixed_time_year,
+              (uint32_t)ctx->fixed_time_month,
+              (uint32_t)ctx->fixed_time_day,
+              (uint32_t)ctx->fixed_time_hour,
+              (uint32_t)ctx->fixed_time_minute,
+              (uint32_t)ctx->fixed_time_second);
+
+    return true;
+  }
+
   now = time(NULL);
   tm_value = localtime(&now);
 
@@ -3729,6 +3850,31 @@ MVM_IMPORT_IMPL(vGetTimeDateUTC)
   if (!MVM_RuntimeMemRangeOk(ctx, out, 8u))
   {
     ctx->regs[VM_REG_R0] = 0u;
+    return true;
+  }
+
+  if (ctx->fixed_time_year != 0u)
+  {
+    vm_write_u16_le(ctx->mem + out + 0u, ctx->fixed_time_year);
+    vm_write_u16_le(ctx->mem + out + 2u, ctx->fixed_time_day);
+    ctx->mem[out + 4u] = ctx->fixed_time_month;
+    ctx->mem[out + 5u] = ctx->fixed_time_hour;
+    ctx->mem[out + 6u] = ctx->fixed_time_minute;
+    ctx->mem[out + 7u] = ctx->fixed_time_second;
+    MVM_WatchMemoryWrite(ctx, out, 8u, "vGetTimeDateUTC");
+    ctx->regs[VM_REG_R0] = 0u;
+
+    MVM_LOG_D(ctx,
+              "time-date-utc",
+              "vGetTimeDateUTC(out=%08X) -> fixed %04u-%02u-%02u %02u:%02u:%02u\n",
+              out,
+              (uint32_t)ctx->fixed_time_year,
+              (uint32_t)ctx->fixed_time_month,
+              (uint32_t)ctx->fixed_time_day,
+              (uint32_t)ctx->fixed_time_hour,
+              (uint32_t)ctx->fixed_time_minute,
+              (uint32_t)ctx->fixed_time_second);
+
     return true;
   }
 
@@ -4485,7 +4631,7 @@ MVM_IMPORT_IMPL(vPrint)
     command->y0 = (int16_t)(y & 0xFFFFu);
     command->width = (uint16_t)(length * 6u);
     command->height = 8u;
-    command->color = ctx->fg_color;
+    command->color = 0u;
     command->aux = str;
     command->aux2 = ctx->active_font;
     command->text_palette[0] = ctx->palette_entries[0];
@@ -6144,7 +6290,56 @@ MVM_DEFINE_ZERO_STUB(vResetLights)
  * Status: Stub.
  * Stub behavior: Logs the call and returns zero.
  */
-MVM_DEFINE_ZERO_STUB(vSelectFont)
+MVM_IMPORT_IMPL(vSelectFont)
+{
+  uint32_t size;
+  uint32_t flags;
+  uint32_t ch;
+  uint32_t height;
+
+  size = ctx->regs[VM_REG_P0];
+  flags = ctx->regs[VM_REG_P1];
+  ch = ctx->regs[VM_REG_P2] & 0xFFFFu;
+
+  if ((size & 0x80000000u) != 0u || (size & 0x40000000u) != 0u)
+  {
+    height = size & 0xFFFFu;
+    if (height == 0u)
+    {
+      height = 8u;
+    }
+  }
+  else if (size == 1u)
+  {
+    height = 8u;
+  }
+  else if (size == 2u)
+  {
+    height = 14u;
+  }
+  else
+  {
+    height = 8u;
+  }
+
+  ctx->system_font_size = size;
+  ctx->system_font_flags = flags;
+  ctx->system_font_height = height;
+  ctx->system_font_width = (height > 8u) ? ((height * 3u) / 4u) : 6u;
+  ctx->regs[VM_REG_R0] = flags;
+
+  MVM_LOG_D(ctx,
+            "select-font",
+            "vSelectFont(size=%08X flags=%08X ch=%04X) -> %08X metrics=%ux%u\n",
+            size,
+            flags,
+            ch,
+            ctx->regs[VM_REG_R0],
+            ctx->system_font_width,
+            ctx->system_font_height);
+
+  return true;
+} /* End of vSelectFont */
 
 /**
  * @brief SDK: Selects one active texture.
@@ -6291,40 +6486,120 @@ MVM_DEFINE_ZERO_STUB(vSpriteClear)
  * Call model: `sync/result`
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
+ * Status: Partial; returns an estimated packed extent using the active VM font metrics.
  */
-MVM_DEFINE_ZERO_STUB(vTextExtent)
+MVM_IMPORT_IMPL(vTextExtent)
+{
+  uint32_t str;
+  uint32_t length;
+  uint32_t width;
+  uint32_t height;
+
+  str = ctx->regs[VM_REG_P0];
+  length = (str < ctx->mem_size) ? MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str) : 0u;
+  width = length * MVM_lSystemFontCharWidth(ctx);
+  height = (length == 0u) ? 0u : MVM_lSystemFontCharHeight(ctx);
+  ctx->regs[VM_REG_R0] = MVM_lPackTextExtent(width, height);
+
+  MVM_LOG_D(ctx,
+            "text-extent",
+            "vTextExtent(str=%08X len=%u metrics=%ux%u) -> %08X\n",
+            str,
+            length,
+            MVM_lSystemFontCharWidth(ctx),
+            MVM_lSystemFontCharHeight(ctx),
+            ctx->regs[VM_REG_R0]);
+
+  return true;
+} /* End of vTextExtent */
 
 /**
  * @brief SDK: Returns the extent of one Unicode text string.
  * Call model: `sync/result`
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
+ * Status: Partial; returns an estimated packed extent using the active VM font metrics.
  */
-MVM_DEFINE_ZERO_STUB(vTextExtentU)
+MVM_IMPORT_IMPL(vTextExtentU)
+{
+  uint32_t str;
+  uint32_t length;
+  uint32_t width;
+  uint32_t height;
+
+  str = ctx->regs[VM_REG_P0];
+  length = (str < ctx->mem_size) ? MVM_lUnicodeStrLen(ctx->mem + str, ctx->mem_size - str) : 0u;
+  width = length * MVM_lSystemFontCharWidth(ctx);
+  height = (length == 0u) ? 0u : MVM_lSystemFontCharHeight(ctx);
+  ctx->regs[VM_REG_R0] = MVM_lPackTextExtent(width, height);
+
+  MVM_LOG_D(ctx,
+            "text-extentu",
+            "vTextExtentU(str=%08X len=%u metrics=%ux%u) -> %08X\n",
+            str,
+            length,
+            MVM_lSystemFontCharWidth(ctx),
+            MVM_lSystemFontCharHeight(ctx),
+            ctx->regs[VM_REG_R0]);
+
+  return true;
+} /* End of vTextExtentU */
 
 /**
  * @brief SDK: Draws one text string.
  * Call model: `sync/fire-and-forget`
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
+ * Status: Partial; queues a text draw command using a snapshot of the ASCII string.
  */
-MVM_DEFINE_ZERO_STUB(vTextOut)
+MVM_IMPORT_IMPL(vTextOut)
+{
+  uint32_t font;
+  uint32_t length;
+
+  font = 0u;
+  length = MVM_lEmitTextCommand(ctx, ctx->regs[VM_REG_P0], ctx->regs[VM_REG_P1], ctx->regs[VM_REG_P2], font, false);
+  ctx->regs[VM_REG_R0] = 0u;
+
+  MVM_LOG_D(ctx,
+            "text-out",
+            "vTextOut(x=%u y=%u str=%08X font=%08X len=%u) -> 0\n",
+            ctx->regs[VM_REG_P0],
+            ctx->regs[VM_REG_P1],
+            ctx->regs[VM_REG_P2],
+            font,
+            length);
+
+  return true;
+} /* End of vTextOut */
 
 /**
  * @brief SDK: Draws one Unicode text string.
  * Call model: `sync/fire-and-forget`
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
+ * Status: Partial; queues a text draw command using an ASCII-safe snapshot of the Unicode string.
  */
-MVM_DEFINE_ZERO_STUB(vTextOutU)
+MVM_IMPORT_IMPL(vTextOutU)
+{
+  uint32_t font;
+  uint32_t length;
+
+  font = 0u;
+  length = MVM_lEmitTextCommand(ctx, ctx->regs[VM_REG_P0], ctx->regs[VM_REG_P1], ctx->regs[VM_REG_P2], font, true);
+  ctx->regs[VM_REG_R0] = 0u;
+
+  MVM_LOG_D(ctx,
+            "text-outu",
+            "vTextOutU(x=%u y=%u str=%08X font=%08X len=%u) -> 0\n",
+            ctx->regs[VM_REG_P0],
+            ctx->regs[VM_REG_P1],
+            ctx->regs[VM_REG_P2],
+            font,
+            length);
+
+  return true;
+} /* End of vTextOutU */
 
 /**
  * @brief SDK: Waits for vertical blank.
@@ -6342,9 +6617,27 @@ MVM_DEFINE_ZERO_STUB(vWaitVBL)
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
  * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
+ * Stub behavior: Logs the call and returns success.
  */
-MVM_DEFINE_ZERO_STUB(vCheckDataCert)
+MVM_IMPORT_IMPL(vCheckDataCert)
+{
+  if (!ctx)
+  {
+    return false;
+  }
+
+  ctx->regs[VM_REG_R0] = 1u;
+
+  MVM_LOG_D(ctx,
+            "platform-import",
+            "vCheckDataCert(p0=%08X p1=%08X p2=%08X p3=%08X) -> 1\n",
+            ctx->regs[VM_REG_P0],
+            ctx->regs[VM_REG_P1],
+            ctx->regs[VM_REG_P2],
+            ctx->regs[VM_REG_P3]);
+
+  return true;
+} /* End of vCheckDataCert */
 
 /**
  * @brief SDK: Verifies one data certificate stored in a stream.
@@ -6352,9 +6645,27 @@ MVM_DEFINE_ZERO_STUB(vCheckDataCert)
  * Ownership: Uses one VM-owned stream handle only for the duration of the call.
  * Blocking: Non-blocking.
  * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
+ * Stub behavior: Logs the call and returns success.
  */
-MVM_DEFINE_ZERO_STUB(vCheckDataCertFile)
+MVM_IMPORT_IMPL(vCheckDataCertFile)
+{
+  if (!ctx)
+  {
+    return false;
+  }
+
+  ctx->regs[VM_REG_R0] = 1u;
+
+  MVM_LOG_D(ctx,
+            "platform-import",
+            "vCheckDataCertFile(p0=%08X p1=%08X p2=%08X p3=%08X) -> 1\n",
+            ctx->regs[VM_REG_P0],
+            ctx->regs[VM_REG_P1],
+            ctx->regs[VM_REG_P2],
+            ctx->regs[VM_REG_P3]);
+
+  return true;
+} /* End of vCheckDataCertFile */
 
 /**
  * @brief SDK: Checks one IMEI string against device capabilities.

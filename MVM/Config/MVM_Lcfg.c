@@ -69,7 +69,7 @@ static const MpnDevProfile_t MVM_lDevProfiles[] =
     .color_mode = 0x0008U,
 
     /* Encoded audio capability flags reported to the guest. */
-    .sound_flags = 0x00A7U,
+    .sound_flags = 0x0099U,
 
     /* Encoded system capability flags reported to the guest. */
     .system_flags = 0x0025U,
@@ -87,7 +87,11 @@ static const MpnDevProfile_t MVM_lDevProfiles[] =
     .memory_limit_bytes = 0u,
 
     /* Capability queries supported by this profile. */
-    .supported_caps = MVM_DEVICE_CAP_VIDEO | MVM_DEVICE_CAP_INPUT | MVM_DEVICE_CAP_SOUND | MVM_DEVICE_CAP_SYSTEM,
+    .supported_caps = MVM_DEVICE_CAP_VIDEO |
+                      MVM_DEVICE_CAP_INPUT |
+                      MVM_DEVICE_CAP_SOUND |
+                      MVM_DEVICE_CAP_COMM |
+                      MVM_DEVICE_CAP_SYSTEM,
   },
   {
     /* Human-readable profile identifier used by the host integration. */
@@ -103,7 +107,7 @@ static const MpnDevProfile_t MVM_lDevProfiles[] =
     .color_mode = 0x0008U,
 
     /* Encoded audio capability flags reported to the guest. */
-    .sound_flags = 0x00A7U,
+    .sound_flags = 0x0099U,
 
     /* Encoded system capability flags reported to the guest. */
     .system_flags = 0x0025U,
@@ -121,7 +125,11 @@ static const MpnDevProfile_t MVM_lDevProfiles[] =
     .memory_limit_bytes = 0u,
 
     /* Capability queries supported by this profile. */
-    .supported_caps = MVM_DEVICE_CAP_VIDEO | MVM_DEVICE_CAP_INPUT | MVM_DEVICE_CAP_SOUND | MVM_DEVICE_CAP_SYSTEM,
+    .supported_caps = MVM_DEVICE_CAP_VIDEO |
+                      MVM_DEVICE_CAP_INPUT |
+                      MVM_DEVICE_CAP_SOUND |
+                      MVM_DEVICE_CAP_COMM |
+                      MVM_DEVICE_CAP_SYSTEM,
   }
 };
 

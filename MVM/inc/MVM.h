@@ -138,6 +138,19 @@ MVM_RetCode_t MVM_SetWdgLimit(MpnVM_t *vm, uint32_t no_progress_steps);
 MVM_RetCode_t MVM_SetTickProvider(MpnVM_t *vm, void *user, uint32_t (*get_ticks_ms)(void *user));
 
 /**
+ * @brief Sets a deterministic date/time returned by VM date imports.
+ *
+ * Pass year zero to disable the override and use the host clock again.
+ */
+MVM_RetCode_t MVM_SetFixedDateTime(MpnVM_t *vm,
+                                   uint16_t year,
+                                   uint8_t month,
+                                   uint8_t day,
+                                   uint8_t hour,
+                                   uint8_t minute,
+                                   uint8_t second);
+
+/**
  * @brief Updates the current VM button-state bitmask.
  */
 MVM_RetCode_t MVM_SetButtonState(MpnVM_t *vm, uint32_t button_state);

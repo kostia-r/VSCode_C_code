@@ -21,6 +21,7 @@ typedef struct AppOptions
   const char *profile_name;
   const char *input_script_path;
   const char *record_dir;
+  const char *fixed_date_time;
   uint32_t max_steps;
   uint32_t max_logged_calls;
   uint32_t duration_ms;
@@ -116,7 +117,8 @@ static void print_usage(const char *program_name)
 {
   fprintf(stderr,
           "Usage: %s <decrypted.mpn> [profile_name] [max_steps] [max_logged_calls] "
-          "[--duration-ms N] [--input-script PATH] [--record-dir DIR]\n",
+          "[--duration-ms N] [--input-script PATH] [--record-dir DIR] "
+          "[--fixed-date-time YYYY-MM-DDTHH:MM:SS]\n",
           program_name);
 }
 
@@ -170,6 +172,57 @@ static int is_numeric_arg(const char *value)
 }
 
 /**
+ * @brief Parses one fixed date/time option.
+ */
+static int parse_fixed_date_time(const char *value,
+                                 uint16_t *year,
+                                 uint8_t *month,
+                                 uint8_t *day,
+                                 uint8_t *hour,
+                                 uint8_t *minute,
+                                 uint8_t *second)
+{
+  unsigned parsed_year;
+  unsigned parsed_month;
+  unsigned parsed_day;
+  unsigned parsed_hour;
+  unsigned parsed_minute;
+  unsigned parsed_second;
+
+  if (!value || !year || !month || !day || !hour || !minute || !second)
+  {
+    return 0;
+  }
+
+  if (sscanf(value,
+             "%u-%u-%uT%u:%u:%u",
+             &parsed_year,
+             &parsed_month,
+             &parsed_day,
+             &parsed_hour,
+             &parsed_minute,
+             &parsed_second) != 6)
+  {
+    return 0;
+  }
+
+  if (parsed_year > 65535u || parsed_month > 255u || parsed_day > 255u ||
+      parsed_hour > 255u || parsed_minute > 255u || parsed_second > 255u)
+  {
+    return 0;
+  }
+
+  *year = (uint16_t)parsed_year;
+  *month = (uint8_t)parsed_month;
+  *day = (uint8_t)parsed_day;
+  *hour = (uint8_t)parsed_hour;
+  *minute = (uint8_t)parsed_minute;
+  *second = (uint8_t)parsed_second;
+
+  return 1;
+}
+
+/**
  * @brief Parses runner options from the command line.
  */
 static int parse_options(int argc, char **argv, AppOptions *options)
@@ -188,6 +241,7 @@ static int parse_options(int argc, char **argv, AppOptions *options)
   options->profile_name = NULL;
   options->input_script_path = NULL;
   options->record_dir = NULL;
+  options->fixed_date_time = NULL;
   options->max_steps = MAX_STEPS_DEFAULT;
   options->max_logged_calls = MAX_LOGGED_CALLS_DEFAULT;
   options->duration_ms = 0u;
@@ -225,6 +279,15 @@ static int parse_options(int argc, char **argv, AppOptions *options)
         return 0;
       }
       options->record_dir = argv[arg_index];
+    }
+    else if (strcmp(arg, "--fixed-date-time") == 0)
+    {
+      if (++arg_index >= argc)
+      {
+        print_usage(argv[0]);
+        return 0;
+      }
+      options->fixed_date_time = argv[arg_index];
     }
     else if (arg[0] == '-' && arg[1] == '-')
     {
@@ -333,6 +396,12 @@ int main(int argc, char **argv)
   const MpnDevProfile_t *profile;
   MVM_RetCode_t retVal;
   int exit_code;
+  uint16_t fixed_year;
+  uint8_t fixed_month;
+  uint8_t fixed_day;
+  uint8_t fixed_hour;
+  uint8_t fixed_minute;
+  uint8_t fixed_second;
 
   file_provider = (FileImageSource){0};
   image_source = (MpnImageSource_t){0};
@@ -470,6 +539,35 @@ int main(int argc, char **argv)
     return exit_code;
   }
 
+  if (options.fixed_date_time)
+  {
+    if (!parse_fixed_date_time(options.fixed_date_time,
+                               &fixed_year,
+                               &fixed_month,
+                               &fixed_day,
+                               &fixed_hour,
+                               &fixed_minute,
+                               &fixed_second) ||
+        MVM_SetFixedDateTime(vm,
+                             fixed_year,
+                             fixed_month,
+                             fixed_day,
+                             fixed_hour,
+                             fixed_minute,
+                             fixed_second) != MVM_OK)
+    {
+      fprintf(stderr, "Invalid fixed date/time: %s\n", options.fixed_date_time);
+      MVM_Free(vm);
+      free(vm_storage);
+      close_image_source(&file_provider);
+      SdlBackend_StopRecording(backend);
+      InputScript_Destroy(input_script);
+      SdlBackend_Destroy(backend);
+
+      return exit_code;
+    }
+  }
+
   /* Drive the VM through the non-blocking step API until one of the local
    * runner limits is reached.
    */
@@ -481,7 +579,7 @@ int main(int argc, char **argv)
   VmRunner_Run(vm, backend, &runner_options);
   print_stop_summary(vm);
 
-  exit_code = 0;
+  exit_code = (MVM_GetState(vm) == MVM_STATE_ERROR) ? 2 : 0;
   MVM_Free(vm);
   free(vm_storage);
   close_image_source(&file_provider);

@@ -3,6 +3,7 @@
   "defaultDurationMs": 1000000,
   "defaultMaxSteps": 100000000,
   "defaultMaxLoggedCalls": 1000000,
+  "defaultFixedDateTime": "2005-01-01T12:00:00",
   "runs": [
     {
       "game": "mpn/T310/DeepAbyss_v.1.1_T310_decrypted.mpn",
@@ -98,6 +99,7 @@
     {
       "game": "mpn/T610/VRally_T610_decrypted.mpn",
       "profiles": [ "SE_T610"],
+      "fixedDateTime": "2003-11-04T12:00:00",
       "durationMs": 200000,
       "scenarios": [
         {
@@ -308,6 +310,7 @@
     {
       "game": "mpn/T610/CMRally4_T610_decrypted.mpn",
       "profiles": [ "SE_T610"],
+      "fixedDateTime": "2004-05-15T12:00:00",
       "durationMs": 200000,
       "scenarios": [
         {

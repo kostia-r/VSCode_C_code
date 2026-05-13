@@ -931,6 +931,56 @@ MVM_RetCode_t MVM_SetTickProvider(MpnVM_t *vm, void *user, uint32_t (*get_ticks_
 } /* End of MVM_SetTickProvider */
 
 /**********************************************************************************************************************
+ *  Name: MVM_SetFixedDateTime
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Configures a deterministic date/time returned by runtime date imports.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_SetFixedDateTime(MpnVM_t *vm,
+                                   uint16_t year,
+                                   uint8_t month,
+                                   uint8_t day,
+                                   uint8_t hour,
+                                   uint8_t minute,
+                                   uint8_t second)
+{
+  if (!vm)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  if (year == 0u)
+  {
+    vm->fixed_time_year = 0u;
+    vm->fixed_time_month = 0u;
+    vm->fixed_time_day = 0u;
+    vm->fixed_time_hour = 0u;
+    vm->fixed_time_minute = 0u;
+    vm->fixed_time_second = 0u;
+
+    return MVM_OK;
+  }
+
+  if (year < 1970u || month < 1u || month > 12u || day < 1u || day > 31u ||
+      hour > 23u || minute > 59u || second > 59u)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  vm->fixed_time_year = year;
+  vm->fixed_time_month = month;
+  vm->fixed_time_day = day;
+  vm->fixed_time_hour = hour;
+  vm->fixed_time_minute = minute;
+  vm->fixed_time_second = second;
+
+  return MVM_OK;
+} /* End of MVM_SetFixedDateTime */
+
+/**********************************************************************************************************************
  *  Name: MVM_SetButtonState
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous

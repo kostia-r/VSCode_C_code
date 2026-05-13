@@ -798,8 +798,34 @@ static const uint8_t *debug_font_glyph(uint8_t ch)
   static const uint8_t GLYPH_X[7]     = { 0x11u, 0x11u, 0x0Au, 0x04u, 0x0Au, 0x11u, 0x11u };
   static const uint8_t GLYPH_Y[7]     = { 0x11u, 0x11u, 0x0Au, 0x04u, 0x04u, 0x04u, 0x04u };
   static const uint8_t GLYPH_Z[7]     = { 0x1Fu, 0x01u, 0x02u, 0x04u, 0x08u, 0x10u, 0x1Fu };
+  static const uint8_t GLYPH_a[7]     = { 0x00u, 0x00u, 0x0Eu, 0x01u, 0x0Fu, 0x11u, 0x0Fu };
+  static const uint8_t GLYPH_b[7]     = { 0x10u, 0x10u, 0x1Eu, 0x11u, 0x11u, 0x11u, 0x1Eu };
+  static const uint8_t GLYPH_c[7]     = { 0x00u, 0x00u, 0x0Eu, 0x10u, 0x10u, 0x11u, 0x0Eu };
+  static const uint8_t GLYPH_d[7]     = { 0x01u, 0x01u, 0x0Fu, 0x11u, 0x11u, 0x11u, 0x0Fu };
+  static const uint8_t GLYPH_e[7]     = { 0x00u, 0x00u, 0x0Eu, 0x11u, 0x1Fu, 0x10u, 0x0Eu };
+  static const uint8_t GLYPH_f[7]     = { 0x06u, 0x09u, 0x08u, 0x1Cu, 0x08u, 0x08u, 0x08u };
+  static const uint8_t GLYPH_g[7]     = { 0x00u, 0x00u, 0x0Fu, 0x11u, 0x0Fu, 0x01u, 0x0Eu };
+  static const uint8_t GLYPH_h[7]     = { 0x10u, 0x10u, 0x1Eu, 0x11u, 0x11u, 0x11u, 0x11u };
+  static const uint8_t GLYPH_i[7]     = { 0x04u, 0x00u, 0x0Cu, 0x04u, 0x04u, 0x04u, 0x0Eu };
+  static const uint8_t GLYPH_j[7]     = { 0x02u, 0x00u, 0x06u, 0x02u, 0x02u, 0x12u, 0x0Cu };
+  static const uint8_t GLYPH_k[7]     = { 0x10u, 0x10u, 0x12u, 0x14u, 0x18u, 0x14u, 0x12u };
+  static const uint8_t GLYPH_l[7]     = { 0x0Cu, 0x04u, 0x04u, 0x04u, 0x04u, 0x04u, 0x0Eu };
+  static const uint8_t GLYPH_m[7]     = { 0x00u, 0x00u, 0x1Au, 0x15u, 0x15u, 0x15u, 0x15u };
+  static const uint8_t GLYPH_n[7]     = { 0x00u, 0x00u, 0x1Eu, 0x11u, 0x11u, 0x11u, 0x11u };
+  static const uint8_t GLYPH_o[7]     = { 0x00u, 0x00u, 0x0Eu, 0x11u, 0x11u, 0x11u, 0x0Eu };
+  static const uint8_t GLYPH_p[7]     = { 0x00u, 0x00u, 0x1Eu, 0x11u, 0x1Eu, 0x10u, 0x10u };
+  static const uint8_t GLYPH_q[7]     = { 0x00u, 0x00u, 0x0Fu, 0x11u, 0x0Fu, 0x01u, 0x01u };
+  static const uint8_t GLYPH_r[7]     = { 0x00u, 0x00u, 0x16u, 0x18u, 0x10u, 0x10u, 0x10u };
+  static const uint8_t GLYPH_s[7]     = { 0x00u, 0x00u, 0x0Fu, 0x10u, 0x0Eu, 0x01u, 0x1Eu };
+  static const uint8_t GLYPH_t[7]     = { 0x08u, 0x08u, 0x1Eu, 0x08u, 0x08u, 0x09u, 0x06u };
+  static const uint8_t GLYPH_u[7]     = { 0x00u, 0x00u, 0x11u, 0x11u, 0x11u, 0x13u, 0x0Du };
+  static const uint8_t GLYPH_v[7]     = { 0x00u, 0x00u, 0x11u, 0x11u, 0x11u, 0x0Au, 0x04u };
+  static const uint8_t GLYPH_w[7]     = { 0x00u, 0x00u, 0x11u, 0x15u, 0x15u, 0x15u, 0x0Au };
+  static const uint8_t GLYPH_x[7]     = { 0x00u, 0x00u, 0x11u, 0x0Au, 0x04u, 0x0Au, 0x11u };
+  static const uint8_t GLYPH_y[7]     = { 0x00u, 0x00u, 0x11u, 0x11u, 0x0Fu, 0x01u, 0x0Eu };
+  static const uint8_t GLYPH_z[7]     = { 0x00u, 0x00u, 0x1Fu, 0x02u, 0x04u, 0x08u, 0x1Fu };
 
-  switch ((uint8_t)toupper((int)ch))
+  switch ((uint8_t)ch)
   {
     case '0': return GLYPH_0;
     case '1': return GLYPH_1;
@@ -837,6 +863,32 @@ static const uint8_t *debug_font_glyph(uint8_t ch)
     case 'X': return GLYPH_X;
     case 'Y': return GLYPH_Y;
     case 'Z': return GLYPH_Z;
+    case 'a': return GLYPH_a;
+    case 'b': return GLYPH_b;
+    case 'c': return GLYPH_c;
+    case 'd': return GLYPH_d;
+    case 'e': return GLYPH_e;
+    case 'f': return GLYPH_f;
+    case 'g': return GLYPH_g;
+    case 'h': return GLYPH_h;
+    case 'i': return GLYPH_i;
+    case 'j': return GLYPH_j;
+    case 'k': return GLYPH_k;
+    case 'l': return GLYPH_l;
+    case 'm': return GLYPH_m;
+    case 'n': return GLYPH_n;
+    case 'o': return GLYPH_o;
+    case 'p': return GLYPH_p;
+    case 'q': return GLYPH_q;
+    case 'r': return GLYPH_r;
+    case 's': return GLYPH_s;
+    case 't': return GLYPH_t;
+    case 'u': return GLYPH_u;
+    case 'v': return GLYPH_v;
+    case 'w': return GLYPH_w;
+    case 'x': return GLYPH_x;
+    case 'y': return GLYPH_y;
+    case 'z': return GLYPH_z;
     case '.': return GLYPH_DOT;
     case ':': return GLYPH_COLON;
     case '-': return GLYPH_DASH;
@@ -870,6 +922,7 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
                                  const uint8_t *text,
                                  uint32_t char_count,
                                  const uint32_t *palette,
+                                 uint32_t color,
                                  uint32_t str_addr,
                                  int32_t x,
                                  int32_t y)
@@ -892,8 +945,10 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
     return 0;
   }
 
-  decode_guest_color(palette ? palette[1] : 0xFFu, &fg_red, &fg_green, &fg_blue);
-  decode_guest_color(palette ? palette[2] : 0x00u, &shadow_red, &shadow_green, &shadow_blue);
+  decode_guest_color(color != 0u ? color : (palette ? palette[1] : 0xFFu), &fg_red, &fg_green, &fg_blue);
+  shadow_red = 0u;
+  shadow_green = 0u;
+  shadow_blue = 0u;
 
   for (char_index = 0u; char_index < char_count; ++char_index)
   {
@@ -974,9 +1029,10 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   uint8_t bg_red;
   uint8_t bg_green;
   uint8_t bg_blue;
+  uint32_t text_color;
   const uint8_t *text_bytes;
 
-  if (!renderer || !ctx || !command || command->aux2 == 0u)
+  if (!renderer || !ctx || !command)
   {
     return 0;
   }
@@ -995,6 +1051,19 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
     char_count = MVM_RuntimeStrLen(ctx->mem + str_addr, ctx->mem_size - str_addr);
   }
 
+  if (command->aux2 == 0u)
+  {
+    return draw_debug_text_bytes(renderer,
+                                 ctx,
+                                 text_bytes,
+                                 char_count,
+                                 command->text_palette,
+                                 command->color,
+                                 str_addr,
+                                 command->x0,
+                                 command->y0);
+  }
+
   if (!read_guest_font_header(ctx, command->aux2, &font))
   {
     return draw_debug_text_bytes(renderer,
@@ -1002,6 +1071,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
                                  text_bytes,
                                  char_count,
                                  command->text_palette,
+                                 command->color,
                                  str_addr,
                                  command->x0,
                                  command->y0);
@@ -1014,6 +1084,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
                                  text_bytes,
                                  char_count,
                                  command->text_palette,
+                                 command->color,
                                  str_addr,
                                  command->x0,
                                  command->y0);
@@ -1036,7 +1107,8 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   base_y = command->y0;
   drawn_pixels = 0u;
   max_pixel_value = (1u << font.bpp) - 1u;
-  decode_guest_color(command->text_palette[1], &fg_red, &fg_green, &fg_blue);
+  text_color = command->color != 0u ? command->color : command->text_palette[1];
+  decode_guest_color(text_color, &fg_red, &fg_green, &fg_blue);
   decode_guest_color(command->text_palette[0], &bg_red, &bg_green, &bg_blue);
 
   for (char_index = 0u; char_index < char_count; ++char_index)
@@ -1080,13 +1152,42 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
       pixel_y = bit_index / (uint32_t)font.width;
       draw_x = base_x + (int32_t)(char_index * font.width) + (int32_t)pixel_x;
       draw_y = base_y + (int32_t)pixel_y;
-      if (font.bpp > 1u && (uint32_t)font.palindex + pixel_value < 4u)
+      if (font.bpp == 1u)
       {
-        decode_guest_color(command->text_palette[(uint32_t)font.palindex + pixel_value], &red, &green, &blue);
+        red = fg_red;
+        green = fg_green;
+        blue = fg_blue;
       }
-      else if (font.bpp == 1u)
+      else if ((uint32_t)font.palindex + pixel_value < 4u)
       {
-        decode_guest_color(command->color, &red, &green, &blue);
+        uint32_t layer_color;
+
+        layer_color = command->text_palette[(uint32_t)font.palindex + pixel_value];
+        decode_guest_color(layer_color, &red, &green, &blue);
+        if (command->color != 0u)
+        {
+          uint32_t tint_weight;
+
+          if (pixel_value == max_pixel_value)
+          {
+            tint_weight = 128u;
+          }
+          else if ((pixel_value + 1u) == max_pixel_value)
+          {
+            tint_weight = 64u;
+          }
+          else
+          {
+            tint_weight = 0u;
+          }
+
+          if (tint_weight != 0u)
+          {
+            red = (uint8_t)((((uint32_t)red * (255u - tint_weight)) + ((uint32_t)fg_red * tint_weight)) / 255u);
+            green = (uint8_t)((((uint32_t)green * (255u - tint_weight)) + ((uint32_t)fg_green * tint_weight)) / 255u);
+            blue = (uint8_t)((((uint32_t)blue * (255u - tint_weight)) + ((uint32_t)fg_blue * tint_weight)) / 255u);
+          }
+        }
       }
       else
       {
@@ -1100,14 +1201,79 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
     }
   }
 
-  return drawn_pixels != 0u ? 1 : draw_debug_text_bytes(renderer,
-                                                        ctx,
-                                                        text_bytes,
-                                                        char_count,
-                                                        command->text_palette,
-                                                        str_addr,
-                                                        command->x0,
-                                                        command->y0);
+  if (drawn_pixels == 0u)
+  {
+    static uint32_t fallback_log_count = 0u;
+
+    if (fallback_log_count < 16u)
+    {
+      uint32_t sample_index;
+      uint8_t sample_ch;
+      uint8_t sample_glyph;
+      uint32_t sample_addr;
+      uint32_t sample_pixel_lsb;
+      uint32_t sample_pixel_msb;
+
+      sample_index = 0u;
+      sample_ch = 0u;
+      sample_glyph = 0xFFu;
+      sample_addr = 0u;
+      sample_pixel_lsb = 0u;
+      sample_pixel_msb = 0u;
+
+      while (sample_index < char_count && text_bytes[sample_index] == (uint8_t)' ')
+      {
+        ++sample_index;
+      }
+
+      if (sample_index < char_count)
+      {
+        sample_ch = text_bytes[sample_index];
+        if (MVM_RuntimeMemRangeOk(ctx, font.char_table_addr + sample_ch, 1u))
+        {
+          sample_glyph = ctx->mem[font.char_table_addr + sample_ch];
+          sample_addr = font.font_data_addr + ((uint32_t)sample_glyph * bytes_per_char_tight);
+          if (sample_glyph != 0xFFu && MVM_RuntimeMemRangeOk(ctx, sample_addr, bytes_per_char_tight))
+          {
+            sample_pixel_lsb = read_tight_font_pixel(ctx->mem + sample_addr, 0u, (uint32_t)font.bpp, 0);
+            sample_pixel_msb = read_tight_font_pixel(ctx->mem + sample_addr, 0u, (uint32_t)font.bpp, 1);
+          }
+        }
+      }
+
+      MVM_LOG_D(ctx,
+                "text-render",
+                "fallback font=%08X data=%08X table=%08X bpp=%u w=%u h=%u pal=%u len=%u color=%08X sample='%c' code=%02X glyph=%02X addr=%08X pix0-lsb=%u pix0-msb=%u\n",
+                command->aux2,
+                font.font_data_addr,
+                font.char_table_addr,
+                font.bpp,
+                font.width,
+                font.height,
+                font.palindex,
+                char_count,
+                command->color,
+                (sample_ch >= 0x20u && sample_ch < 0x7Fu) ? (char)sample_ch : '.',
+                sample_ch,
+                sample_glyph,
+                sample_addr,
+                sample_pixel_lsb,
+                sample_pixel_msb);
+      ++fallback_log_count;
+    }
+
+    return draw_debug_text_bytes(renderer,
+                                 ctx,
+                                 text_bytes,
+                                 char_count,
+                                 command->text_palette,
+                                 command->color,
+                                 str_addr,
+                                 command->x0,
+                                 command->y0);
+  }
+
+  return 1;
 }
 
 /**

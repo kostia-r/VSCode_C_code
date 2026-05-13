@@ -29,10 +29,14 @@ enum
   OP_ADD = 0x02,
   OP_AND = 0x03,
   OP_MUL = 0x04,
+  OP_DIV = 0x05,
   OP_DIVU = 0x06,
   OP_OR = 0x07,
   OP_XOR = 0x08,
   OP_SUB = 0x09,
+  OP_SLL = 0x0A,
+  OP_SRA = 0x0B,
+  OP_SRL = 0x0C,
   OP_NOT = 0x0D,
   OP_NEG = 0x0E,
   OP_EXSB = 0x0F,
@@ -99,6 +103,8 @@ enum
   OP_DIVI = 0x4D,
   OP_DIVUI = 0x4E,
   OP_ORI = 0x4F,
+  OP_XORI = 0x50,
+  OP_SUBI = 0x51,
   OP_STBD = 0x52,
   OP_STHD = 0x53,
   OP_STWD = 0x54,
@@ -157,6 +163,16 @@ static void log_vm_call(VMGPContext *ctx, uint32_t call_site, uint32_t index, co
  * @brief Logs a direct VM syscall instruction.
  */
 static void log_syscall(VMGPContext *ctx, uint8_t op);
+
+/**
+ * @brief Returns true when a constant-pool entry denotes callable code.
+ */
+static bool is_callable_code_entry(const VMGPPoolEntry *entry);
+
+/**
+ * @brief Returns one PIP shift count clamped to the 32-bit register width.
+ */
+static uint32_t shift_count32(uint32_t value);
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
@@ -244,16 +260,26 @@ bool MVM_PipStep(VMGPContext *ctx)
       break;
     } /* End of case OP_MUL */
 
+    case OP_DIV:
+    {
+      int32_t s = vm_reg_s32(ctx->regs[rs]);
+      int32_t t = vm_reg_s32(ctx->regs[rt]);
+
+      if (t == 0)
+      {
+        ctx->regs[rd] = 0;
+      }
+      else
+      {
+        ctx->regs[rd] = (uint32_t)((int64_t)s / (int64_t)t);
+      }
+      ctx->pc += 4;
+      break;
+    } /* End of case OP_DIV */
+
     case OP_DIVU:
     {
-      if (ctx->regs[rt] == 0)
-      {
-        MVM_LOG_E(ctx, "divu-zero", "DIVU by zero at pc=0x%X\n", ctx->pc);
-
-        return false;
-      }
-
-      ctx->regs[rd] = ctx->regs[rs] / ctx->regs[rt];
+      ctx->regs[rd] = (ctx->regs[rt] == 0) ? 0u : (ctx->regs[rs] / ctx->regs[rt]);
       ctx->pc += 4;
       break;
     } /* End of case OP_DIVU */
@@ -278,6 +304,27 @@ bool MVM_PipStep(VMGPContext *ctx)
       ctx->pc += 4;
       break;
     } /* End of case OP_SUB */
+
+    case OP_SLL:
+    {
+      ctx->regs[rd] = ctx->regs[rs] << shift_count32(ctx->regs[rt]);
+      ctx->pc += 4;
+      break;
+    } /* End of case OP_SLL */
+
+    case OP_SRA:
+    {
+      ctx->regs[rd] = (uint32_t)(vm_reg_s32(ctx->regs[rs]) >> shift_count32(ctx->regs[rt]));
+      ctx->pc += 4;
+      break;
+    } /* End of case OP_SRA */
+
+    case OP_SRL:
+    {
+      ctx->regs[rd] = ctx->regs[rs] >> shift_count32(ctx->regs[rt]);
+      ctx->pc += 4;
+      break;
+    } /* End of case OP_SRL */
 
     case OP_NOT:
     {
@@ -386,21 +433,21 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_SLLI:
     {
-      ctx->regs[rd] = ctx->regs[rs] << b3;
+      ctx->regs[rd] = ctx->regs[rs] << shift_count32(b3);
       ctx->pc += 4;
       break;
     } /* End of case OP_SLLI */
 
     case OP_SRAI:
     {
-      ctx->regs[rd] = (uint32_t)(vm_reg_s32(ctx->regs[rs]) >> b3);
+      ctx->regs[rd] = (uint32_t)(vm_reg_s32(ctx->regs[rs]) >> shift_count32(b3));
       ctx->pc += 4;
       break;
     } /* End of case OP_SRAI */
 
     case OP_SRLI:
     {
-      ctx->regs[rd] = ctx->regs[rs] >> b3;
+      ctx->regs[rd] = ctx->regs[rs] >> shift_count32(b3);
       ctx->pc += 4;
       break;
     } /* End of case OP_SRLI */
@@ -408,6 +455,17 @@ bool MVM_PipStep(VMGPContext *ctx)
     case OP_ADDQ:
     {
       ctx->regs[rd] = ctx->regs[rs] + (int8_t)b3;
+      if (rd == VM_REG_SP || rs == VM_REG_SP)
+      {
+        MVM_LOG_D(ctx,
+                  "stack-op",
+                  "ADDQ pc=0x%08X rd=%u rs=%u imm=%d sp=0x%08X\n",
+                  ctx->pc,
+                  rd,
+                  rs,
+                  (int8_t)b3,
+                  ctx->regs[VM_REG_SP]);
+      }
       ctx->pc += 4;
       break;
     } /* End of case OP_ADDQ */
@@ -442,21 +500,21 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_SLLB:
     {
-      ctx->regs[rd] = ((ctx->regs[rs] & 0xFFu) << b3) & 0xFFu;
+      ctx->regs[rd] = ((ctx->regs[rs] & 0xFFu) << shift_count32(b3)) & 0xFFu;
       ctx->pc += 4;
       break;
     } /* End of case OP_SLLB */
 
     case OP_SRLB:
     {
-      ctx->regs[rd] = (ctx->regs[rs] & 0xFFu) >> b3;
+      ctx->regs[rd] = (ctx->regs[rs] & 0xFFu) >> shift_count32(b3);
       ctx->pc += 4;
       break;
     } /* End of case OP_SRLB */
 
     case OP_SRAB:
     {
-      ctx->regs[rd] = (uint32_t)((uint8_t)((int8_t)(ctx->regs[rs] & 0xFFu) >> b3));
+      ctx->regs[rd] = (uint32_t)((uint8_t)((int8_t)(ctx->regs[rs] & 0xFFu) >> shift_count32(b3)));
       ctx->pc += 4;
       break;
     } /* End of case OP_SRAB */
@@ -477,21 +535,21 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_SLLH:
     {
-      ctx->regs[rd] = (ctx->regs[rs] << b3) & 0xFFFFu;
+      ctx->regs[rd] = (ctx->regs[rs] << shift_count32(b3)) & 0xFFFFu;
       ctx->pc += 4;
       break;
     } /* End of case OP_SLLH */
 
     case OP_SRLH:
     {
-      ctx->regs[rd] = (ctx->regs[rs] & 0xFFFFu) >> b3;
+      ctx->regs[rd] = (ctx->regs[rs] & 0xFFFFu) >> shift_count32(b3);
       ctx->pc += 4;
       break;
     } /* End of case OP_SRLH */
 
     case OP_SRAH:
     {
-      ctx->regs[rd] = (uint32_t)((uint16_t)((int16_t)(ctx->regs[rs] & 0xFFFFu) >> b3));
+      ctx->regs[rd] = (uint32_t)((uint16_t)((int16_t)(ctx->regs[rs] & 0xFFFFu) >> shift_count32(b3)));
       ctx->pc += 4;
       break;
     } /* End of case OP_SRAH */
@@ -514,6 +572,10 @@ bool MVM_PipStep(VMGPContext *ctx)
     case OP_DIVUI:
 
     case OP_ORI:
+
+    case OP_XORI:
+
+    case OP_SUBI:
     {
       if (!fetch_code_word(ctx, ctx->pc + 4, &ext))
       {
@@ -552,22 +614,35 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         ctx->regs[rd] = (immu == 0) ? 0u : (ctx->regs[rs] / immu);
       }
-      else
+      else if (op == OP_XORI)
+      {
+        ctx->regs[rd] = ctx->regs[rs] ^ immu;
+      }
+      else if (op == OP_SUBI)
+      {
+        ctx->regs[rd] = ctx->regs[rs] - immu;
+      }
+      else /* OP_DIVI */
       {
         imm = (int32_t)immu;
 
-        if (imm == 0)
-        {
-          MVM_LOG_E(ctx, "divi-zero", "DIVi by zero at pc=0x%X\n", ctx->pc);
-
-          return false;
-        }
-
-        ctx->regs[rd] = (uint32_t)(vm_reg_s32(ctx->regs[rs]) / imm);
+        ctx->regs[rd] = (uint32_t)((imm == 0) ? 0 : (vm_reg_s32(ctx->regs[rs]) / imm));
+      }
+      if (rd == VM_REG_SP || rs == VM_REG_SP)
+      {
+        MVM_LOG_D(ctx,
+                  "stack-op",
+                  "%s pc=0x%08X rd=%u rs=%u imm=0x%08X sp=0x%08X\n",
+                  opcode_name(op),
+                  ctx->pc,
+                  rd,
+                  rs,
+                  immu,
+                  ctx->regs[VM_REG_SP]);
       }
       ctx->pc += 8;
       break;
-    } /* End of case OP_ORI */
+    } /* End of case OP_SUBI */
 
     case OP_LDI:
     {
@@ -638,7 +713,22 @@ bool MVM_PipStep(VMGPContext *ctx)
       {
         if (!MVM_RuntimeMemRangeOk(ctx, addr, 4u))
         {
-          MVM_LOG_E(ctx, "mem-oob", "LDWd addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx,
+                    "mem-oob",
+                    "LDWd addr OOB: pc=0x%08X addr=0x%08X rd=%u rs=%u base=0x%08X off=0x%08X ext=0x%08X r0=0x%08X r1=0x%08X p0=0x%08X p1=0x%08X p2=0x%08X p3=0x%08X\n",
+                    ctx->pc,
+                    addr,
+                    rd,
+                    rs,
+                    ctx->regs[rs],
+                    off,
+                    ext,
+                    ctx->regs[VM_REG_R0],
+                    ctx->regs[VM_REG_R1],
+                    ctx->regs[VM_REG_P0],
+                    ctx->regs[VM_REG_P1],
+                    ctx->regs[VM_REG_P2],
+                    ctx->regs[VM_REG_P3]);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 4u);
 
           return false;
@@ -769,6 +859,13 @@ bool MVM_PipStep(VMGPContext *ctx)
     {
       first = vm_reg_index(b1);
       count = vm_reg_index(b2);
+      MVM_LOG_D(ctx,
+                "stack-op",
+                "STORE pc=0x%08X first=%u count=%u sp-before=0x%08X\n",
+                ctx->pc,
+                first,
+                count,
+                ctx->regs[VM_REG_SP]);
 
       for (r = first; r < first + count; ++r)
       {
@@ -782,6 +879,14 @@ bool MVM_PipStep(VMGPContext *ctx)
         vm_write_u32_le(ctx->mem + ctx->regs[VM_REG_SP], ctx->regs[r]);
       } /* End of loop */
 
+      MVM_LOG_D(ctx,
+                "stack-op",
+                "STORE pc=0x%08X first=%u count=%u sp-after=0x%08X\n",
+                ctx->pc,
+                first,
+                count,
+                ctx->regs[VM_REG_SP]);
+
       ctx->pc += 4;
       break;
     } /* End of case OP_STORE */
@@ -792,6 +897,14 @@ bool MVM_PipStep(VMGPContext *ctx)
     {
       first = vm_reg_index(b1);
       count = vm_reg_index(b2);
+      MVM_LOG_D(ctx,
+                "stack-op",
+                "%s pc=0x%08X first=%u count=%u sp-before=0x%08X\n",
+                opcode_name(op),
+                ctx->pc,
+                first,
+                count,
+                ctx->regs[VM_REG_SP]);
 
       for (r = 0; r < count; ++r)
       {
@@ -806,8 +919,30 @@ bool MVM_PipStep(VMGPContext *ctx)
         ctx->regs[VM_REG_SP] += 4;
       } /* End of loop */
 
+      MVM_LOG_D(ctx,
+                "stack-op",
+                "%s pc=0x%08X first=%u count=%u sp-after=0x%08X ra=0x%08X\n",
+                opcode_name(op),
+                ctx->pc,
+                first,
+                count,
+                ctx->regs[VM_REG_SP],
+                ctx->regs[VM_REG_RA]);
+
       if (op == OP_RET)
       {
+        if (ctx->regs[VM_REG_RA] + 4u > ctx->header.code_size)
+        {
+          MVM_LOG_E(ctx,
+                    "bad-return",
+                    "RET target out of code: pc=0x%08X target=0x%08X sp=0x%08X ra=0x%08X first=%u count=%u\n",
+                    ctx->pc,
+                    ctx->regs[VM_REG_RA],
+                    ctx->regs[VM_REG_SP],
+                    ctx->regs[VM_REG_RA],
+                    first,
+                    count);
+        }
         ctx->pc = ctx->regs[VM_REG_RA];
       }
       else
@@ -820,12 +955,34 @@ bool MVM_PipStep(VMGPContext *ctx)
 
     case OP_JPR:
     {
+      if (ctx->regs[rd] + 4u > ctx->header.code_size)
+      {
+        MVM_LOG_E(ctx,
+                  "bad-jump",
+                  "JPR target out of code: pc=0x%08X target=0x%08X sp=0x%08X ra=0x%08X rd=%u\n",
+                  ctx->pc,
+                  ctx->regs[rd],
+                  ctx->regs[VM_REG_SP],
+                  ctx->regs[VM_REG_RA],
+                  rd);
+      }
       ctx->pc = ctx->regs[rd];
       break;
     } /* End of case OP_JPR */
 
     case OP_CALLR:
     {
+      if (ctx->regs[rd] + 4u > ctx->header.code_size)
+      {
+        MVM_LOG_E(ctx,
+                  "bad-call",
+                  "CALLr target out of code: pc=0x%08X target=0x%08X sp=0x%08X ra=0x%08X rd=%u\n",
+                  ctx->pc,
+                  ctx->regs[rd],
+                  ctx->regs[VM_REG_SP],
+                  ctx->regs[VM_REG_RA],
+                  rd);
+      }
       ctx->regs[VM_REG_RA] = ctx->pc + 4;
       ctx->pc = ctx->regs[rd];
       break;
@@ -877,7 +1034,7 @@ bool MVM_PipStep(VMGPContext *ctx)
         MVM_HandleRuntimeImportCall(ctx, index);
         ctx->pc += 8;
       }
-      else if (entry->type == 0x11)
+      else if (is_callable_code_entry(entry))
       {
         ctx->regs[VM_REG_RA] = ctx->pc + 8;
         ctx->pc = MVM_ResolveVmgpPoolValue(ctx, entry);
@@ -1218,6 +1375,20 @@ static bool fetch_code_word(const VMGPContext *ctx, uint32_t pc, uint32_t *out)
 } /* End of fetch_code_word */
 
 /**********************************************************************************************************************
+ *  Name: shift_count32
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: Yes
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Masks one dynamic PIP shift count to avoid undefined host-C shifts.
+ *********************************************************************************************************************/
+static uint32_t shift_count32(uint32_t value)
+{
+  return value & 31u;
+} /* End of shift_count32 */
+
+/**********************************************************************************************************************
  *  Name: opcode_name
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
@@ -1256,6 +1427,12 @@ static const char *opcode_name(uint8_t op)
       break;
     } /* End of case OP_MUL */
 
+    case OP_DIV:
+    {
+      opcodeName = "DIV";
+      break;
+    } /* End of case OP_DIV */
+
     case OP_DIVU:
     {
       opcodeName = "DIVU";
@@ -1279,6 +1456,24 @@ static const char *opcode_name(uint8_t op)
       opcodeName = "SUB";
       break;
     } /* End of case OP_SUB */
+
+    case OP_SLL:
+    {
+      opcodeName = "SLL";
+      break;
+    } /* End of case OP_SLL */
+
+    case OP_SRA:
+    {
+      opcodeName = "SRA";
+      break;
+    } /* End of case OP_SRA */
+
+    case OP_SRL:
+    {
+      opcodeName = "SRL";
+      break;
+    } /* End of case OP_SRL */
 
     case OP_NOT:
     {
@@ -1676,6 +1871,18 @@ static const char *opcode_name(uint8_t op)
       break;
     } /* End of case OP_ORI */
 
+    case OP_XORI:
+    {
+      opcodeName = "XORi";
+      break;
+    } /* End of case OP_XORI */
+
+    case OP_SUBI:
+    {
+      opcodeName = "SUBi";
+      break;
+    } /* End of case OP_SUBI */
+
     case OP_STBD:
     {
       opcodeName = "STBd";
@@ -1860,6 +2067,31 @@ static uint32_t stack_arg0(const VMGPContext *ctx)
   return arg0;
 } /* End of stack_arg0 */
 #endif
+
+/**********************************************************************************************************************
+ *  Name: is_callable_code_entry
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Identifies constant-pool symbol entries that resolve to VM code.
+ *********************************************************************************************************************/
+static bool is_callable_code_entry(const VMGPPoolEntry *entry)
+{
+  uint8_t poolType;
+  uint8_t itemTarget;
+
+  if (!entry)
+  {
+    return false;
+  }
+
+  poolType = (uint8_t)(entry->type & 0x0Fu);
+  itemTarget = (uint8_t)(entry->type >> 4);
+
+  return (itemTarget == 0x01u) && ((poolType == 0x01u) || (poolType == 0x03u));
+} /* End of is_callable_code_entry */
 
 /**********************************************************************************************************************
  *  Name: log_vm_call

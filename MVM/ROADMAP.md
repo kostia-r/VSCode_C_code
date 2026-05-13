@@ -530,6 +530,64 @@ Tasks:
   - missing SDK imports;
   - runtime/platform behavior gaps;
   - renderer, input, timing, persistence, or audio regressions.
+- Track SDL system-font accuracy as a Phase 11 renderer follow-up:
+  - replace the current host debug-text fallback with SDK/reference-shaped
+    system font rendering and metrics for `vTextOut`/`vTextOutU`;
+  - verify DeepAbyss 1.1/1.4 menu, loading, and death-screen text against the
+    reference emulator after corpus stability issues are under control.
+- Track MVM-level platform events for globally important runtime outcomes:
+  - device/profile not supported by the guest or corpus classification;
+  - data certificate accepted/rejected/expired;
+  - license or sidecar resource-pack mismatch;
+  - keep these as structured events so hosts do not need to parse guest
+    message-box text such as "Terminal not supported".
+- Treat data certificates as first-class corpus metadata:
+  - scan embedded certificate resources and sidecar `.mpc` files next to the
+    `.mpn`;
+  - parse observed `M001YYYYMMDD`/`M002YYYYMMDD` validity tags and log the
+  selected fixed date;
+  - allow per-game fixed-date overrides until automatic certificate-date
+    selection is implemented;
+  - investigate the SDK `vlDataCert*` functions and map them to MVM imports if
+    a title calls them directly.
+- Current corpus checkpoint:
+  - 2026-05-13 full corpus run:
+    `Runs/CorpusFullAfterSoundFix/20260513_135812`;
+  - 32/32 manifest entries completed with process exit code 0 and no runner
+    timeout;
+  - no `invalid-opcode`, `memory-oob`, or VM fatal error was observed in the
+    batch logs;
+  - DeepAbyss 1.1/1.4 on T310/T610 now runs long enough for visual and audio
+    inspection after the call/stack, heap, font, date/certificate, persistent
+    stream, and sound capability fixes;
+  - the corpus runner infrastructure is usable as a repeatable Phase 11
+    diagnostic loop.
+- Open defects from the 2026-05-13 corpus checkpoint:
+  - sidecar/resource-pack lookup is incomplete: many titles request `.mpc`
+    resource packs or pack names such as `multipack`/`extrapack*` through
+    `vStreamOpen`, and the host file resolver does not yet map those guest
+    names to files next to the `.mpn`;
+  - persistent-file handling still needs cleanup so first-run missing save
+    files are separated from real missing resource packs and can be reset per
+    corpus run without patching game files by hand;
+  - missing syscall IDs remain visible in corpus logs, currently dominated by
+    `0x28` in `4in1`, `0x32` in `HoneyCave2`, plus isolated `0x25` and `0x23`;
+  - several games terminate through normal VM exit state instead of VM error,
+    including very short exits in `prhstrkmn`, `lunar`, and `IcebloxPlus610`,
+    plus certificate/resource-pack-looking exits in `Huntsman` and
+    `snowboardx`; classify these as unsupported profile, certificate/license,
+    missing pack, or valid guest-controlled exit;
+  - SDL system-font visual parity remains open for DeepAbyss menu/loading/death
+    text despite current readability improvements;
+  - video review of the same corpus run shows additional renderer defects:
+    `HoneyCave` has vertical stripe/layer corruption, `snowboardx` has
+    broken black mask/text-like blits, `SynergenixRally` has right-edge
+    rectangular artifacts, `CMRally4` shows black text/background rectangles,
+    and `SpaceExplorer`/`4in1` lose large background or playfield layers to
+    black frames;
+  - promote unsupported profile, certificate/license, and sidecar-pack outcomes
+    to structured MVM-level platform events instead of relying on message-box
+    text or log parsing.
 - Fix the highest-priority failures found by corpus runs inside the same Phase
   11 feedback loop.
 - Re-run the affected games and profiles after each fix and keep before/after

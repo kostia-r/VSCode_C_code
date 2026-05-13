@@ -146,6 +146,7 @@ foreach ($run in $manifestData.runs) {
     $durationMs = if ($run.durationMs) { [uint32]$run.durationMs } else { [uint32]$manifestData.defaultDurationMs }
     $maxSteps = if ($run.maxSteps) { [uint32]$run.maxSteps } else { [uint32]$manifestData.defaultMaxSteps }
     $maxLoggedCalls = if ($run.maxLoggedCalls) { [uint32]$run.maxLoggedCalls } else { [uint32]$manifestData.defaultMaxLoggedCalls }
+    $fixedDateTime = if ($run.fixedDateTime) { [string]$run.fixedDateTime } else { [string]$manifestData.defaultFixedDateTime }
 
     foreach ($profile in $run.profiles) {
         foreach ($scenario in $run.scenarios) {
@@ -157,6 +158,7 @@ foreach ($run in $manifestData.runs) {
             $recordDir = Join-Path $recordsRoot $runId
             $videoPath = Join-Path $videosRoot "$runId.mp4"
             New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
+            $gameBackupPath = Join-Path $recordDir "__game_before_run.mpn"
 
             $scenarioPath = New-GeneratedInputScript -Scenario $scenario -RecordDir $recordDir
 
@@ -173,6 +175,9 @@ foreach ($run in $manifestData.runs) {
             if ($scenarioPath) {
                 $args += @("--input-script", $scenarioPath)
             }
+            if ($fixedDateTime) {
+                $args += @("--fixed-date-time", $fixedDateTime)
+            }
 
             $startTime = Get-Date
             $timedOut = $false
@@ -183,10 +188,15 @@ foreach ($run in $manifestData.runs) {
                 "corpus.profile=$profile",
                 "corpus.scenario=$scenarioName",
                 "corpus.duration_ms=$durationMs",
+                "corpus.fixed_date_time=$fixedDateTime",
                 "corpus.started=$($startTime.ToString('o'))",
                 ""
             )
             Set-Content -Path $logPath -Value $header -Encoding UTF8
+
+            if (Test-Path -LiteralPath $gamePath) {
+                Copy-Item -LiteralPath $gamePath -Destination $gameBackupPath -Force
+            }
 
             try {
                 $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -225,10 +235,16 @@ foreach ($run in $manifestData.runs) {
                     "corpus.exit_code=$exitCode",
                     "corpus.timed_out=$timedOut"
                 ) -Encoding UTF8
-            }
 
-            # Reset any changes to the game file after each run
-            & git checkout -- $run.game
+                if (Test-Path -LiteralPath $gameBackupPath) {
+                    Copy-Item -LiteralPath $gameBackupPath -Destination $gamePath -Force
+                    Remove-Item -LiteralPath $gameBackupPath -Force
+                    Add-Content -Path $logPath -Value "corpus.game_restored=True" -Encoding UTF8
+                }
+                else {
+                    Add-Content -Path $logPath -Value "corpus.game_restored=False" -Encoding UTF8
+                }
+            }
 
             $recordMetaPath = Join-Path $recordDir "recording.txt"
             $recordMeta = Read-RecordingMeta $recordMetaPath
@@ -266,6 +282,7 @@ foreach ($run in $manifestData.runs) {
                 profile = $profile
                 scenario = $scenarioName
                 duration_ms = $durationMs
+                fixed_date_time = $fixedDateTime
                 exit_code = $exitCode
                 timed_out = $timedOut
                 log = $logPath

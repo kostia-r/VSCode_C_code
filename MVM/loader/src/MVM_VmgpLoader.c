@@ -676,7 +676,7 @@ static MVM_RetCode_t MVM_lQueryMemReqsWithConfig(const MpnImageSource_t *image,
   ctx.heap_cur = ctx.heap_base;
   ctx.heap_limit = ctx.heap_base + VM_HEAP_EXTRA;
   ctx.stack_top = ctx.heap_limit + VM_STACK_EXTRA;
-  ctx.mem_size = ctx.stack_top + 0x100u;
+  ctx.mem_size = ctx.stack_top + VM_STACK_GUARD_EXTRA;
   requirements->guest_memory_bytes = ctx.mem_size;
   requirements->pool_entries_bytes = (size_t)ctx.header.pool_slots * sizeof(VMGPPoolEntry);
   requirements->resource_entries_bytes = (size_t)resource_count * sizeof(VMGPResource);
@@ -804,7 +804,7 @@ static bool MVM_lBuildVmgpMemory(VMGPContext *ctx)
   ctx->heap_cur = ctx->heap_base;
   ctx->heap_limit = ctx->heap_base + VM_HEAP_EXTRA;
   ctx->stack_top = ctx->heap_limit + VM_STACK_EXTRA;
-  ctx->mem_size = ctx->stack_top + 0x100u;
+  ctx->mem_size = ctx->stack_top + VM_STACK_GUARD_EXTRA;
 
   ctx->mem = (uint8_t *)MVM_AcquireInitBuffer(ctx, ctx->mem_size);
 

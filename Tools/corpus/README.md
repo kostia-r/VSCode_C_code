@@ -77,3 +77,26 @@ Use an empty input array for a no-input smoke scenario:
   "input": []
 }
 ```
+
+## Fixed Date
+
+The manifest can define a batch default:
+
+```json
+"defaultFixedDateTime": "2005-01-01T12:00:00"
+```
+
+Individual games can override it when their data certificate has a narrow
+validity window:
+
+```json
+{
+  "game": "mpn/T610/VRally_T610_decrypted.mpn",
+  "profiles": [ "SE_T610" ],
+  "fixedDateTime": "2003-11-04T12:00:00"
+}
+```
+
+Observed VRally/CMRally certificates encode validity tags such as
+`M001YYYYMMDD` and `M002YYYYMMDD`; choose a date inside that range until the
+runner can extract this automatically.

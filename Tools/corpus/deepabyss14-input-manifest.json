@@ -1,0 +1,34 @@
+{
+  "_comment": "Focused input run for DeepAbyss 1.4 on T310.",
+  "defaultDurationMs": 30000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 2000000,
+  "runs": [
+    {
+      "game": "mpn/T310/DeepAbyss_v.1.4_T310_decrypted.mpn",
+      "profiles": [ "SE_T310" ],
+      "scenarios": [
+        {
+          "name": "enter-level",
+          "input": [
+            { "waitMs": 2000 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 800 },
+            { "press": "DOWN", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 500 },
+            { "press": "FIRE", "durationMs": 140 },
+            { "waitMs": 1000 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "UP", "durationMs": 120 },
+            { "waitMs": 300 },
+            { "press": "LEFT", "durationMs": 500 },
+            { "waitMs": 300 }
+          ]
+        }
+      ]
+    }
+  ]
+}
