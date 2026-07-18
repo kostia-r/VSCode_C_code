@@ -744,6 +744,13 @@ by a real host backend. The target integration experience should be close to
 LVGL-style porting: the VM is added as a library, while the host provides a
 small, explicit platform/driver API instead of editing VM internals.
 
+The MCU integration goal is that platform drivers stay simple and do not need
+to understand Mophun/VMGP internals. Display, input, audio, storage, timing,
+logging, and system-message drivers should expose small hardware-oriented
+callbacks, while the VM keeps ownership of guest API semantics such as sprites,
+maps, fonts, resources, sound requests, help/message-box requests, certificate
+events, and persistent-data behavior.
+
 Tasks:
 
 - Separate bundled default config from project-owned integration config.
@@ -753,17 +760,42 @@ Tasks:
   config directory.
 - Minimize assumptions in `vm.mk` about runner layout and top-level project
   structure.
+- Optionally support building MVM as a standalone static library artifact
+  (`libmvm.a` / `mvm.lib`) and linking that artifact back into the desktop
+  runner or a tiny parent-project smoke test.
+- Keep configuration hybrid rather than purely runtime:
+  - compile-time config for static limits, feature flags, log level, default
+    profile catalog, framebuffer format, and runtime-pool sizing;
+  - runtime/init-time config for selected image source, active profile, callback
+    user pointers, fixed date, platform logger/event sinks, and driver context.
+- Add public `WithConfig` initialization/query APIs where needed, so a parent
+  project can pass its own `MVM_Config_t` without relying on the built-in
+  `MVM_Config` object.
 - Write a minimal integration guide for parent projects.
 - Document platform callback interfaces and backend responsibilities.
 - Shape the host-facing port layer around simple driver-style APIs:
-  - display/framebuffer present or draw callbacks;
-  - input state polling or event injection;
-  - audio sample queue/playback callbacks;
+  - display framebuffer flush/present callbacks, preferably allowing a simple
+    "VM renders to a buffer, platform flushes dirty rects" MCU path;
+  - optional primitive/draw replay callbacks for desktop/debug backends;
+  - input state polling or event injection using Mophun button masks, not
+    desktop key names;
+  - audio sample queue/playback callbacks, with a valid no-op path for boards
+    without audio;
   - time/tick provider;
   - random provider;
   - logging/event sink;
   - storage/image read and optional write callbacks;
+  - persistent-data read/write callbacks that do not require rewriting the
+    original `.mpn` image;
+  - platform system-message callback or event path for guest requests such as
+    `vMsgBox` / Help text;
   - static memory/runtime-pool ownership.
+- Keep VMGP-specific behavior inside MVM instead of pushing it into drivers:
+  - display drivers should not know about VMGP sprites, maps, fonts, palettes,
+    or transfer modes;
+  - audio drivers should not know about VMGP resource tables;
+  - storage drivers should not know game-level save-file policy;
+  - platform callbacks should receive normalized requests/events from MVM.
 - Keep the minimal embedded integration path obvious:
   - add VM sources/include paths;
   - provide one config object;
@@ -783,16 +815,92 @@ Tasks:
   - allocate VM storage.
 - Verify that the library can be dropped in as a git submodule without editing
   library-owned files.
+- Verify that the same sources can be compiled into a static library and then
+  consumed by a separate test executable using only public headers and external
+  config.
+- Preserve the Phase 11 behavioral baseline while changing integration shape:
+  - keep the current corpus manifests, input sequences, classifications, and
+    representative videos/logs as regression reference artifacts;
+  - run the focused smoke corpus after every major external-config,
+    static-library, public-API, render-port, storage-port, or platform-callback
+    refactor, so regressions are found near the change that introduced them;
+  - run the full corpus at milestone/freeze points, especially before declaring
+    Phase 12 closed;
+  - compare high-level VM events, exit states, missing-import/opcode counters,
+    frame/audio artifact generation, and known short-exit classifications;
+  - treat renderer/timing differences as known backlog only when they match the
+    documented baseline and do not introduce new VM fatal errors.
+
+Execution plan:
+
+1. Freeze the current Phase 11 baseline:
+   - identify the focused smoke corpus subset used during Phase 12 refactors;
+   - record the full-corpus baseline paths, classifications, known renderer
+     defects, known timing/cadence defects, and accepted short-exit outcomes.
+2. Split public integration contract from bundled defaults:
+   - move reusable config/port types into public or clearly documented
+     integration headers;
+   - keep bundled `Config/` as default/example config, not the only supported
+     integration path.
+3. Add external-config build support:
+   - teach `vm.mk` to accept an external config include/source directory;
+   - ensure external config has priority without editing files under `MVM/`;
+   - keep the existing desktop/default build working.
+4. Add public `WithConfig` APIs:
+   - expose init and memory-query entry points that accept a parent-owned
+     `MVM_Config_t`;
+   - keep built-in-config wrappers for local smoke tests and desktop runner
+     compatibility.
+5. Define the MCU-facing driver contract:
+   - keep display/input/audio/storage/time/random/log/event/system-message
+     callbacks hardware-oriented and small;
+   - keep VMGP-specific behavior inside MVM;
+   - provide valid no-op/read-only paths for optional audio, persistence, and
+     system-message handling.
+6. Make the display path MCU-friendly:
+   - provide a simple framebuffer/dirty-rect flush path suitable for bare-metal
+     LCD drivers;
+   - keep primitive draw replay as an optional desktop/debug backend path.
+7. Add a no-SDL reference port template:
+   - demonstrate static VM storage, runtime pool, image source callbacks, fixed
+     date setup, button-mask input, framebuffer flush stub, audio no-op, and
+     event/log hooks;
+   - show a bare-metal-style bounded `while (1)` loop.
+8. Add static-library packaging:
+   - build `libmvm.a` / `mvm.lib` from the same VM sources;
+   - link that artifact into a tiny parent-project smoke executable or back
+     into the desktop runner using only public headers and external config.
+9. Document the integration path:
+   - write a short checklist for source-included and static-library modes;
+   - document compile-time vs runtime/init-time responsibilities;
+   - document required, optional, and no-op platform callbacks.
+10. Run regression gates:
+    - run the focused smoke corpus after each major refactor;
+    - run the full corpus before closing Phase 12;
+    - update classifications only for deliberate behavior changes, not for
+      accidental regressions.
 
 Done when:
 
 - A parent project can integrate the VM as a submodule using external config
   files.
+- MVM can be built either as source-included component or as a static library
+  linked by a parent project.
 - Platform-specific configuration no longer requires patching the library tree.
 - A new platform port can start from a small driver-template file rather than
   copying the desktop runner.
 - The mandatory host API surface is small enough to document on one integration
   checklist.
+- The reference port template builds without SDL, Windows, or desktop runner
+  dependencies.
+- The MCU-facing driver contract is hardware-oriented and small: framebuffer
+  flush/present, button mask, audio queue/no-op, ticks, random, storage,
+  persistent data, log/event, and system-message hooks.
+- Ordinary MCU integration does not require runtime syscall registration or
+  Mophun-aware display/audio/storage drivers.
+- Phase 11 corpus behavior remains stable after the packaging/config changes:
+  no new fatal VM errors, no lost logs/videos, no new missing opcode/syscall
+  regressions, and known short exits remain classified consistently.
 
 ## Phase 13: Decryption Research
 
@@ -902,3 +1010,78 @@ Measurements to add:
 10. Run game corpus and fill missing APIs.
 11. Make config externalizable for submodule-style integration.
 12. Start minimal MCU port.
+
+## Open Defect Backlog
+
+This section is the single human-readable backlog for known open defects and
+accepted follow-ups. Keep machine-readable per-game corpus classifications in
+`Tools/corpus/classifications.json`, and keep this section updated when corpus
+runs change the defect picture.
+
+### Renderer / Visual Parity
+
+- DeepAbyss 1.4 system-font text still does not match real-phone/reference
+  captures closely enough; the SE T230-style system font integration and
+  metrics remain open.
+- VRally / VRally2 road, menu, transition, HUD text/time, and layer composition
+  still have visual parity defects against phone/reference captures.
+- HoneyCave and HoneyCave2 have vertical stripe/layer corruption in corpus
+  videos.
+- FiveStones has visual parity defects that remain accepted Phase 11 follow-up
+  work.
+- SpaceExplorer and 4in1 can lose large background/playfield layers to black
+  frames.
+- snowboardx has broken black mask/text-like blits in video review.
+- SynergenixRally shows right-edge rectangular artifacts.
+- CMRally4 shows black text/background rectangles.
+
+### Timing / Cadence / Input Flow
+
+- Many games appear to run noticeably faster in MVM than in the original
+  emulator/reference videos; track this as a timing/cadence defect separate
+  from scripted-input mismatch.
+- Exact VM tick/input-flow parity remains open; scripted input is repeatable,
+  but game progression can diverge from reference captures under the same input
+  JSON.
+- Phase 12 integration refactors must run focused smoke corpus checks after
+  major changes and preserve the Phase 11 behavioral baseline.
+
+### Certificate / Date / Licensing
+
+- Full certificate/date/policy interpretation remains incomplete.
+- Add image/certificate scanning that parses embedded `M001YYYYMMDD` /
+  `M002YYYYMMDD` tags and suggests or applies a fixed run date inside the
+  game's validity window.
+- `CMRally4_T610` and `VRally_T610` still classify as
+  `certificate_date_enforcement_mismatch` after the accepted-cert stub fix.
+- `lunar_T610` still exits through guest-controlled termination after
+  certificate acceptance.
+- `1849GoldRush_T610` and `bombjack_T610` remain certificate/demo policy gaps.
+- Missing `.mpc` sidecars are classified, but full sidecar/certificate semantics
+  still need real policy interpretation.
+
+### Platform Events / System UI
+
+- Route guest help/system-message requests through the platform layer. In
+  particular, when `VRally2` invokes Help, MVM should emit a system event and
+  let the platform show a system `MsgBox`/printable help text.
+- Extend structured events where needed for globally important outcomes such as
+  unsupported profile/device, license/certificate decisions, missing sidecars,
+  and system messages.
+
+### Persistent Data / Storage
+
+- Persistent-file handling should move toward an external per-run persistent
+  storage backend so corpus save reset does not rely on restoring writable
+  `.mpn` images.
+- MCU-facing persistence must use simple read/write callbacks and must not
+  require rewriting the original game image.
+
+### Corpus / Reference Artifacts
+
+- Keep `Tools/corpus/classifications.json` as the machine-readable index for
+  per-game outcomes such as unsupported device/profile, incomplete artifact set,
+  certificate/date gaps, and reference artifact gaps.
+- `prhstrkmn_T610` remains classified as unsupported device/profile.
+- Some entries still lack reference video artifacts, so visual parity cannot be
+  judged for those games until reference captures are available.
