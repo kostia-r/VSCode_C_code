@@ -156,7 +156,8 @@ typedef enum MVM_DrawCommandType_t
   MVM_DRAW_TEXT = 3,
   MVM_DRAW_MAP = 4,
   MVM_DRAW_SPRITE_SLOTS = 5,
-  MVM_DRAW_TILE = 6
+  MVM_DRAW_TILE = 6,
+  MVM_DRAW_TRIANGLE = 7
 } MVM_DrawCommandType_t;
 
 /**
@@ -181,6 +182,9 @@ typedef struct MVM_DrawCommand_t
   uint16_t clip_x1;             /**< Captured clip window right edge. */
   uint16_t clip_y1;             /**< Captured clip window bottom edge. */
   uint16_t text_length;         /**< Captured text byte count for deferred text commands. */
+  uint32_t transfer_mode;        /**< Captured guest transfer/blit mode for transparency decisions. */
+  uint32_t system_font_size;     /**< Captured SDK system-font size selector for vTextOut paths. */
+  uint32_t system_font_flags;    /**< Captured SDK system-font style/effect flags for vTextOut paths. */
   uint8_t text[VMGP_DRAW_TEXT_SNAPSHOT_BYTES]; /**< Captured text bytes for deferred text commands. */
   uint32_t text_palette[4];     /**< Captured low-index text palette entries for deferred text commands. */
   VMGPMapState map_state;        /**< Captured tilemap state for deferred map commands. */

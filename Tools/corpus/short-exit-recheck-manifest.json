@@ -1,0 +1,29 @@
+{
+  "_comment": "Focused startup probes for games that still self-terminate quickly in the full-corpus early-exit pass.",
+  "defaultDurationMs": 30000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 0,
+  "defaultFixedDateTime": "2005-01-01T12:00:00",
+  "runs": [
+    {
+      "game": "mpn/T610/Huntsman_T610_decrypted.mpn",
+      "profiles": [ "SE_T610" ],
+      "scenarios": [ { "name": "none" } ]
+    },
+    {
+      "game": "mpn/T610/IcebloxPlus610_T610_decrypted.mpn",
+      "profiles": [ "SE_T610" ],
+      "scenarios": [ { "name": "none" } ]
+    },
+    {
+      "game": "mpn/T610/lunar_T610_decrypted.mpn",
+      "profiles": [ "SE_T610" ],
+      "scenarios": [ { "name": "none" } ]
+    },
+    {
+      "game": "mpn/T610/prhstrkmn_T610_decrypted.mpn",
+      "profiles": [ "SE_T610" ],
+      "scenarios": [ { "name": "none" } ]
+    }
+  ]
+}

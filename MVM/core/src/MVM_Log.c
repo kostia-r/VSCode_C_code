@@ -85,6 +85,21 @@ void MVM_LogMessage(const VMGPContext *ctx,
  *********************************************************************************************************************/
 void MVM_LogEvent(const VMGPContext *ctx, MVM_Event_t event, uint32_t arg0, uint32_t arg1)
 {
+  if (event == MVM_EVENT_DATA_CERT_CHECKED ||
+      event == MVM_EVENT_LICENSE_EXPIRED ||
+      event == MVM_EVENT_DEVICE_UNSUPPORTED ||
+      event == MVM_EVENT_SIDECAR_MISSING)
+  {
+    MVM_LOG_I(ctx,
+              "event",
+              "%s(arg0=%08X arg1=%08X)\n",
+              MVM_lGetEventName(event),
+              arg0,
+              arg1);
+
+    return;
+  }
+
   if (event == MVM_EVENT_IMPORT_CALL)
   {
     MVM_LOG_T(ctx,
@@ -299,6 +314,30 @@ static const char *MVM_lGetEventName(MVM_Event_t event)
     case MVM_EVENT_VM_ERROR:
     {
       name = "vm-error";
+      break;
+    }
+
+    case MVM_EVENT_DATA_CERT_CHECKED:
+    {
+      name = "data-cert-checked";
+      break;
+    }
+
+    case MVM_EVENT_LICENSE_EXPIRED:
+    {
+      name = "license-expired";
+      break;
+    }
+
+    case MVM_EVENT_DEVICE_UNSUPPORTED:
+    {
+      name = "device-unsupported";
+      break;
+    }
+
+    case MVM_EVENT_SIDECAR_MISSING:
+    {
+      name = "sidecar-missing";
       break;
     }
 

@@ -1,0 +1,90 @@
+{
+  "_comment": "Known corpus classifications and parity defects observed in corpus/reference runs.",
+  "games": [
+    {
+      "game": "mpn/T610/IcebloxPlus610_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "cert_sidecar_fallback_fixed_pending_visual_parity",
+      "missingArtifacts": [ "IcebloxPlus610.mpc" ],
+      "evidence": [
+        "MVM_EVENT_SIDECAR_MISSING",
+        "reference vStreamOpen(IcebloxPlus610.mpc, 0x400) returns -1 and continues to gameplay",
+        "2026-07-18 rerun returns vCheckDataCert -> 0 and no longer emits MVM_EVENT_LICENSE_EXPIRED"
+      ]
+    },
+    {
+      "game": "mpn/T610/lunar_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "guest_early_exit_after_cert_accept",
+      "missingArtifacts": [ "lunar.mpc" ],
+      "evidence": [
+        "MVM_EVENT_SIDECAR_MISSING",
+        "reference vStreamOpen(lunar.mpc, 0x500) returns -1 and continues",
+        "2026-07-18 rerun returns vCheckDataCert -> 0 and no longer emits MVM_EVENT_LICENSE_EXPIRED",
+        "MVM still reaches guest vTerminateVMGP before the 30-second cap"
+      ]
+    },
+    {
+      "game": "mpn/T610/Huntsman_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "cert_sidecar_fallback_fixed_pending_visual_parity",
+      "missingArtifacts": [ "Huntsman.mpc" ],
+      "evidence": [
+        "MVM_EVENT_SIDECAR_MISSING",
+        "reference vStreamOpen(Huntsman.mpc, 0x500) returns -1 and continues",
+        "2026-07-18 rerun returns vCheckDataCert -> 0 and runs through the 30-second probe"
+      ]
+    },
+    {
+      "game": "mpn/T610/CMRally4_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "certificate_date_enforcement_mismatch",
+      "evidence": [
+        "2026-07-18 rerun returns vCheckDataCert -> 0 and no longer emits MVM_EVENT_LICENSE_EXPIRED",
+        "MVM still exits very early through guest vTerminateVMGP",
+        "reference video duration 4.2s before termination"
+      ]
+    },
+    {
+      "game": "mpn/T610/VRally_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "certificate_date_enforcement_mismatch",
+      "evidence": [
+        "2026-07-18 rerun returns vCheckDataCert -> 0 and no longer emits MVM_EVENT_LICENSE_EXPIRED",
+        "MVM still exits very early through guest vTerminateVMGP",
+        "reference video duration 5.2s before termination"
+      ]
+    },
+    {
+      "game": "mpn/T610/1849GoldRush_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "guest_demo_or_certificate_policy_gap",
+      "evidence": [
+        "MVM_EVENT_SIDECAR_MISSING for 1849GoldRushT610.mpc",
+        "2026-07-18 rerun returns vCheckDataCert -> 0",
+        "guest vMsgBox: No Demo Available!",
+        "reference video duration 6.7s"
+      ]
+    },
+    {
+      "game": "mpn/T610/bombjack_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "reference_artifact_gap_certificate_policy_gap",
+      "evidence": [
+        "MVM_EVENT_SIDECAR_MISSING for BombJack.mpc",
+        "2026-07-18 rerun returns vCheckDataCert -> 0",
+        "guest vMsgBox: Certificate Invalid",
+        "reference video is absent, visual parity cannot be checked"
+      ]
+    },
+    {
+      "game": "mpn/T610/prhstrkmn_T610_decrypted.mpn",
+      "profile": "SE_T610",
+      "classification": "device_unsupported",
+      "evidence": [
+        "MVM_EVENT_DEVICE_UNSUPPORTED",
+        "reference video is absent, visual parity cannot be checked"
+      ]
+    }
+  ]
+}

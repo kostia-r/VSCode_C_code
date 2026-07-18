@@ -175,6 +175,11 @@ The first structured events currently cover:
 - resource open and resource read activity;
 - frame-ready notifications from `vFlipScreen`;
 - sound requests from `vPlayResource`.
+- data-certificate checks from `vCheckDataCert` / `vCheckDataCertFile`;
+- explicit platform-outcome events for detected license-expired and
+  unsupported-device guest paths;
+- missing read-only sidecar requests, for corpus classification without parsing
+  debug-only file-open logs.
 
 The built-in platform wrappers in `Config/MVM_Lcfg.c` also emit trace/debug
 logs for callback traffic such as `vGetCaps`, `vGetTickCount`, random services,

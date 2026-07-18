@@ -59,7 +59,20 @@ typedef enum MVM_Event_t
   MVM_EVENT_VM_WAITING,          /**< VM moved into the waiting state. */
   MVM_EVENT_VM_EXITED,           /**< VM exited normally. */
   MVM_EVENT_VM_ERROR,            /**< VM entered the fatal error state. */
+  MVM_EVENT_DATA_CERT_CHECKED,   /**< Guest requested one data-certificate verification. */
+  MVM_EVENT_LICENSE_EXPIRED,     /**< Guest reported an expired game/license path. */
+  MVM_EVENT_DEVICE_UNSUPPORTED,  /**< Guest reported that the current device/profile is unsupported. */
+  MVM_EVENT_SIDECAR_MISSING,     /**< Guest requested one read-only sidecar file that is absent on the host. */
 } MVM_Event_t;
+
+/**
+ * @brief Identifies the source used for one data-certificate verification event.
+ */
+typedef enum MVM_DataCertSource_t
+{
+  MVM_DATA_CERT_SOURCE_MEMORY = 0, /**< Certificate bytes were provided from guest memory. */
+  MVM_DATA_CERT_SOURCE_STREAM = 1, /**< Certificate bytes were provided through one guest stream. */
+} MVM_DataCertSource_t;
 
 typedef struct MpnPlatform_t
 {
@@ -104,6 +117,7 @@ struct MpnImageSource_t
 {
   void *user;                      /**< Opaque host context passed to the configured image backend. */
   size_t image_size;               /**< Total size of the VM image in bytes. */
+  const char *path;                /**< Optional host path of the selected image, used by desktop sidecar lookup. */
 };
 
 /**

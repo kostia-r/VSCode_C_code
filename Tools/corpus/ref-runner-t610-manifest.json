@@ -1,0 +1,1428 @@
+﻿{
+    "_comment":  "Generated from Tools\\ref_runner\\logs_T610 input.json files.",
+    "defaultDurationMs":  30000,
+    "defaultMaxSteps":  100000000,
+    "defaultMaxLoggedCalls":  0,
+    "runs":  [
+                 {
+                     "game":  "mpn/T610/1849GoldRush_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  7457
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  164
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/4in1_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  5569
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  95
+                                                         },
+                                                         {
+                                                             "waitMs":  840
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  252
+                                                         },
+                                                         {
+                                                             "waitMs":  364
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  96
+                                                         },
+                                                         {
+                                                             "waitMs":  632
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  238
+                                                         },
+                                                         {
+                                                             "waitMs":  216
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  171
+                                                         },
+                                                         {
+                                                             "waitMs":  602
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  200
+                                                         },
+                                                         {
+                                                             "waitMs":  855
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  327
+                                                         },
+                                                         {
+                                                             "waitMs":  127
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  63
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  229
+                                                         },
+                                                         {
+                                                             "waitMs":  144
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  993
+                                                         },
+                                                         {
+                                                             "waitMs":  136
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  1018
+                                                         },
+                                                         {
+                                                             "waitMs":  206
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  190
+                                                         },
+                                                         {
+                                                             "waitMs":  2030
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  109
+                                                         },
+                                                         {
+                                                             "waitMs":  908
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  636
+                                                         },
+                                                         {
+                                                             "waitMs":  444
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  580
+                                                         },
+                                                         {
+                                                             "waitMs":  665
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  204
+                                                         },
+                                                         {
+                                                             "waitMs":  1189
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  143
+                                                         },
+                                                         {
+                                                             "waitMs":  717
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  760
+                                                         },
+                                                         {
+                                                             "waitMs":  394
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  195
+                                                         },
+                                                         {
+                                                             "waitMs":  142
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  247
+                                                         },
+                                                         {
+                                                             "waitMs":  852
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  1155
+                                                         },
+                                                         {
+                                                             "waitMs":  782
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  613
+                                                         },
+                                                         {
+                                                             "waitMs":  850
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  889
+                                                         },
+                                                         {
+                                                             "waitMs":  629
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  490
+                                                         },
+                                                         {
+                                                             "waitMs":  590
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  384
+                                                         },
+                                                         {
+                                                             "waitMs":  152
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  570
+                                                         },
+                                                         {
+                                                             "waitMs":  1098
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  133
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/bombjack_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  1686
+                                                         },
+                                                         {
+                                                             "press":  "SELECT",
+                                                             "durationMs":  141
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/CMRally4_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/DeepAbyss_v.1.4_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  10160
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  194
+                                                         },
+                                                         {
+                                                             "waitMs":  357
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  186
+                                                         },
+                                                         {
+                                                             "waitMs":  236
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  140
+                                                         },
+                                                         {
+                                                             "waitMs":  854
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  119
+                                                         },
+                                                         {
+                                                             "waitMs":  4102
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  124
+                                                         },
+                                                         {
+                                                             "waitMs":  688
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  257
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  243
+                                                         },
+                                                         {
+                                                             "waitMs":  503
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  6238
+                                                         },
+                                                         {
+                                                             "waitMs":  4
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  2267
+                                                         },
+                                                         {
+                                                             "waitMs":  1320
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  185
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/HoneyCave2_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  5364
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  147
+                                                         },
+                                                         {
+                                                             "waitMs":  242
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  161
+                                                         },
+                                                         {
+                                                             "waitMs":  167
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  115
+                                                         },
+                                                         {
+                                                             "waitMs":  2868
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  177
+                                                         },
+                                                         {
+                                                             "waitMs":  536
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  294
+                                                         },
+                                                         {
+                                                             "waitMs":  621
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  290
+                                                         },
+                                                         {
+                                                             "waitMs":  183
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  1308
+                                                         },
+                                                         {
+                                                             "waitMs":  163
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  637
+                                                         },
+                                                         {
+                                                             "waitMs":  310
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  1029
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  1453
+                                                         },
+                                                         {
+                                                             "waitMs":  1202
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  100
+                                                         },
+                                                         {
+                                                             "waitMs":  100
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  124
+                                                         },
+                                                         {
+                                                             "waitMs":  363
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  144
+                                                         },
+                                                         {
+                                                             "waitMs":  1650
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  927
+                                                         },
+                                                         {
+                                                             "waitMs":  1048
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  168
+                                                         },
+                                                         {
+                                                             "waitMs":  133
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  144
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  4203
+                                                         },
+                                                         {
+                                                             "waitMs":  314
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  133
+                                                         },
+                                                         {
+                                                             "waitMs":  1720
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  822
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  3862
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  134
+                                                         },
+                                                         {
+                                                             "waitMs":  103
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  354
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  252
+                                                         },
+                                                         {
+                                                             "waitMs":  705
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  1186
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  1884
+                                                         },
+                                                         {
+                                                             "waitMs":  214
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  138
+                                                         },
+                                                         {
+                                                             "waitMs":  153
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  115
+                                                         },
+                                                         {
+                                                             "waitMs":  187
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  503
+                                                         },
+                                                         {
+                                                             "waitMs":  301
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  200
+                                                         },
+                                                         {
+                                                             "waitMs":  568
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  176
+                                                         },
+                                                         {
+                                                             "waitMs":  192
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  185
+                                                         },
+                                                         {
+                                                             "waitMs":  42
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  185
+                                                         },
+                                                         {
+                                                             "waitMs":  82
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  148
+                                                         },
+                                                         {
+                                                             "waitMs":  196
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  128
+                                                         },
+                                                         {
+                                                             "waitMs":  112
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  101
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/Huntsman_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  6259
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  86
+                                                         },
+                                                         {
+                                                             "waitMs":  2155
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  48
+                                                         },
+                                                         {
+                                                             "waitMs":  1293
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  91
+                                                         },
+                                                         {
+                                                             "waitMs":  2259
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  108
+                                                         },
+                                                         {
+                                                             "waitMs":  2809
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  176
+                                                         },
+                                                         {
+                                                             "waitMs":  321
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  223
+                                                         },
+                                                         {
+                                                             "waitMs":  222
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  133
+                                                         },
+                                                         {
+                                                             "waitMs":  1819
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  247
+                                                         },
+                                                         {
+                                                             "waitMs":  312
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  262
+                                                         },
+                                                         {
+                                                             "waitMs":  163
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  278
+                                                         },
+                                                         {
+                                                             "waitMs":  139
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  261
+                                                         },
+                                                         {
+                                                             "waitMs":  133
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  128
+                                                         },
+                                                         {
+                                                             "waitMs":  109
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  124
+                                                         },
+                                                         {
+                                                             "waitMs":  100
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  104
+                                                         },
+                                                         {
+                                                             "waitMs":  88
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  119
+                                                         },
+                                                         {
+                                                             "waitMs":  118
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  437
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  565
+                                                         },
+                                                         {
+                                                             "waitMs":  135
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  143
+                                                         },
+                                                         {
+                                                             "waitMs":  1549
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  181
+                                                         },
+                                                         {
+                                                             "waitMs":  106
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  186
+                                                         },
+                                                         {
+                                                             "waitMs":  58
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  522
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  233
+                                                         },
+                                                         {
+                                                             "waitMs":  21
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  476
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  767
+                                                         },
+                                                         {
+                                                             "waitMs":  328
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  558
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  1504
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  529
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  943
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  567
+                                                         },
+                                                         {
+                                                             "waitMs":  496
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  114
+                                                         },
+                                                         {
+                                                             "waitMs":  792
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  352
+                                                         },
+                                                         {
+                                                             "waitMs":  124
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  523
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  808
+                                                         },
+                                                         {
+                                                             "waitMs":  365
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  104
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/IcebloxPlus610_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  6391
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  106
+                                                         },
+                                                         {
+                                                             "waitMs":  1990
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  120
+                                                         },
+                                                         {
+                                                             "waitMs":  3009
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  512
+                                                         },
+                                                         {
+                                                             "waitMs":  118
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  200
+                                                         },
+                                                         {
+                                                             "waitMs":  147
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  789
+                                                         },
+                                                         {
+                                                             "waitMs":  698
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  1541
+                                                         },
+                                                         {
+                                                             "waitMs":  139
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  266
+                                                         },
+                                                         {
+                                                             "waitMs":  270
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  1669
+                                                         },
+                                                         {
+                                                             "waitMs":  275
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  295
+                                                         },
+                                                         {
+                                                             "waitMs":  3573
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  143
+                                                         },
+                                                         {
+                                                             "waitMs":  2107
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  612
+                                                         },
+                                                         {
+                                                             "waitMs":  54
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  388
+                                                         },
+                                                         {
+                                                             "waitMs":  85
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  261
+                                                         },
+                                                         {
+                                                             "waitMs":  742
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  433
+                                                         },
+                                                         {
+                                                             "waitMs":  373
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  205
+                                                         },
+                                                         {
+                                                             "waitMs":  193
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  228
+                                                         },
+                                                         {
+                                                             "waitMs":  47
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  560
+                                                         },
+                                                         {
+                                                             "waitMs":  593
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  342
+                                                         },
+                                                         {
+                                                             "waitMs":  809
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  1051
+                                                         },
+                                                         {
+                                                             "waitMs":  265
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  618
+                                                         },
+                                                         {
+                                                             "waitMs":  65
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  4
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/jbubble_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  7707
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  193
+                                                         },
+                                                         {
+                                                             "waitMs":  238
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  185
+                                                         },
+                                                         {
+                                                             "waitMs":  277
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  218
+                                                         },
+                                                         {
+                                                             "waitMs":  2201
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  118
+                                                         },
+                                                         {
+                                                             "waitMs":  1737
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  342
+                                                         },
+                                                         {
+                                                             "waitMs":  614
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  287
+                                                         },
+                                                         {
+                                                             "waitMs":  170
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  579
+                                                         },
+                                                         {
+                                                             "waitMs":  530
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  627
+                                                         },
+                                                         {
+                                                             "waitMs":  508
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  1131
+                                                         },
+                                                         {
+                                                             "waitMs":  674
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  669
+                                                         },
+                                                         {
+                                                             "waitMs":  789
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  608
+                                                         },
+                                                         {
+                                                             "waitMs":  879
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  115
+                                                         },
+                                                         {
+                                                             "waitMs":  1600
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  204
+                                                         },
+                                                         {
+                                                             "waitMs":  964
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  138
+                                                         },
+                                                         {
+                                                             "waitMs":  288
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  104
+                                                         },
+                                                         {
+                                                             "waitMs":  257
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  824
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  380
+                                                         },
+                                                         {
+                                                             "waitMs":  95
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  446
+                                                         },
+                                                         {
+                                                             "waitMs":  15
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  794
+                                                         },
+                                                         {
+                                                             "waitMs":  326
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  861
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  880
+                                                         },
+                                                         {
+                                                             "waitMs":  480
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  133
+                                                         },
+                                                         {
+                                                             "waitMs":  160
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  1394
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/lunar_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  5333
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  117
+                                                         },
+                                                         {
+                                                             "waitMs":  2346
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  220
+                                                         },
+                                                         {
+                                                             "waitMs":  213
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  227
+                                                         },
+                                                         {
+                                                             "waitMs":  341
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  153
+                                                         },
+                                                         {
+                                                             "waitMs":  6525
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  285
+                                                         },
+                                                         {
+                                                             "waitMs":  417
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  437
+                                                         },
+                                                         {
+                                                             "waitMs":  269
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  1131
+                                                         },
+                                                         {
+                                                             "waitMs":  239
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  157
+                                                         },
+                                                         {
+                                                             "waitMs":  2477
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  101
+                                                         },
+                                                         {
+                                                             "waitMs":  1807
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  128
+                                                         },
+                                                         {
+                                                             "waitMs":  3703
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  199
+                                                         },
+                                                         {
+                                                             "waitMs":  1057
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  148
+                                                         },
+                                                         {
+                                                             "waitMs":  511
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  190
+                                                         },
+                                                         {
+                                                             "waitMs":  430
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  157
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/prhstrkmn_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/SpaceExplorer_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  6887
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  95
+                                                         },
+                                                         {
+                                                             "waitMs":  484
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  109
+                                                         },
+                                                         {
+                                                             "waitMs":  564
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  152
+                                                         },
+                                                         {
+                                                             "waitMs":  184
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  157
+                                                         },
+                                                         {
+                                                             "waitMs":  163
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  96
+                                                         },
+                                                         {
+                                                             "waitMs":  625
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  111
+                                                         },
+                                                         {
+                                                             "waitMs":  1460
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  137
+                                                         },
+                                                         {
+                                                             "waitMs":  12125
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  128
+                                                         },
+                                                         {
+                                                             "waitMs":  521
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  1151
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  1837
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  993
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  1189
+                                                         },
+                                                         {
+                                                             "press":  "UP",
+                                                             "durationMs":  513
+                                                         },
+                                                         {
+                                                             "press":  "LEFT",
+                                                             "durationMs":  519
+                                                         },
+                                                         {
+                                                             "waitMs":  40
+                                                         },
+                                                         {
+                                                             "press":  "DOWN",
+                                                             "durationMs":  1028
+                                                         },
+                                                         {
+                                                             "press":  "RIGHT",
+                                                             "durationMs":  1237
+                                                         },
+                                                         {
+                                                             "waitMs":  518
+                                                         },
+                                                         {
+                                                             "press":  "FIRE",
+                                                             "durationMs":  152
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 },
+                 {
+                     "game":  "mpn/T610/VRally_T610_decrypted.mpn",
+                     "profiles":  [
+                                      "SE_T610"
+                                  ],
+                     "fixedDateTime":  "2003-10-31T12:00:00",
+                     "durationMs":  30000,
+                     "scenarios":  [
+                                       {
+                                           "name":  "ref-runner",
+                                           "input":  [
+                                                         {
+                                                             "waitMs":  2504
+                                                         },
+                                                         {
+                                                             "press":  "SELECT",
+                                                             "durationMs":  223
+                                                         },
+                                                         {
+                                                             "waitMs":  202
+                                                         },
+                                                         {
+                                                             "press":  "FIRE2",
+                                                             "durationMs":  229
+                                                         }
+                                                     ]
+                                       }
+                                   ]
+                 }
+             ]
+}

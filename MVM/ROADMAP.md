@@ -535,6 +535,21 @@ Tasks:
     system font rendering and metrics for `vTextOut`/`vTextOutU`;
   - verify DeepAbyss 1.1/1.4 menu, loading, and death-screen text against the
     reference emulator after corpus stability issues are under control.
+- Current system-font findings:
+  - `DeepAbyss 1.4` menu text uses the SDK system-font path through
+    `vSelectFont(size=0, flags=0)` plus `vTextOutU`, i.e. the `Normal` face;
+  - `VRally` menu text uses `vSelectFont(size=1, flags=0x10000002)` plus
+    `vTextOutU`, i.e. `Small + Bold + ShadowLowerRight`;
+  - the screenshot-derived `fontsPic` atlas is useful, but current comparison
+    against real-phone `DeepAbyss 1.4` screenshots shows it is closer to a
+    small-face candidate than to the final normal face;
+  - the runtime now keeps explicit system-font face slots, but `Normal` is
+    still intentionally wired to a placeholder and `Small` to a candidate
+    atlas until reference-matched faces are reconstructed;
+  - the old desktop emulator is not a reliable source of authentic device
+    bitmap glyphs: inspection shows a GDI-backed font path with configurable
+    `SysFont` / `Normal` / `Small` / `Large` names rather than embedded Sony
+    Ericsson bitmap tables.
 - Track MVM-level platform events for globally important runtime outcomes:
   - device/profile not supported by the guest or corpus classification;
   - data certificate accepted/rejected/expired;
@@ -542,15 +557,70 @@ Tasks:
   - keep these as structured events so hosts do not need to parse guest
     message-box text such as "Terminal not supported".
 - Treat data certificates as first-class corpus metadata:
-  - scan embedded certificate resources and sidecar `.mpc` files next to the
-    `.mpn`;
+  - scan embedded certificate resources in `.mpn` images first;
+  - scan sidecar `.mpc` files as an additional path; at the current checkpoint
+    only `VRally` sidecars are actually present in the corpus, while
+    `IcebloxPlus610`, `lunar`, `Huntsman`, and `prhstrkmn` reference their own
+    sidecar names from inside the `.mpn` but the matching files are absent;
   - parse observed `M001YYYYMMDD`/`M002YYYYMMDD` validity tags and log the
   selected fixed date;
   - allow per-game fixed-date overrides until automatic certificate-date
     selection is implemented;
   - investigate the SDK `vlDataCert*` functions and map them to MVM imports if
     a title calls them directly.
+- Implemented first platform-outcome event layer:
+  - `MVM_EVENT_DATA_CERT_CHECKED` is now emitted by the existing
+    `vCheckDataCert` / `vCheckDataCertFile` import paths;
+  - `MVM_EVENT_LICENSE_EXPIRED` and `MVM_EVENT_DEVICE_UNSUPPORTED` are now
+    emitted for the currently observed guest `vMsgBox()` outcomes so corpus
+    consumers no longer need to parse those message strings directly;
+  - `MVM_EVENT_SIDECAR_MISSING` is now emitted when a guest requests a
+    read-only sidecar-like file that is absent beside the active image;
+  - expiry screens rendered fully by the guest, such as `Huntsman`, still need
+    real certificate/date interpretation before they can be classified without
+    visual inspection.
 - Current corpus checkpoint:
+  - 2026-07-18 reference-input corpus reruns after Phase 11 close-out fixes:
+    - T610: `Runs/RefInputT610/20260718_232534`;
+    - T310: `Runs/RefInputT310/20260718_233046`;
+    - both batches completed with process exit code 0 for every manifest entry
+      and no runner timeouts;
+    - no `invalid-opcode`, `missing-syscall`, or `memory-oob` failures were
+      observed in these rerun logs;
+    - C-side recording audio is now trimmed to the recorded video interval at
+      WAV finalization, fixing long-audio MP4s such as `4in1`,
+      `SpaceExplorer`, and `SnowBob`;
+    - `vCheckDataCert` / `vCheckDataCertFile` now return SDK-style zero for an
+      accepted certificate and non-zero only for invalid input/handles; this
+      removes the false `license-expired` path for the observed
+      `IcebloxPlus610` and `Huntsman` sidecar-missing cases;
+    - exact certificate/date policy remains incomplete and is moved to backlog
+      for titles that still diverge through guest-controlled flow after the
+      accepted-cert result, including `lunar`, `CMRally4`, `VRally`,
+      `1849GoldRush`, and `bombjack`;
+  - 2026-07-18 reference-input comparison baseline:
+    `Runs/RefCompare_20260718/analysis.md`;
+  - 2026-05-15 full-manifest early-exit recheck:
+    `Runs/CorpusEarlyExitRecheck/20260515_204820`;
+  - this batch ran all 32 manifest entries with a 30-second duration override
+    specifically to revalidate startup/early-exit behavior after later fixes;
+  - the fresh short-exit classification is now:
+    - `IcebloxPlus610_T610`: missing `IcebloxPlus610.mpc`, then
+      `vMsgBox("The game has expired")` and `vTerminateVMGP()`; classify as
+      `incomplete_artifact_set`;
+    - `lunar_T610`: missing `lunar.mpc`, then `vMsgBox("Game Expired")` and
+      `vTerminateVMGP()`; classify as `incomplete_artifact_set`;
+    - `Huntsman_T610`: missing `Huntsman.mpc`, then renders its own
+      `GAME EXPIRED` screen and calls `vTerminateVMGP()` after about 6 seconds;
+      classify as `incomplete_artifact_set`;
+    - `prhstrkmn_T610`: `vMsgBox("Terminal not supported!")`, then
+      `vTerminateVMGP()`;
+  - `snowboardx_T310` no longer reproduces the old short-exit symptom in the
+    current batch and runs through the full 30-second probe window;
+  - several apparent early stops in the 2026-05-15 batch are not guest exits
+    at all: they end with VM `state=0` after hitting the manifest's
+    `defaultMaxLoggedCalls=1000000`, so startup analysis must look at terminal
+    events rather than duration alone;
   - 2026-05-13 full corpus run:
     `Runs/CorpusFullAfterSoundFix/20260513_135812`;
   - 32/32 manifest entries completed with process exit code 0 and no runner
@@ -562,16 +632,49 @@ Tasks:
     stream, and sound capability fixes;
   - the corpus runner infrastructure is usable as a repeatable Phase 11
     diagnostic loop.
-- Open defects from the 2026-05-13 corpus checkpoint:
-  - sidecar/resource-pack lookup is incomplete: many titles request `.mpc`
-    resource packs or pack names such as `multipack`/`extrapack*` through
-    `vStreamOpen`, and the host file resolver does not yet map those guest
-    names to files next to the `.mpn`;
-  - persistent-file handling still needs cleanup so first-run missing save
-    files are separated from real missing resource packs and can be reset per
-    corpus run without patching game files by hand;
-  - missing syscall IDs remain visible in corpus logs, currently dominated by
-    `0x28` in `4in1`, `0x32` in `HoneyCave2`, plus isolated `0x25` and `0x23`;
+- Open defects from the latest corpus checkpoints:
+  - sidecar/resource-pack lookup is partially fixed for read-only files next to
+    the active `.mpn`: `VRally`/`VRally2` now resolve `multipack` and
+    `extrapack*` to `VRally_*.mpc`; remaining work is to classify missing
+    sidecars that are not present in the corpus and decide whether writable
+    host sidecars are required;
+  - VRally T310/T610 no longer stalls on stale frames after the SDL renderer
+    consumes deferred draw commands after each presented VM frame; focused
+    Shift/FIRE probes in `Runs/VRallyProbeAfterConsume/20260513_162618` show
+    zero `emitted=0` map updates and both profiles reaching gameplay;
+  - VRally sprite positioning improved after treating `vDrawObject` coordinates
+    as sprite anchor/center coordinates and allowing validated legacy sprite
+    layouts to render instead of falling back to rectangles; transfer mode is
+    now captured by draw commands and used for zero-pixel transparency in
+    direct raw-tile rendering and sprite rendering. Invalid `vFillRect` calls
+    are skipped with reference-compatible `x0 >= x1 || y0 >= y1` semantics,
+    `vUpdateSprite` slot replay preserves the captured transfer mode, and
+    `vUpdateMap` tilemap draws no longer inherit the global transfer mode.
+    `vSetClipWindow` now treats arguments as signed 16-bit coordinates and
+    clamps them to the active screen, fixing VRally T310/T610 negative-clip
+    road/menu artifacts such as `y0=65509`. Focused probes:
+    `Runs/VRallyProbeSpriteZero/20260513_172216`,
+    `Runs/VRallyProbeSpriteSlotsMode/20260513_172754`, and
+    `Runs/VRallyProbeClipFix/20260513_215229`. Follow-up remains for residual
+    VRally visual parity issues in road perspective composition, menu
+    transitions, and HUD text/time rendering;
+  - persistent-file logging now separates missing read-only sidecars from
+    missing first-run persistent files; remaining work is to add an external
+    per-run persistent storage backend so save reset does not rely on restoring
+    writable `.mpn` images after each corpus run;
+  - the current corpus now has an explicit machine-readable classification list
+    in `Tools/corpus/classifications.json`; `IcebloxPlus610`, `lunar`, and
+    `Huntsman` are fixed there as `incomplete_artifact_set`, not unresolved VM
+    failures;
+  - short-exit handling still needs explicit runtime/platform work:
+    - embedded-certificate interpretation and automatic fixed-date selection are
+      still not implemented for titles whose required cert artifacts are
+      actually present;
+  - missing syscall IDs from the 2026-05-13 corpus batch were all the same
+    missing import under different pool indices: `vutoa` (`0x28` in `4in1`,
+    `0x32` in `HoneyCave2`, `0x25` in `jbubble`, and `0x23` in
+    `Bouncy_demo`); focused probes now run without `missing-syscall` after
+    adding `vutoa`;
   - several games terminate through normal VM exit state instead of VM error,
     including very short exits in `prhstrkmn`, `lunar`, and `IcebloxPlus610`,
     plus certificate/resource-pack-looking exits in `Huntsman` and
@@ -579,15 +682,45 @@ Tasks:
     missing pack, or valid guest-controlled exit;
   - SDL system-font visual parity remains open for DeepAbyss menu/loading/death
     text despite current readability improvements;
+  - many games appear to run noticeably faster in MVM than in the original
+    emulator/reference videos; keep this as a separate timing/cadence defect,
+    not just a scripted-input mismatch, and compare video pacing against the
+    reference captures when prioritizing timer/frame fixes;
   - video review of the same corpus run shows additional renderer defects:
     `HoneyCave` has vertical stripe/layer corruption, `snowboardx` has
     broken black mask/text-like blits, `SynergenixRally` has right-edge
     rectangular artifacts, `CMRally4` shows black text/background rectangles,
     and `SpaceExplorer`/`4in1` lose large background or playfield layers to
     black frames;
-  - promote unsupported profile, certificate/license, and sidecar-pack outcomes
-    to structured MVM-level platform events instead of relying on message-box
-    text or log parsing.
+  - unsupported-profile and missing-sidecar outcomes are now promoted to
+    structured MVM-level events; certificate/license classification still needs
+    real certificate interpretation instead of relying on observed guest text.
+- Phase 11 close-out gate:
+  - done: run final reference-input T310/T610 corpus batches after the current
+    Phase 11 infrastructure fixes;
+  - done: review logs and videos enough to freeze the residual defect classes
+    in `Runs/RefCompare_20260718/analysis.md` and
+    `Tools/corpus/classifications.json`;
+  - done: fix the recording audio-duration blocker so encoded MP4 video/audio
+    stream durations stay aligned for long MIDI/looping audio cases;
+  - accepted follow-up: renderer visual parity defects in `HoneyCave`,
+    `HoneyCave2`, `FiveStones`, `SpaceExplorer`, DeepAbyss system-font text,
+    and rally road/menu rendering are backlog items, not corpus-runner blockers;
+  - accepted follow-up: finish SE T230-style system-font integration and metrics
+    so SDK text rendering matches real-phone captures rather than the current
+    candidate/placeholder faces;
+  - accepted follow-up: exact VM tick/input-flow parity is backlog as long as
+    the runner produces repeatable logs/videos and no VM fatal error is present;
+  - accepted follow-up: add image/certificate scanning that parses embedded
+    `M001YYYYMMDD` / `M002YYYYMMDD` tags and suggests or applies a run date that
+    falls inside the game's validity window;
+  - accepted follow-up: full certificate/date/policy interpretation is backlog;
+    Phase 11 keeps structured events and machine-readable classification for
+    short exits instead of blocking on complete certificate emulation.
+  - accepted follow-up: route guest help/system-message requests through the
+    platform layer. In particular, when `VRally2` invokes Help, MVM should emit
+    a system event and let the platform show a system `MsgBox`/printable help
+    text instead of treating it as ordinary in-game rendering only.
 - Fix the highest-priority failures found by corpus runs inside the same Phase
   11 feedback loop.
 - Re-run the affected games and profiles after each fix and keep before/after

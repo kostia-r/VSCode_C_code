@@ -1,0 +1,14 @@
+{
+  "_comment": "Focused Huntsman probe for 2003-10-30.",
+  "defaultDurationMs": 10000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 0,
+  "runs": [
+    {
+      "game": "mpn/T610/Huntsman_T610_decrypted.mpn",
+      "profiles": [ "SE_T610" ],
+      "fixedDateTime": "2003-10-30T12:00:00",
+      "scenarios": [ { "name": "date-2003-10-30" } ]
+    }
+  ]
+}

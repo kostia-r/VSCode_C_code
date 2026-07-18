@@ -1,5 +1,6 @@
 #include "MVM_Render.h"
 #include "MVM_Internal.h"
+#include "MVM_SystemFontT230.h"
 
 #include <ctype.h>
 #include <stdint.h>
@@ -106,6 +107,20 @@ int MVM_RenderGetFrameInfo(const MpnVM_t *vm, MVM_RenderFrameInfo_t *info)
   return 1;
 }
 
+void MVM_RenderConsumeCommands(MpnVM_t *vm)
+{
+  VMGPContext *ctx;
+
+  if (!vm)
+  {
+    return;
+  }
+
+  ctx = (VMGPContext *)vm;
+  ctx->draw_command_count = 0u;
+  ctx->draw_palette_count = 0u;
+}
+
 typedef struct VmSpriteHeader
 {
   uint8_t palindex;
@@ -119,6 +134,16 @@ typedef struct VmSpriteHeader
 } VmSpriteHeader;
 
 static uint32_t sprite_format_bits_per_pixel(uint8_t format);
+static uint32_t draw_command_palette_entry(const VMGPContext *ctx,
+                                           const MVM_DrawCommand_t *command,
+                                           uint8_t index);
+static void draw_filled_triangle(SDL_Renderer *renderer,
+                                 int16_t x0,
+                                 int16_t y0,
+                                 int16_t x1,
+                                 int16_t y1,
+                                 int16_t x2,
+                                 int16_t y2);
 
 /**
  * @brief Reads one packed guest sprite pixel using the LSB-first packing used by the reference renderers.
@@ -371,7 +396,27 @@ static void decode_guest_color(uint32_t color, uint8_t *red, uint8_t *green, uin
 /**
  * @brief Applies one guest-encoded color to the active SDL renderer.
  */
-static void set_renderer_guest_color(SDL_Renderer *renderer, uint32_t color)
+static void decode_draw_command_color(const VMGPContext *ctx,
+                                      const MVM_DrawCommand_t *command,
+                                      uint32_t color,
+                                      uint8_t *red,
+                                      uint8_t *green,
+                                      uint8_t *blue)
+{
+  if ((color & 0x80000000u) != 0u)
+  {
+    decode_guest_color(color, red, green, blue);
+  }
+  else
+  {
+    decode_guest_color(draw_command_palette_entry(ctx, command, (uint8_t)(color > 0xFFu ? 0xFFu : color)), red, green, blue);
+  }
+}
+
+static void set_renderer_guest_color(SDL_Renderer *renderer,
+                                     const VMGPContext *ctx,
+                                     const MVM_DrawCommand_t *command,
+                                     uint32_t color)
 {
   uint8_t red;
   uint8_t green;
@@ -382,7 +427,7 @@ static void set_renderer_guest_color(SDL_Renderer *renderer, uint32_t color)
     return;
   }
 
-  decode_guest_color(color, &red, &green, &blue);
+  decode_draw_command_color(ctx, command, color, &red, &green, &blue);
   SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
 }
 
@@ -607,6 +652,98 @@ static uint32_t draw_command_palette_entry(const VMGPContext *ctx,
   return ctx ? ctx->palette_entries[index] : 0u;
 }
 
+static int32_t triangle_edge(int32_t ax, int32_t ay, int32_t bx, int32_t by, int32_t px, int32_t py)
+{
+  return ((px - ax) * (by - ay)) - ((py - ay) * (bx - ax));
+}
+
+static int16_t min3_i16(int16_t a, int16_t b, int16_t c)
+{
+  int16_t result;
+
+  result = a < b ? a : b;
+  return result < c ? result : c;
+}
+
+static int16_t max3_i16(int16_t a, int16_t b, int16_t c)
+{
+  int16_t result;
+
+  result = a > b ? a : b;
+  return result > c ? result : c;
+}
+
+static void draw_filled_triangle(SDL_Renderer *renderer,
+                                 int16_t x0,
+                                 int16_t y0,
+                                 int16_t x1,
+                                 int16_t y1,
+                                 int16_t x2,
+                                 int16_t y2)
+{
+  int32_t min_x;
+  int32_t max_x;
+  int32_t min_y;
+  int32_t max_y;
+  int32_t area;
+  int32_t x;
+  int32_t y;
+
+  if (!renderer)
+  {
+    return;
+  }
+
+  min_x = min3_i16(x0, x1, x2);
+  max_x = max3_i16(x0, x1, x2);
+  min_y = min3_i16(y0, y1, y2);
+  max_y = max3_i16(y0, y1, y2);
+  area = triangle_edge(x0, y0, x1, y1, x2, y2);
+
+  if (area == 0)
+  {
+    SDL_RenderDrawLine(renderer, x0, y0, x1, y1);
+    SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+    SDL_RenderDrawLine(renderer, x2, y2, x0, y0);
+    return;
+  }
+
+  for (y = min_y; y <= max_y; ++y)
+  {
+    int32_t span_start;
+    int32_t span_end;
+
+    span_start = max_x + 1;
+    span_end = min_x - 1;
+
+    for (x = min_x; x <= max_x; ++x)
+    {
+      int32_t w0;
+      int32_t w1;
+      int32_t w2;
+
+      w0 = triangle_edge(x1, y1, x2, y2, x, y);
+      w1 = triangle_edge(x2, y2, x0, y0, x, y);
+      w2 = triangle_edge(x0, y0, x1, y1, x, y);
+
+      if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+          (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0))
+      {
+        if (x < span_start)
+        {
+          span_start = x;
+        }
+        span_end = x;
+      }
+    }
+
+    if (span_start <= span_end)
+    {
+      SDL_RenderDrawLine(renderer, span_start, y, span_end, y);
+    }
+  }
+}
+
 /**
  * @brief Draws one guest SPRITE using a minimal RGB332 software path.
  */
@@ -619,6 +756,8 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
   uint32_t pixel_count;
   uint32_t index;
   uint32_t data_addr;
+  uint32_t pixel_x;
+  uint32_t pixel_y;
   int32_t x;
   int32_t y;
   uint8_t pixel;
@@ -626,6 +765,9 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
   uint8_t green;
   uint8_t blue;
   uint32_t bits_per_pixel;
+  int transparent_zero;
+  int flip_x;
+  int flip_y;
 
   if (!renderer || !ctx || !command)
   {
@@ -633,11 +775,6 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
   }
 
   if (!read_guest_sprite_header(ctx, command->aux, &sprite))
-  {
-    return 0;
-  }
-
-  if (sprite.legacy_layout != 0u)
   {
     return 0;
   }
@@ -682,13 +819,28 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
     return 0;
   }
 
+  transparent_zero = ((command->transfer_mode & 0x01u) != 0u);
+  flip_x = ((command->transfer_mode & 0x02u) != 0u);
+  flip_y = ((command->transfer_mode & 0x04u) != 0u);
+
   for (index = 0u; index < pixel_count; ++index)
   {
     pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, index, bits_per_pixel);
 
-    if (pixel_index == 0u)
+    if (pixel_index == 0u && transparent_zero)
     {
       continue;
+    }
+
+    pixel_x = index % sprite.width;
+    pixel_y = index / sprite.width;
+    if (flip_x)
+    {
+      pixel_x = (uint32_t)sprite.width - 1u - pixel_x;
+    }
+    if (flip_y)
+    {
+      pixel_y = (uint32_t)sprite.height - 1u - pixel_y;
     }
 
     switch (sprite.format)
@@ -742,8 +894,8 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
         return 0;
     }
 
-    x = command->x0 + (int32_t)(index % sprite.width);
-    y = command->y0 + (int32_t)(index / sprite.width);
+    x = command->x0 - (int32_t)sprite.center_x + (int32_t)pixel_x;
+    y = command->y0 - (int32_t)sprite.center_y + (int32_t)pixel_y;
 
     SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
     SDL_RenderDrawPoint(renderer, x, y);
@@ -915,7 +1067,7 @@ static uint8_t decode_debug_text_char(const VMGPContext *ctx, uint32_t str_addr,
 }
 
 /**
- * @brief Draws one byte string with a tiny host-side 5x7 debug font fallback.
+ * @brief Draws one byte string with the tiny built-in debug fallback font.
  */
 static int draw_debug_text_bytes(SDL_Renderer *renderer,
                                  const VMGPContext *ctx,
@@ -927,7 +1079,7 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
                                  int32_t x,
                                  int32_t y)
 {
-  const int32_t char_advance = 6;
+  const int32_t char_advance = 8;
   uint32_t char_index;
   uint32_t row;
   uint32_t col;
@@ -936,9 +1088,63 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
   uint8_t fg_red;
   uint8_t fg_green;
   uint8_t fg_blue;
+
+  if (!renderer || !ctx || !text)
+  {
+    return 0;
+  }
+
+  decode_guest_color(color != 0u ? color : (palette ? palette[1] : 0xFFu), &fg_red, &fg_green, &fg_blue);
+
+  for (char_index = 0u; char_index < char_count; ++char_index)
+  {
+    ch = decode_debug_text_char(ctx, str_addr, char_index, text[char_index]);
+    glyph = debug_font_glyph(ch);
+
+    for (row = 0u; row < 7u; ++row)
+    {
+      for (col = 0u; col < 5u; ++col)
+      {
+        if ((glyph[row] & (1u << (4u - col))) != 0u)
+        {
+          SDL_SetRenderDrawColor(renderer, fg_red, fg_green, fg_blue, 255u);
+          SDL_RenderDrawPoint(renderer,
+                              x + (int32_t)(char_index * (uint32_t)char_advance) + (int32_t)col,
+                              y + (int32_t)row);
+        }
+      }
+    }
+  }
+
+  return 1;
+}
+
+static int draw_system_text_bytes(SDL_Renderer *renderer,
+                                  const VMGPContext *ctx,
+                                  const uint8_t *text,
+                                  uint32_t char_count,
+                                  const uint32_t *palette,
+                                   uint32_t color,
+                                   uint32_t str_addr,
+                                   uint32_t font_size,
+                                   uint32_t font_flags,
+                                  int32_t x,
+                                  int32_t y)
+{
+  const MVM_SystemFontFace_t *face;
+  const int outline = ((font_flags & (1u << 27)) != 0u);
+  const uint32_t shadow_effect = font_flags & 0xF8000000u;
+  uint32_t char_index;
+  uint32_t row;
+  uint32_t col;
+  uint8_t ch;
+  uint8_t fg_red;
+  uint8_t fg_green;
+  uint8_t fg_blue;
   uint8_t shadow_red;
   uint8_t shadow_green;
   uint8_t shadow_blue;
+  int32_t pen_x;
 
   if (!renderer || !ctx || !text)
   {
@@ -949,6 +1155,8 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
   shadow_red = 0u;
   shadow_green = 0u;
   shadow_blue = 0u;
+  pen_x = x;
+  face = (font_size == 1u) ? &MVM_SystemFontFaceSmallCandidate : &MVM_SystemFontFaceNormalPlaceholder;
 
   for (char_index = 0u; char_index < char_count; ++char_index)
   {
@@ -959,40 +1167,63 @@ static int draw_debug_text_bytes(SDL_Renderer *renderer,
 
     if (raw_ch == 0x01u)
     {
-      const int32_t glyph_x = x + (int32_t)(char_index * (uint32_t)char_advance);
+      const int32_t glyph_x = pen_x;
 
-      SDL_SetRenderDrawColor(renderer, shadow_red, shadow_green, shadow_blue, 255u);
-      SDL_RenderDrawLine(renderer, glyph_x + 1, y + 1, glyph_x + 1, y + 7);
-      SDL_RenderDrawLine(renderer, glyph_x + 5, y + 1, glyph_x + 5, y + 7);
-      SDL_RenderDrawLine(renderer, glyph_x + 1, y + 1, glyph_x + 5, y + 7);
+      if (shadow_effect != 0u || outline)
+      {
+        SDL_SetRenderDrawColor(renderer, shadow_red, shadow_green, shadow_blue, 255u);
+        SDL_RenderDrawLine(renderer, glyph_x + 1, y + 1, glyph_x + 1, y + 7);
+        SDL_RenderDrawLine(renderer, glyph_x + 5, y + 1, glyph_x + 5, y + 7);
+        SDL_RenderDrawLine(renderer, glyph_x + 1, y + 1, glyph_x + 5, y + 7);
+      }
       SDL_SetRenderDrawColor(renderer, fg_red, fg_green, fg_blue, 255u);
       SDL_RenderDrawLine(renderer, glyph_x + 0, y + 0, glyph_x + 0, y + 6);
       SDL_RenderDrawLine(renderer, glyph_x + 4, y + 0, glyph_x + 4, y + 6);
       SDL_RenderDrawLine(renderer, glyph_x + 0, y + 0, glyph_x + 4, y + 6);
+      pen_x += 8;
       continue;
     }
 
-    glyph = debug_font_glyph(ch);
-
-    for (row = 0u; row < 7u; ++row)
+    if (ch < 0x20u || ch > 0x7Eu)
     {
-      for (col = 0u; col < 5u; ++col)
-      {
-        if ((glyph[row] & (1u << (4u - col))) == 0u)
-        {
-          continue;
-        }
+      pen_x += 8;
+      continue;
+    }
 
-        SDL_SetRenderDrawColor(renderer, shadow_red, shadow_green, shadow_blue, 255u);
-        SDL_RenderDrawPoint(renderer,
-                            x + (int32_t)(char_index * (uint32_t)char_advance) + (int32_t)col + 1,
-                            y + (int32_t)row + 1);
-        SDL_SetRenderDrawColor(renderer, fg_red, fg_green, fg_blue, 255u);
-        SDL_RenderDrawPoint(renderer,
-                            x + (int32_t)(char_index * (uint32_t)char_advance) + (int32_t)col,
-                            y + (int32_t)row);
+    for (row = 0u; row < face->glyphs[ch - 0x20u].height; ++row)
+    {
+      uint16_t row_bits;
+      int32_t span_start;
+
+      row_bits = face->glyphs[ch - 0x20u].rows[row];
+      span_start = -1;
+      for (col = 0u; col <= face->glyphs[ch - 0x20u].width; ++col)
+      {
+        const int bit_set = (col < face->glyphs[ch - 0x20u].width) &&
+                            ((row_bits & (1u << col)) != 0u);
+
+        if (bit_set && span_start < 0)
+        {
+          span_start = (int32_t)col;
+        }
+        else if (!bit_set && span_start >= 0)
+        {
+            const int32_t glyph_y = y + (int32_t)face->glyphs[ch - 0x20u].top + (int32_t)row;
+          const int32_t span_end = (int32_t)col - 1;
+
+          if (shadow_effect != 0u || outline)
+          {
+            SDL_SetRenderDrawColor(renderer, shadow_red, shadow_green, shadow_blue, 255u);
+            SDL_RenderDrawLine(renderer, pen_x + span_start + 1, glyph_y + 1, pen_x + span_end + 1, glyph_y + 1);
+          }
+          SDL_SetRenderDrawColor(renderer, fg_red, fg_green, fg_blue, 255u);
+          SDL_RenderDrawLine(renderer, pen_x + span_start, glyph_y, pen_x + span_end, glyph_y);
+          span_start = -1;
+        }
       }
     }
+
+    pen_x += face->glyphs[ch - 0x20u].advance;
   }
 
   return 1;
@@ -1053,15 +1284,17 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
 
   if (command->aux2 == 0u)
   {
-    return draw_debug_text_bytes(renderer,
-                                 ctx,
-                                 text_bytes,
-                                 char_count,
-                                 command->text_palette,
-                                 command->color,
-                                 str_addr,
-                                 command->x0,
-                                 command->y0);
+    return draw_system_text_bytes(renderer,
+                                  ctx,
+                                  text_bytes,
+                                  char_count,
+                                  command->text_palette,
+                                  command->color,
+                                  str_addr,
+                                  command->system_font_size,
+                                  command->system_font_flags,
+                                  command->x0,
+                                  command->y0);
   }
 
   if (!read_guest_font_header(ctx, command->aux2, &font))
@@ -1108,7 +1341,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
   drawn_pixels = 0u;
   max_pixel_value = (1u << font.bpp) - 1u;
   text_color = command->color != 0u ? command->color : command->text_palette[1];
-  decode_guest_color(text_color, &fg_red, &fg_green, &fg_blue);
+  decode_draw_command_color(ctx, command, text_color, &fg_red, &fg_green, &fg_blue);
   decode_guest_color(command->text_palette[0], &bg_red, &bg_green, &bg_blue);
 
   for (char_index = 0u; char_index < char_count; ++char_index)
@@ -1203,6 +1436,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
 
   if (drawn_pixels == 0u)
   {
+#if (MVM_MAX_LOG_LEVEL >= 3U)
     static uint32_t fallback_log_count = 0u;
 
     if (fallback_log_count < 16u)
@@ -1261,6 +1495,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
                 sample_pixel_msb);
       ++fallback_log_count;
     }
+#endif
 
     return draw_debug_text_bytes(renderer,
                                  ctx,
@@ -1423,7 +1658,7 @@ static int draw_guest_tile(SDL_Renderer *renderer, const VMGPContext *ctx, const
   for (index = 0u; index < 64u; ++index)
   {
     pixel_index = read_packed_sprite_pixel(ctx->mem + command->aux, index, bits_per_pixel);
-    if (pixel_index == 0u && (raw_format & 0x08u) != 0u)
+    if (pixel_index == 0u && (((raw_format & 0x08u) != 0u) || ((command->transfer_mode & 0x01u) != 0u)))
     {
       continue;
     }
@@ -1584,6 +1819,7 @@ static void render_guest_sprite_slots(SDL_Renderer *renderer,
       command.clip_y0 = source_command->clip_y0;
       command.clip_x1 = source_command->clip_x1;
       command.clip_y1 = source_command->clip_y1;
+      command.transfer_mode = source_command->transfer_mode;
     }
     command.x0 = ctx->sprite_slots[index].x;
     command.y0 = ctx->sprite_slots[index].y;
@@ -1647,36 +1883,38 @@ uint32_t MVM_RenderReplayCommands(MpnVM_t *vm, const MVM_RenderBackend_t *backen
   {
     command = &ctx->draw_commands[index];
 
-    if (command->type == MVM_DRAW_TEXT)
-    {
-      continue;
-    }
-
     apply_draw_command_clip(&renderer_state, command);
-    set_renderer_guest_color(&renderer_state, command->color);
+    set_renderer_guest_color(&renderer_state, ctx, command, command->color);
 
     switch (command->type)
     {
       case MVM_DRAW_FILL_RECT:
+      {
+        if (command->x0 >= command->x1)
+        {
+          break;
+        }
+
         rect.x = command->x0;
         rect.y = command->y0;
-        rect.w = command->x1 - command->x0;
-        rect.h = command->y1 - command->y0;
-        if (rect.w < 0)
-        {
-          rect.x += rect.w;
-          rect.w = -rect.w;
-        }
-        if (rect.h < 0)
-        {
-          rect.y += rect.h;
-          rect.h = -rect.h;
-        }
+        rect.w = command->x1 - command->x0 + 1;
+        rect.h = (command->y0 <= command->y1) ? (command->y1 - command->y0 + 1) : 1;
         SDL_RenderFillRect(&renderer_state, &rect);
         break;
+      }
 
       case MVM_DRAW_LINE:
         SDL_RenderDrawLine(&renderer_state, command->x0, command->y0, command->x1, command->y1);
+        break;
+
+      case MVM_DRAW_TRIANGLE:
+        draw_filled_triangle(&renderer_state,
+                             command->x0,
+                             command->y0,
+                             command->x1,
+                             command->y1,
+                             (int16_t)(command->aux & 0xFFFFu),
+                             (int16_t)(command->aux2 & 0xFFFFu));
         break;
 
       case MVM_DRAW_SPRITE:
@@ -1703,29 +1941,20 @@ uint32_t MVM_RenderReplayCommands(MpnVM_t *vm, const MVM_RenderBackend_t *backen
         (void)draw_guest_tile(&renderer_state, ctx, command);
         break;
 
+      case MVM_DRAW_TEXT:
+        if (!draw_guest_text(&renderer_state, ctx, command))
+        {
+          SDL_SetRenderDrawColor(&renderer_state, 255u, 255u, 0u, 255u);
+          rect.x = command->x0;
+          rect.y = command->y0;
+          rect.w = command->width != 0u ? command->width : 8;
+          rect.h = command->height != 0u ? command->height : 8;
+          SDL_RenderDrawRect(&renderer_state, &rect);
+        }
+        break;
+
       default:
         break;
-    }
-  }
-
-  for (index = first_command; index < ctx->draw_command_count; ++index)
-  {
-    command = &ctx->draw_commands[index];
-    if (command->type != MVM_DRAW_TEXT)
-    {
-      continue;
-    }
-
-    apply_draw_command_clip(&renderer_state, command);
-    set_renderer_guest_color(&renderer_state, command->color);
-    if (!draw_guest_text(&renderer_state, ctx, command))
-    {
-      SDL_SetRenderDrawColor(&renderer_state, 255u, 255u, 0u, 255u);
-      rect.x = command->x0;
-      rect.y = command->y0;
-      rect.w = command->width != 0u ? command->width : 8;
-      rect.h = command->height != 0u ? command->height : 8;
-      SDL_RenderDrawRect(&renderer_state, &rect);
     }
   }
 

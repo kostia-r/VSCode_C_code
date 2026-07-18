@@ -56,12 +56,8 @@ int MVM_DefaultLog(void *user,
 #define MVM_LOG_RAW(ctx, level, event, fmt, ...) \
   MVM_LogMessage((ctx), (level), __FILE__, (event), (fmt), ##__VA_ARGS__)
 
-#if (MVM_MAX_LOG_LEVEL >= 3U)
 #define MVM_LOG_EVT(ctx, event_id, arg0, arg1) \
   MVM_LogEvent((ctx), (event_id), (arg0), (arg1))
-#else
-#define MVM_LOG_EVT(ctx, event_id, arg0, arg1) ((void)0)
-#endif
 
 #define MVM_LOG_E(ctx, event, fmt, ...) \
   MVM_LOG_RAW((ctx), MVM_LOG_LEVEL_ERROR, (event), (fmt), ##__VA_ARGS__)

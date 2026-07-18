@@ -48,7 +48,7 @@
  * 0=error, 1=warning, 2=info, 3=debug, 4=trace.
  */
 #ifndef MVM_MAX_LOG_LEVEL
-#define MVM_MAX_LOG_LEVEL                                       (3U)
+#define MVM_MAX_LOG_LEVEL                                       (2U)
 #endif
 
 /**********************************************************************************************************************

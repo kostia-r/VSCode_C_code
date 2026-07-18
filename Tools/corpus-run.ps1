@@ -1,6 +1,7 @@
 param(
     [string]$Manifest = "Tools/corpus/manifest.json",
     [string]$OutRoot = "Runs/Corpus",
+    [uint32]$DurationOverrideMs = 0,
     [switch]$NoBuild,
     [switch]$NoEncode
 )
@@ -143,7 +144,15 @@ $summary = New-Object System.Collections.Generic.List[object]
 
 foreach ($run in $manifestData.runs) {
     $gamePath = Resolve-RepoPath $run.game
-    $durationMs = if ($run.durationMs) { [uint32]$run.durationMs } else { [uint32]$manifestData.defaultDurationMs }
+    $durationMs = if ($DurationOverrideMs -ne 0) {
+        $DurationOverrideMs
+    }
+    elseif ($run.durationMs) {
+        [uint32]$run.durationMs
+    }
+    else {
+        [uint32]$manifestData.defaultDurationMs
+    }
     $maxSteps = if ($run.maxSteps) { [uint32]$run.maxSteps } else { [uint32]$manifestData.defaultMaxSteps }
     $maxLoggedCalls = if ($run.maxLoggedCalls) { [uint32]$run.maxLoggedCalls } else { [uint32]$manifestData.defaultMaxLoggedCalls }
     $fixedDateTime = if ($run.fixedDateTime) { [string]$run.fixedDateTime } else { [string]$manifestData.defaultFixedDateTime }

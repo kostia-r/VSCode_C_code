@@ -10,7 +10,7 @@
 #include <string.h>
 
 #define MAX_STEPS_DEFAULT              (100000000U)
-#define MAX_LOGGED_CALLS_DEFAULT       (500000U)
+#define MAX_LOGGED_CALLS_DEFAULT       (0U)
 
 /**
  * @brief Describes parsed command-line options for the VM runner.
@@ -483,6 +483,7 @@ int main(int argc, char **argv)
 
   image_source.user = file_provider.file;
   image_source.image_size = file_provider.size;
+  image_source.path = options.image_path;
 
   /* The host owns raw VM storage and asks the library to construct a VM
    * instance inside that storage block.

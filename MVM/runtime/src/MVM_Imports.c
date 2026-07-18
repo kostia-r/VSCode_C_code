@@ -13,6 +13,7 @@
  *********************************************************************************************************************/
 
 #include "MVM_Internal.h"
+#include "MVM_SystemFontT230.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -128,6 +129,16 @@ static VMGPFile *MVM_lOpenFile(VMGPContext *ctx, const char *name, bool create);
 static void MVM_lReadFileName(const VMGPContext *ctx, uint32_t addr, char *dst, size_t dst_size);
 
 /**
+ * @brief Opens one read-only host sidecar file next to the active image.
+ */
+static bool MVM_lOpenSidecarFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t mode, const char *name);
+
+/**
+ * @brief Returns true when one guest filename looks like a resource sidecar rather than save data.
+ */
+static bool MVM_lLooksLikeSidecarName(const char *name);
+
+/**
  * @brief Opens one VM-local persistent file stream.
  */
 static bool MVM_lOpenFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t mode, uint32_t name_addr);
@@ -177,6 +188,7 @@ static uint32_t MVM_lDecompressLzContent(LZBitStream *bit_stream,
                                          uint8_t max_offset_bits);
 static uint32_t MVM_lUnicodeStrLen(const uint8_t *src, size_t max_bytes);
 static int32_t MVM_lUnicodeStrCmp(const uint8_t *left, size_t left_bytes, const uint8_t *right, size_t right_bytes);
+static bool MVM_lGuestStringEquals(const VMGPContext *ctx, uint32_t addr, uint32_t len, const char *text);
 static int32_t MVM_lFixedFromDouble(double value);
 static double MVM_lFixedToDouble(int32_t value);
 static bool MVM_lReadSpriteHeader(const VMGPContext *ctx,
@@ -200,16 +212,23 @@ static VMGPMapUpdateCache *MVM_lMapUpdateCache(VMGPContext *ctx, const VMGPMapSt
 static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *map_state);
 static uint32_t MVM_lFontCharWidth(const VMGPContext *ctx, uint32_t font_addr);
 static uint32_t MVM_lFontCharHeight(const VMGPContext *ctx, uint32_t font_addr);
+#if (MVM_MAX_LOG_LEVEL >= 3U)
 static uint32_t MVM_lSystemFontCharWidth(const VMGPContext *ctx);
+#endif
 static uint32_t MVM_lSystemFontCharHeight(const VMGPContext *ctx);
+static const MVM_SystemFontFace_t *MVM_lSystemFontFace(const VMGPContext *ctx);
+static uint32_t MVM_lSystemFontGlyphAdvance(const VMGPContext *ctx, uint8_t ch);
+static uint32_t MVM_lSystemTextWidth(const VMGPContext *ctx, uint32_t str, bool unicode);
 static uint32_t MVM_lPackTextExtent(uint32_t width, uint32_t height);
 static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, uint32_t str, uint32_t font, bool unicode);
 static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_addr);
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr);
 static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx);
 static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawCommandType_t type);
+#if (MVM_MAX_LOG_LEVEL >= 3U)
 static uint32_t MVM_lReadPackedLsbPixel(const uint8_t *data, uint32_t pixel_index, uint32_t bits_per_pixel);
 static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t text_length);
+#endif
 
 /* Import handlers use SDK-visible names by design. */
 MVM_IMPORT_PROTO(DbgPrintf);               /* Stub */
@@ -259,6 +278,7 @@ MVM_IMPORT_PROTO(vTestKey);                /* Partially implemented */
 MVM_IMPORT_PROTO(vUpdateMap);              /* Partially implemented */
 MVM_IMPORT_PROTO(vUpdateSprite);           /* Partially implemented */
 MVM_IMPORT_PROTO(vitoa);                   /* Fully implemented */
+MVM_IMPORT_PROTO(vutoa);                   /* Fully implemented */
 MVM_IMPORT_PROTO(vDecompHdr);              /* Fully implemented */
 MVM_IMPORT_PROTO(vDecompress);             /* Fully implemented */
 MVM_IMPORT_PROTO(vDisposePtr);             /* Fully implemented */
@@ -268,7 +288,7 @@ MVM_IMPORT_PROTO(vCharExtent);             /* Stub */
 MVM_IMPORT_PROTO(vCharExtentU);            /* Stub */
 MVM_IMPORT_PROTO(vCheckDataCert);          /* Stub */
 MVM_IMPORT_PROTO(vCheckDataCertFile);      /* Stub */
-MVM_IMPORT_PROTO(vCheckIMEI);              /* Stub */
+MVM_IMPORT_PROTO(vCheckIMEI);              /* SDK-compatible success result */
 MVM_IMPORT_PROTO(vCheckNetwork);           /* Stub */
 MVM_IMPORT_PROTO(vCollisionBoxBox);        /* Stub */
 MVM_IMPORT_PROTO(vCollisionPointBox);      /* Stub */
@@ -287,7 +307,7 @@ MVM_IMPORT_PROTO(vDisposeTask);            /* Stub */
 MVM_IMPORT_PROTO(vDiv);                    /* Fully implemented */
 MVM_IMPORT_PROTO(vDotProduct);             /* Stub */
 MVM_IMPORT_PROTO(vDrawBillboard);          /* Stub */
-MVM_IMPORT_PROTO(vDrawFlatPolygon);        /* Stub */
+MVM_IMPORT_PROTO(vDrawFlatPolygon);        /* Partially implemented */
 MVM_IMPORT_PROTO(vDrawPolygon);            /* Stub */
 MVM_IMPORT_PROTO(vDrawTile);               /* Partially implemented */
 MVM_IMPORT_PROTO(vFileClose);              /* Fully implemented */
@@ -488,6 +508,7 @@ static const MVM_ImportBinding_t MVM_lImportBindings[] =
   MVM_BIND_IMPORT(vUpdateMap),
   MVM_BIND_IMPORT(vUpdateSprite),
   MVM_BIND_IMPORT(vitoa),
+  MVM_BIND_IMPORT(vutoa),
   MVM_BIND_IMPORT(vDecompHdr),
   MVM_BIND_IMPORT(vDecompress),
   MVM_BIND_IMPORT(vDisposePtr),
@@ -899,6 +920,295 @@ static void MVM_lReadFileName(const VMGPContext *ctx, uint32_t addr, char *dst, 
   }
 } /* End of MVM_lReadFileName */
 
+static const char *MVM_lPathFileName(const char *path)
+{
+  const char *name;
+  const char *p;
+
+  if (!path)
+  {
+    return NULL;
+  }
+
+  name = path;
+  for (p = path; *p != '\0'; ++p)
+  {
+    if (*p == '/' || *p == '\\')
+    {
+      name = p + 1;
+    }
+  }
+
+  return name;
+} /* End of MVM_lPathFileName */
+
+static size_t MVM_lPathDirLen(const char *path)
+{
+  const char *p;
+  size_t dir_len;
+
+  dir_len = 0u;
+  if (!path)
+  {
+    return 0u;
+  }
+
+  for (p = path; *p != '\0'; ++p)
+  {
+    if (*p == '/' || *p == '\\')
+    {
+      dir_len = (size_t)(p - path) + 1u;
+    }
+  }
+
+  return dir_len;
+} /* End of MVM_lPathDirLen */
+
+static void MVM_lImageStem(const char *path, char *dst, size_t dst_size)
+{
+  const char *name;
+  size_t index;
+
+  if (!dst || dst_size == 0u)
+  {
+    return;
+  }
+
+  dst[0] = '\0';
+  name = MVM_lPathFileName(path);
+  if (!name)
+  {
+    return;
+  }
+
+  for (index = 0u; (index + 1u) < dst_size && name[index] != '\0'; ++index)
+  {
+    if (name[index] == '_' || name[index] == '.')
+    {
+      break;
+    }
+
+    dst[index] = name[index];
+  }
+
+  while (index > 0u && dst[index - 1u] >= '0' && dst[index - 1u] <= '9')
+  {
+    index--;
+  }
+
+  dst[index] = '\0';
+} /* End of MVM_lImageStem */
+
+static bool MVM_lBuildSidecarPath(const VMGPContext *ctx,
+                                  const char *file_name,
+                                  uint32_t candidate,
+                                  char *dst,
+                                  size_t dst_size)
+{
+  char stem[VMGP_FILE_NAME_BYTES];
+  size_t dir_len;
+  int written;
+
+  if (!ctx || !ctx->image.path || !file_name || !dst || dst_size == 0u)
+  {
+    return false;
+  }
+
+  if (strchr(file_name, '/') || strchr(file_name, '\\') || strstr(file_name, ".."))
+  {
+    return false;
+  }
+
+  dir_len = MVM_lPathDirLen(ctx->image.path);
+  if (dir_len >= dst_size)
+  {
+    return false;
+  }
+
+  memcpy(dst, ctx->image.path, dir_len);
+  dst[dir_len] = '\0';
+
+  switch (candidate)
+  {
+    case 0u:
+      written = snprintf(dst + dir_len, dst_size - dir_len, "%s", file_name);
+      break;
+
+    case 1u:
+      written = snprintf(dst + dir_len, dst_size - dir_len, "%s.mpc", file_name);
+      break;
+
+    case 2u:
+      MVM_lImageStem(ctx->image.path, stem, sizeof(stem));
+      if (stem[0] == '\0')
+      {
+        return false;
+      }
+      written = snprintf(dst + dir_len, dst_size - dir_len, "%s_%s.mpc", stem, file_name);
+      break;
+
+    default:
+      return false;
+  }
+
+  return written >= 0 && (size_t)written < (dst_size - dir_len);
+} /* End of MVM_lBuildSidecarPath */
+
+static bool MVM_lOpenSidecarFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t mode, const char *name)
+{
+  char path[512];
+  FILE *file;
+  long size;
+  uint8_t *data;
+  size_t read_size;
+  uint32_t candidate;
+
+  if (!ctx || !stream || !name || (mode & (STREAM_WRITE_FLAG | STREAM_CREATE_FLAG | STREAM_TRUNC_FLAG | STREAM_DELETE_FLAG)) != 0u)
+  {
+    return false;
+  }
+
+  for (candidate = 0u; candidate < 3u; ++candidate)
+  {
+    if (!MVM_lBuildSidecarPath(ctx, name, candidate, path, sizeof(path)))
+    {
+      continue;
+    }
+
+    file = fopen(path, "rb");
+    if (!file)
+    {
+      continue;
+    }
+
+    if (fseek(file, 0, SEEK_END) != 0)
+    {
+      fclose(file);
+      continue;
+    }
+
+    size = ftell(file);
+    if (size < 0 || (uint64_t)(size_t)size > 0xFFFFFFFFULL)
+    {
+      fclose(file);
+      continue;
+    }
+
+    rewind(file);
+    data = (uint8_t *)MVM_AcquireInitBuffer(ctx, (size_t)size);
+    if (!data)
+    {
+      fclose(file);
+      MVM_LOG_W(ctx, "file-open", "vStreamOpen(file=%s mode=%08X) sidecar too large: %s\n", name, mode, path);
+
+      return false;
+    }
+
+    read_size = fread(data, 1u, (size_t)size, file);
+    fclose(file);
+
+    if (read_size != (size_t)size)
+    {
+      continue;
+    }
+
+    stream->overlay_data = data;
+    stream->overlay_size = (uint32_t)size;
+    stream->size = (uint32_t)size;
+    stream->mode = mode;
+    stream->pos = 0u;
+    ctx->regs[VM_REG_R0] = stream->handle;
+
+    MVM_LOG_D(ctx,
+              "file-open",
+              "vStreamOpen(file=%s mode=%08X) -> sidecar handle=%u size=%u path=%s\n",
+              name,
+              mode,
+              stream->handle,
+              stream->size,
+              path);
+
+    return true;
+  }
+
+  return false;
+} /* End of MVM_lOpenSidecarFileStream */
+
+static char MVM_lAsciiLower(char ch)
+{
+  if (ch >= 'A' && ch <= 'Z')
+  {
+    return (char)(ch - 'A' + 'a');
+  }
+
+  return ch;
+} /* End of MVM_lAsciiLower */
+
+static bool MVM_lStrContainsNoCase(const char *text, const char *needle)
+{
+  size_t text_index;
+  size_t needle_index;
+
+  if (!text || !needle || needle[0] == '\0')
+  {
+    return false;
+  }
+
+  for (text_index = 0u; text[text_index] != '\0'; ++text_index)
+  {
+    for (needle_index = 0u; needle[needle_index] != '\0'; ++needle_index)
+    {
+      if (text[text_index + needle_index] == '\0' ||
+          MVM_lAsciiLower(text[text_index + needle_index]) != MVM_lAsciiLower(needle[needle_index]))
+      {
+        break;
+      }
+    }
+
+    if (needle[needle_index] == '\0')
+    {
+      return true;
+    }
+  }
+
+  return false;
+} /* End of MVM_lStrContainsNoCase */
+
+static bool MVM_lEndsWithNoCase(const char *text, const char *suffix)
+{
+  size_t text_len;
+  size_t suffix_len;
+  size_t index;
+
+  if (!text || !suffix)
+  {
+    return false;
+  }
+
+  text_len = strlen(text);
+  suffix_len = strlen(suffix);
+  if (suffix_len > text_len)
+  {
+    return false;
+  }
+
+  for (index = 0u; index < suffix_len; ++index)
+  {
+    if (MVM_lAsciiLower(text[text_len - suffix_len + index]) != MVM_lAsciiLower(suffix[index]))
+    {
+      return false;
+    }
+  }
+
+  return true;
+} /* End of MVM_lEndsWithNoCase */
+
+static bool MVM_lLooksLikeSidecarName(const char *name)
+{
+  return MVM_lEndsWithNoCase(name, ".mpc") ||
+         MVM_lStrContainsNoCase(name, "pack");
+} /* End of MVM_lLooksLikeSidecarName */
+
 static bool MVM_lOpenFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t mode, uint32_t name_addr)
 {
   VMGPFile *file;
@@ -930,12 +1240,25 @@ static bool MVM_lOpenFileStream(VMGPContext *ctx, VMGPStream *stream, uint32_t m
   }
 
   create = ((mode & (STREAM_CREATE_FLAG | STREAM_TRUNC_FLAG)) != 0u);
+  if (!create && MVM_lOpenSidecarFileStream(ctx, stream, mode, name))
+  {
+    return true;
+  }
+
   file = MVM_lOpenFile(ctx, name, create);
   if (!file)
   {
     memset(stream, 0, sizeof(*stream));
     ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
-    MVM_LOG_D(ctx, "file-open", "vStreamOpen(file=%s mode=%08X) -> -1 missing file\n", name, mode);
+    if (!create && MVM_lLooksLikeSidecarName(name))
+    {
+      MVM_EmitEvent(ctx, MVM_EVENT_SIDECAR_MISSING, name_addr, mode);
+      MVM_LOG_I(ctx, "file-open", "vStreamOpen(file=%s mode=%08X) -> -1 missing sidecar\n", name, mode);
+    }
+    else
+    {
+      MVM_LOG_D(ctx, "file-open", "vStreamOpen(file=%s mode=%08X) -> -1 missing persistent file\n", name, mode);
+    }
 
     return true;
   }
@@ -1284,6 +1607,24 @@ static int32_t MVM_lUnicodeStrCmp(const uint8_t *left, size_t left_bytes, const 
 
   return 0;
 } /* End of MVM_lUnicodeStrCmp */
+
+static bool MVM_lGuestStringEquals(const VMGPContext *ctx, uint32_t addr, uint32_t len, const char *text)
+{
+  size_t text_len;
+
+  if (!ctx || !text || addr >= ctx->mem_size)
+  {
+    return false;
+  }
+
+  text_len = strlen(text);
+  if (len != text_len || (size_t)addr + text_len > ctx->mem_size)
+  {
+    return false;
+  }
+
+  return memcmp(ctx->mem + addr, text, text_len) == 0;
+} /* End of MVM_lGuestStringEquals */
 
 static int32_t MVM_lFixedFromDouble(double value)
 {
@@ -1782,6 +2123,7 @@ static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *m
       command->color = ctx->fg_color;
       command->aux = tile_addr;
       command->aux2 = raw_format;
+      command->transfer_mode = 0u;
       ++emitted;
     }
   }
@@ -1902,6 +2244,7 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
   command->clip_y0 = ctx->clip_y0;
   command->clip_x1 = ctx->clip_x1;
   command->clip_y1 = ctx->clip_y1;
+  command->transfer_mode = ctx->transfer_mode;
 
   if (ctx->draw_palette_count > 0u)
   {
@@ -1946,25 +2289,69 @@ static uint32_t MVM_lFontCharHeight(const VMGPContext *ctx, uint32_t font_addr)
   return 8u;
 } /* End of MVM_lFontCharHeight */
 
+#if (MVM_MAX_LOG_LEVEL >= 3U)
 static uint32_t MVM_lSystemFontCharWidth(const VMGPContext *ctx)
 {
-  if (ctx && ctx->active_font != 0u)
-  {
-    return MVM_lFontCharWidth(ctx, ctx->active_font);
-  }
-
-  return (ctx && ctx->system_font_width != 0u) ? ctx->system_font_width : 6u;
+  return (ctx && ctx->system_font_width != 0u) ? ctx->system_font_width : 8u;
 } /* End of MVM_lSystemFontCharWidth */
+#endif
 
 static uint32_t MVM_lSystemFontCharHeight(const VMGPContext *ctx)
 {
-  if (ctx && ctx->active_font != 0u)
+  return (ctx && ctx->system_font_height != 0u) ? ctx->system_font_height : 10u;
+} /* End of MVM_lSystemFontCharHeight */
+
+static const MVM_SystemFontFace_t *MVM_lSystemFontFace(const VMGPContext *ctx)
+{
+  if (ctx && ctx->system_font_size == 1u)
   {
-    return MVM_lFontCharHeight(ctx, ctx->active_font);
+    return &MVM_SystemFontFaceSmallCandidate;
   }
 
-  return (ctx && ctx->system_font_height != 0u) ? ctx->system_font_height : 8u;
-} /* End of MVM_lSystemFontCharHeight */
+  return &MVM_SystemFontFaceNormalPlaceholder;
+} /* End of MVM_lSystemFontFace */
+
+static uint32_t MVM_lSystemFontGlyphAdvance(const VMGPContext *ctx, uint8_t ch)
+{
+  const MVM_SystemFontFace_t *face;
+
+  face = MVM_lSystemFontFace(ctx);
+  if (ch >= 0x20u && ch <= 0x7Eu)
+  {
+    return face->glyphs[ch - 0x20u].advance;
+  }
+
+  return 8u;
+}
+
+static uint32_t MVM_lSystemTextWidth(const VMGPContext *ctx, uint32_t str, bool unicode)
+{
+  uint32_t width;
+  uint32_t index;
+
+  if (!ctx || str >= ctx->mem_size)
+  {
+    return 0u;
+  }
+
+  width = 0u;
+  index = 0u;
+  while (str + index < ctx->mem_size)
+  {
+    uint8_t ch;
+
+    ch = ctx->mem[str + index];
+    if (ch == 0u)
+    {
+      break;
+    }
+
+    width += MVM_lSystemFontGlyphAdvance(ctx, ch);
+    index += unicode ? 2u : 1u;
+  }
+
+  return width;
+}
 
 static uint32_t MVM_lPackTextExtent(uint32_t width, uint32_t height)
 {
@@ -2002,11 +2389,15 @@ static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, u
   {
     command->x0 = (int16_t)(x & 0xFFFFu);
     command->y0 = (int16_t)(y & 0xFFFFu);
-    command->width = (uint16_t)(length * MVM_lFontCharWidth(ctx, font));
-    command->height = (uint16_t)MVM_lFontCharHeight(ctx, font);
+    command->width = (uint16_t)((font == 0u) ? MVM_lSystemTextWidth(ctx, str, unicode)
+                                             : (length * MVM_lFontCharWidth(ctx, font)));
+    command->height = (uint16_t)((font == 0u) ? MVM_lSystemFontCharHeight(ctx)
+                                              : MVM_lFontCharHeight(ctx, font));
     command->color = ctx->fg_color;
     command->aux = str;
     command->aux2 = font;
+    command->system_font_size = ctx->system_font_size;
+    command->system_font_flags = ctx->system_font_flags;
     command->text_palette[0] = ctx->palette_entries[0];
     command->text_palette[1] = ctx->palette_entries[1];
     command->text_palette[2] = ctx->palette_entries[2];
@@ -2035,6 +2426,7 @@ static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, u
   return length;
 } /* End of MVM_lEmitTextCommand */
 
+#if (MVM_MAX_LOG_LEVEL >= 3U)
 static uint32_t MVM_lReadPackedLsbPixel(const uint8_t *data, uint32_t pixel_index, uint32_t bits_per_pixel)
 {
   uint32_t byte_index;
@@ -2057,7 +2449,6 @@ static uint32_t MVM_lReadPackedLsbPixel(const uint8_t *data, uint32_t pixel_inde
 
   return (uint32_t)((data[byte_index] >> shift) & mask);
 } /* End of MVM_lReadPackedLsbPixel */
-
 static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t text_length)
 {
   static uint32_t dumped_mask = 0u;
@@ -2232,6 +2623,7 @@ static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t 
               raster_text);
   }
 } /* End of MVM_lMaybeDumpTextFont */
+#endif
 
 /**
  * @brief SDK: Allocates one guest-memory block and returns one guest pointer in `r0`.
@@ -2281,6 +2673,9 @@ MVM_IMPORT_IMPL(vDisposePtr)
             ctx->regs[VM_REG_P0],
             released ? 1u : 0u,
             ctx->regs[VM_REG_R0]);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)released;
+#endif
 
   return true;
 } /* End of vDisposePtr */
@@ -2305,6 +2700,9 @@ MVM_IMPORT_IMPL(vMemFree)
             ctx->regs[VM_REG_P0],
             released ? 1u : 0u,
             ctx->regs[VM_REG_R0]);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)released;
+#endif
 
   return true;
 } /* End of vMemFree */
@@ -2360,6 +2758,10 @@ MVM_IMPORT_IMPL(vNewPtrDbg)
             file,
             line,
             ctx->regs[VM_REG_R0]);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)file;
+  (void)line;
+#endif
 
   return true;
 } /* End of vNewPtrDbg */
@@ -2855,6 +3257,104 @@ MVM_IMPORT_IMPL(vitoa)
 } /* End of vitoa */
 
 /**
+ * @brief SDK: Converts one unsigned integer value to its string representation.
+ * Call model: `sync/result`
+ * Ownership: Writes guest memory to `p1` during the call only.
+ * Blocking: Non-blocking.
+ * Status: Implemented.
+ */
+MVM_IMPORT_IMPL(vutoa)
+{
+  uint32_t value;
+  uint32_t buffer;
+  uint32_t length;
+  uint32_t index;
+  uint32_t digit_count;
+  uint32_t pad_count;
+  char temp[32];
+  char digits[32];
+  int written;
+
+  value = ctx->regs[VM_REG_P0];
+  buffer = ctx->regs[VM_REG_P1];
+  length = ctx->regs[VM_REG_P2];
+  index = 0u;
+  written = 0;
+  memset(temp, 0, sizeof(temp));
+  memset(digits, 0, sizeof(digits));
+
+  written = snprintf(digits, sizeof(digits), "%u", value);
+
+  if (written < 0)
+  {
+    written = 0;
+  }
+
+  digit_count = (uint32_t)written;
+  if (digit_count >= sizeof(digits))
+  {
+    digit_count = sizeof(digits) - 1u;
+  }
+
+  pad_count = 0u;
+  if (length > digit_count)
+  {
+    pad_count = length - digit_count;
+  }
+  if (pad_count >= sizeof(temp))
+  {
+    pad_count = sizeof(temp) - 1u;
+  }
+
+  while (index < pad_count && index < (sizeof(temp) - 1u))
+  {
+    temp[index] = (char)ctx->regs[VM_REG_P3];
+    ++index;
+  }
+
+  for (digit_count = 0u;
+       digit_count < (uint32_t)written && index < (sizeof(temp) - 1u);
+       ++digit_count)
+  {
+    temp[index] = digits[digit_count];
+    ++index;
+  }
+
+  temp[index] = '\0';
+  written = (int)index;
+
+  if (buffer < ctx->mem_size)
+  {
+    index = 0u;
+
+    while (index < (uint32_t)written && MVM_RuntimeMemRangeOk(ctx, buffer + index, 1u))
+    {
+      ctx->mem[buffer + index] = (uint8_t)temp[index];
+      index++;
+    }
+
+    if (MVM_RuntimeMemRangeOk(ctx, buffer + index, 1u))
+    {
+      ctx->mem[buffer + index] = 0u;
+      MVM_WatchMemoryWrite(ctx, buffer, index + 1u, "vutoa");
+    }
+  }
+
+  ctx->regs[VM_REG_R0] = buffer + (uint32_t)written;
+
+  MVM_LOG_D(ctx,
+            "utoa",
+            "vutoa(val=%u buf=%08X len=%u pad=%02X) -> %08X\n",
+            value,
+            buffer,
+            length,
+            ctx->regs[VM_REG_P3] & 0xFFu,
+            ctx->regs[VM_REG_R0]);
+
+  return true;
+} /* End of vutoa */
+
+/**
  * @brief SDK: Opens one resource-backed guest stream and returns one handle in `r0`.
  * Call model: `sync/result`
  * Ownership: Uses guest register arguments only; returned handle remains VM-owned.
@@ -3118,6 +3618,9 @@ MVM_IMPORT_IMPL(vStreamRead)
             count,
             stream->pos,
             first_byte);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)first_byte;
+#endif
 
   return true;
 } /* End of vStreamRead */
@@ -3230,6 +3733,9 @@ MVM_IMPORT_IMPL(vStreamWrite)
             ctx->regs[VM_REG_R0],
             stream->pos,
             first_byte);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)first_byte;
+#endif
 
   return true;
 } /* End of vStreamWrite */
@@ -4200,6 +4706,14 @@ MVM_IMPORT_IMPL(vSetActiveFont)
             height,
             palindex,
             ctx->regs[VM_REG_R0]);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)font_data;
+  (void)char_table;
+  (void)bpp;
+  (void)width;
+  (void)height;
+  (void)palindex;
+#endif
 
   return true;
 } /* End of vSetActiveFont */
@@ -4253,15 +4767,66 @@ MVM_IMPORT_IMPL(vSetBackColor)
  */
 MVM_IMPORT_IMPL(vSetClipWindow)
 {
-  ctx->clip_x0 = (uint16_t)(ctx->regs[VM_REG_P0] & 0xFFFFu);
-  ctx->clip_y0 = (uint16_t)(ctx->regs[VM_REG_P1] & 0xFFFFu);
-  ctx->clip_x1 = (uint16_t)(ctx->regs[VM_REG_P2] & 0xFFFFu);
-  ctx->clip_y1 = (uint16_t)(ctx->regs[VM_REG_P3] & 0xFFFFu);
+  int32_t x0;
+  int32_t y0;
+  int32_t x1;
+  int32_t y1;
+  int32_t screen_width;
+  int32_t screen_height;
+
+  x0 = (int32_t)(int16_t)(ctx->regs[VM_REG_P0] & 0xFFFFu);
+  y0 = (int32_t)(int16_t)(ctx->regs[VM_REG_P1] & 0xFFFFu);
+  x1 = (int32_t)(int16_t)(ctx->regs[VM_REG_P2] & 0xFFFFu);
+  y1 = (int32_t)(int16_t)(ctx->regs[VM_REG_P3] & 0xFFFFu);
+  screen_width = ctx->device_profile ? (int32_t)ctx->device_profile->screen_width : 101;
+  screen_height = ctx->device_profile ? (int32_t)ctx->device_profile->screen_height : 80;
+
+  if (x0 < 0)
+  {
+    x0 = 0;
+  }
+  if (y0 < 0)
+  {
+    y0 = 0;
+  }
+  if (x1 < 0)
+  {
+    x1 = 0;
+  }
+  if (y1 < 0)
+  {
+    y1 = 0;
+  }
+  if (x0 > screen_width)
+  {
+    x0 = screen_width;
+  }
+  if (y0 > screen_height)
+  {
+    y0 = screen_height;
+  }
+  if (x1 > screen_width)
+  {
+    x1 = screen_width;
+  }
+  if (y1 > screen_height)
+  {
+    y1 = screen_height;
+  }
+
+  ctx->clip_x0 = (uint16_t)x0;
+  ctx->clip_y0 = (uint16_t)y0;
+  ctx->clip_x1 = (uint16_t)x1;
+  ctx->clip_y1 = (uint16_t)y1;
   ctx->regs[VM_REG_R0] = 0u;
 
   MVM_LOG_D(ctx,
             "clip-window",
-            "vSetClipWindow(%u,%u,%u,%u)\n",
+            "vSetClipWindow(%d,%d,%d,%d) -> %u,%u,%u,%u\n",
+            (int32_t)(int16_t)(ctx->regs[VM_REG_P0] & 0xFFFFu),
+            (int32_t)(int16_t)(ctx->regs[VM_REG_P1] & 0xFFFFu),
+            (int32_t)(int16_t)(ctx->regs[VM_REG_P2] & 0xFFFFu),
+            (int32_t)(int16_t)(ctx->regs[VM_REG_P3] & 0xFFFFu),
             (uint32_t)ctx->clip_x0,
             (uint32_t)ctx->clip_y0,
             (uint32_t)ctx->clip_x1,
@@ -4324,23 +4889,29 @@ MVM_IMPORT_IMPL(vSetPaletteEntry)
 MVM_IMPORT_IMPL(vSetPalette)
 {
   uint32_t src;
+  uint32_t start_index;
   uint32_t count;
   uint32_t index;
 
   src = ctx->regs[VM_REG_P0];
-  count = ctx->regs[VM_REG_P1];
+  start_index = ctx->regs[VM_REG_P1] & 0xFFu;
+  count = ctx->regs[VM_REG_P2];
   index = 0u;
 
-  if (count > 256u)
+  if (start_index >= 256u)
   {
-    count = 256u;
+    count = 0u;
+  }
+  else if (count > 256u - start_index)
+  {
+    count = 256u - start_index;
   }
 
   if (src < ctx->mem_size)
   {
-    for (index = 0u; index < count && MVM_RuntimeMemRangeOk(ctx, src + index * 4u, 4u); ++index)
+    for (index = 0u; index < count && MVM_RuntimeMemRangeOk(ctx, src + index * 2u, 2u); ++index)
     {
-      ctx->palette_entries[index] = vm_read_u32_le(ctx->mem + src + index * 4u) & 0xFFFFu;
+      ctx->palette_entries[start_index + index] = vm_read_u16_le(ctx->mem + src + index * 2u);
     }
   }
 
@@ -4348,8 +4919,9 @@ MVM_IMPORT_IMPL(vSetPalette)
 
   MVM_LOG_D(ctx,
             "palette",
-            "vSetPalette(src=%08X count=%u) copied=%u\n",
+            "vSetPalette(src=%08X start=%u count=%u) copied=%u\n",
             src,
+            start_index,
             count,
             index);
 
@@ -4408,6 +4980,10 @@ MVM_IMPORT_IMPL(vFillRect)
     command->x1 = x1;
     command->y1 = y1;
     command->color = ctx->fg_color;
+    command->clip_x0 = 0u;
+    command->clip_y0 = 0u;
+    command->clip_x1 = ctx->device_profile ? ctx->device_profile->screen_width : 101u;
+    command->clip_y1 = ctx->device_profile ? ctx->device_profile->screen_height : 80u;
   }
 
   MVM_LOG_D(ctx,
@@ -4468,6 +5044,70 @@ MVM_IMPORT_IMPL(vDrawLine)
 
   return true;
 } /* End of vDrawLine */
+
+/**
+ * @brief SDK: Draws one filled triangle using the current foreground color.
+ * Call model: `sync/fire-and-forget`
+ * Ownership: Reads one guest Triangle during the call only.
+ * Blocking: Non-blocking.
+ * Status: Implemented as one validated draw request in the default integration.
+ */
+MVM_IMPORT_IMPL(vDrawFlatPolygon)
+{
+  MVM_DrawCommand_t *command;
+  uint32_t tri_addr;
+  int16_t x0;
+  int16_t y0;
+  int16_t x1;
+  int16_t y1;
+  int16_t x2;
+  int16_t y2;
+
+  tri_addr = ctx->regs[VM_REG_P0];
+  ctx->regs[VM_REG_R0] = 0u;
+
+  if (!MVM_RuntimeMemRangeOk(ctx, tri_addr, 12u))
+  {
+    MVM_LOG_W(ctx,
+              "draw-flat-polygon",
+              "vDrawFlatPolygon(tri=%08X) invalid triangle\n",
+              tri_addr);
+
+    return true;
+  }
+
+  x0 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 0u);
+  y0 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 2u);
+  x1 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 4u);
+  y1 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 6u);
+  x2 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 8u);
+  y2 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 10u);
+
+  command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TRIANGLE);
+  if (command)
+  {
+    command->x0 = x0;
+    command->y0 = y0;
+    command->x1 = x1;
+    command->y1 = y1;
+    command->aux = ((uint32_t)(uint16_t)x2);
+    command->aux2 = ((uint32_t)(uint16_t)y2);
+    command->color = ctx->fg_color;
+  }
+
+  MVM_LOG_D(ctx,
+            "draw-flat-polygon",
+            "vDrawFlatPolygon(%d,%d %d,%d %d,%d fg=%08X)\n",
+            (int32_t)x0,
+            (int32_t)y0,
+            (int32_t)x1,
+            (int32_t)y1,
+            (int32_t)x2,
+            (int32_t)y2,
+            ctx->fg_color);
+
+  return true;
+} /* End of vDrawFlatPolygon */
 
 /**
  * @brief SDK: Draws one sprite object at one screen position.
@@ -4666,8 +5306,14 @@ MVM_IMPORT_IMPL(vPrint)
             ctx->active_font,
             ctx->fg_color,
             ctx->bg_color);
-
+#if (MVM_MAX_LOG_LEVEL >= 3U)
   MVM_lMaybeDumpTextFont(ctx, text_preview, preview_length);
+#endif
+
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)mode;
+  (void)text_preview;
+#endif
 
   return true;
 } /* End of vPrint */
@@ -4821,14 +5467,28 @@ MVM_IMPORT_IMPL(vMsgBox)
 
   ctx->regs[VM_REG_R0] = 1u;
 
+  if (MVM_lGuestStringEquals(ctx, message_addr, message_len, "The game has expired") ||
+      MVM_lGuestStringEquals(ctx, message_addr, message_len, "Game Expired"))
+  {
+    MVM_EmitEvent(ctx, MVM_EVENT_LICENSE_EXPIRED, message_addr, message_len);
+  }
+  else if (MVM_lGuestStringEquals(ctx, message_addr, message_len, "Terminal not supported!"))
+  {
+    MVM_EmitEvent(ctx, MVM_EVENT_DEVICE_UNSUPPORTED, message_addr, message_len);
+  }
+
   MVM_LOG_I(ctx,
             "msgbox",
-            "vMsgBox(flags=%08X msg=%08X len=%u title=%08X title_len=%u) -> %u\n",
+            "vMsgBox(flags=%08X msg=%08X len=%u text=\"%.*s\" title=%08X title_len=%u title_text=\"%.*s\") -> %u\n",
             flags,
             message_addr,
             message_len,
+            (int)message_len,
+            (message_addr < ctx->mem_size) ? (const char *)(ctx->mem + message_addr) : "",
             title_addr,
             title_len,
+            (int)title_len,
+            (title_addr < ctx->mem_size) ? (const char *)(ctx->mem + title_addr) : "",
             ctx->regs[VM_REG_R0]);
 
   return true;
@@ -4856,6 +5516,10 @@ MVM_IMPORT_IMPL(vSysCtl)
             cmd,
             op,
             ctx->regs[VM_REG_R0]);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)cmd;
+  (void)op;
+#endif
 
   return true;
 } /* End of vSysCtl */
@@ -5546,6 +6210,9 @@ MVM_IMPORT_IMPL(vUpdateMap)
             (sample_count > 5u) ? sample[5] : 0u,
             (sample_count > 6u) ? sample[6] : 0u,
             (sample_count > 7u) ? sample[7] : 0u);
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)emitted_tiles;
+#endif
 
   if (ctx->map_state.valid &&
       ctx->map_state.width == 13u &&
@@ -6183,16 +6850,6 @@ MVM_DEFINE_ZERO_STUB(vCopyRect)
 MVM_DEFINE_ZERO_STUB(vDrawBillboard)
 
 /**
- * @brief SDK: Draws one flat polygon primitive.
- * Call model: `sync/fire-and-forget`
- * Ownership: No guest memory ownership is retained.
- * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
- */
-MVM_DEFINE_ZERO_STUB(vDrawFlatPolygon)
-
-/**
  * @brief SDK: Draws one polygon primitive.
  * Call model: `sync/fire-and-forget`
  * Ownership: No guest memory ownership is retained.
@@ -6306,29 +6963,40 @@ MVM_IMPORT_IMPL(vSelectFont)
     height = size & 0xFFFFu;
     if (height == 0u)
     {
-      height = 8u;
+      height = 10u;
     }
   }
   else if (size == 1u)
   {
-    height = 8u;
+    height = MVM_SystemFontFaceSmallCandidate.nominal_height;
   }
   else if (size == 2u)
   {
-    height = 14u;
+    height = 12u;
   }
   else
   {
-    height = 8u;
+    height = MVM_SystemFontFaceNormalPlaceholder.nominal_height;
   }
 
   ctx->system_font_size = size;
   ctx->system_font_flags = flags;
   ctx->system_font_height = height;
-  ctx->system_font_width = (height > 8u) ? ((height * 3u) / 4u) : 6u;
+  if (size == 1u)
+  {
+    ctx->system_font_width = MVM_SystemFontFaceSmallCandidate.nominal_width;
+  }
+  else if (size == 0u)
+  {
+    ctx->system_font_width = MVM_SystemFontFaceNormalPlaceholder.nominal_width;
+  }
+  else
+  {
+    ctx->system_font_width = (height <= 9u) ? 6u : ((height * 3u) / 4u);
+  }
   ctx->regs[VM_REG_R0] = flags;
 
-  MVM_LOG_D(ctx,
+  MVM_LOG_I(ctx,
             "select-font",
             "vSelectFont(size=%08X flags=%08X ch=%04X) -> %08X metrics=%ux%u\n",
             size,
@@ -6497,7 +7165,7 @@ MVM_IMPORT_IMPL(vTextExtent)
 
   str = ctx->regs[VM_REG_P0];
   length = (str < ctx->mem_size) ? MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str) : 0u;
-  width = length * MVM_lSystemFontCharWidth(ctx);
+  width = MVM_lSystemTextWidth(ctx, str, false);
   height = (length == 0u) ? 0u : MVM_lSystemFontCharHeight(ctx);
   ctx->regs[VM_REG_R0] = MVM_lPackTextExtent(width, height);
 
@@ -6529,7 +7197,7 @@ MVM_IMPORT_IMPL(vTextExtentU)
 
   str = ctx->regs[VM_REG_P0];
   length = (str < ctx->mem_size) ? MVM_lUnicodeStrLen(ctx->mem + str, ctx->mem_size - str) : 0u;
-  width = length * MVM_lSystemFontCharWidth(ctx);
+  width = MVM_lSystemTextWidth(ctx, str, true);
   height = (length == 0u) ? 0u : MVM_lSystemFontCharHeight(ctx);
   ctx->regs[VM_REG_R0] = MVM_lPackTextExtent(width, height);
 
@@ -6569,7 +7237,9 @@ MVM_IMPORT_IMPL(vTextOut)
             ctx->regs[VM_REG_P2],
             font,
             length);
-
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)length;
+#endif
   return true;
 } /* End of vTextOut */
 
@@ -6597,7 +7267,9 @@ MVM_IMPORT_IMPL(vTextOutU)
             ctx->regs[VM_REG_P2],
             font,
             length);
-
+#if (MVM_MAX_LOG_LEVEL < 3U)
+  (void)length;
+#endif
   return true;
 } /* End of vTextOutU */
 
@@ -6617,24 +7289,31 @@ MVM_DEFINE_ZERO_STUB(vWaitVBL)
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
  * Status: Stub.
- * Stub behavior: Logs the call and returns success.
+ * Stub behavior: Logs the call and returns zero for an accepted certificate.
  */
 MVM_IMPORT_IMPL(vCheckDataCert)
 {
+  uint32_t cert_addr;
+  uint32_t result;
+
   if (!ctx)
   {
     return false;
   }
 
-  ctx->regs[VM_REG_R0] = 1u;
+  cert_addr = ctx->regs[VM_REG_P0];
+  result = (cert_addr < ctx->mem_size) ? 0u : 1u;
+  ctx->regs[VM_REG_R0] = result;
+  MVM_EmitEvent(ctx, MVM_EVENT_DATA_CERT_CHECKED, MVM_DATA_CERT_SOURCE_MEMORY, result);
 
-  MVM_LOG_D(ctx,
+  MVM_LOG_I(ctx,
             "platform-import",
-            "vCheckDataCert(p0=%08X p1=%08X p2=%08X p3=%08X) -> 1\n",
+            "vCheckDataCert(p0=%08X p1=%08X p2=%08X p3=%08X) -> %u\n",
             ctx->regs[VM_REG_P0],
             ctx->regs[VM_REG_P1],
             ctx->regs[VM_REG_P2],
-            ctx->regs[VM_REG_P3]);
+            ctx->regs[VM_REG_P3],
+            result);
 
   return true;
 } /* End of vCheckDataCert */
@@ -6645,9 +7324,45 @@ MVM_IMPORT_IMPL(vCheckDataCert)
  * Ownership: Uses one VM-owned stream handle only for the duration of the call.
  * Blocking: Non-blocking.
  * Status: Stub.
- * Stub behavior: Logs the call and returns success.
+ * Stub behavior: Logs the call and returns zero for an accepted certificate.
  */
 MVM_IMPORT_IMPL(vCheckDataCertFile)
+{
+  uint32_t handle;
+  uint32_t result;
+
+  if (!ctx)
+  {
+    return false;
+  }
+
+  handle = ctx->regs[VM_REG_P0];
+  result = (MVM_lFindStream(ctx, handle) != NULL) ? 0u : 1u;
+  ctx->regs[VM_REG_R0] = result;
+  MVM_EmitEvent(ctx, MVM_EVENT_DATA_CERT_CHECKED, MVM_DATA_CERT_SOURCE_STREAM, result);
+
+  MVM_LOG_I(ctx,
+            "platform-import",
+            "vCheckDataCertFile(p0=%08X p1=%08X p2=%08X p3=%08X) -> %u\n",
+            ctx->regs[VM_REG_P0],
+            ctx->regs[VM_REG_P1],
+            ctx->regs[VM_REG_P2],
+            ctx->regs[VM_REG_P3],
+            result);
+
+  return true;
+} /* End of vCheckDataCertFile */
+
+/**
+ * @brief SDK: Checks one IMEI string against device capabilities.
+ * Call model: `sync/result`
+ * Ownership: Uses guest pointers only during the call.
+ * Blocking: Non-blocking.
+ * Status: Implemented to match the SDK desktop contract.
+ *
+ * The SDK release notes document this helper as always returning true.
+ */
+MVM_IMPORT_IMPL(vCheckIMEI)
 {
   if (!ctx)
   {
@@ -6658,24 +7373,14 @@ MVM_IMPORT_IMPL(vCheckDataCertFile)
 
   MVM_LOG_D(ctx,
             "platform-import",
-            "vCheckDataCertFile(p0=%08X p1=%08X p2=%08X p3=%08X) -> 1\n",
+            "vCheckIMEI(p0=%08X p1=%08X p2=%08X p3=%08X) -> 1\n",
             ctx->regs[VM_REG_P0],
             ctx->regs[VM_REG_P1],
             ctx->regs[VM_REG_P2],
             ctx->regs[VM_REG_P3]);
 
   return true;
-} /* End of vCheckDataCertFile */
-
-/**
- * @brief SDK: Checks one IMEI string against device capabilities.
- * Call model: `sync/result`
- * Ownership: Uses guest pointers only during the call.
- * Blocking: Non-blocking.
- * Status: Stub.
- * Stub behavior: Logs the call and returns zero.
- */
-MVM_DEFINE_ZERO_STUB(vCheckIMEI)
+} /* End of vCheckIMEI */
 
 /**
  * @brief SDK: Checks one network identifier string against the current device.

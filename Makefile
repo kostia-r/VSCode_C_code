@@ -27,6 +27,7 @@ TARGET := $(TARGET_NAME)
 APP_SRC := $(foreach dir,$(APP_SRC_DIRS),$(wildcard $(dir)/*.c))
 SRC := $(APP_SRC) $(MVM_SRC)
 OBJ := $(patsubst %.c,$(BUILD_PATH)/%.o,$(SRC))
+DEP := $(OBJ:.o=.d)
 INCLUDES := $(addprefix -I,$(APP_INC_DIRS) $(MVM_INC))
 
 # Windows shell commands
@@ -47,7 +48,7 @@ $(TARGET): $(OBJ)
 
 $(BUILD_PATH)/%.o: %.c
 	@$(MKDIR_SUBDIR)
-	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
+	$(CC) $(CFLAGS) $(INCLUDES) -MMD -MP -c -o $@ $<
 
 $(BUILD_PATH):
 	@$(MKDIR_BUILD)
@@ -62,3 +63,5 @@ clean:
 	@$(RM_BUILD)
 	@echo Cleaning $(TARGET)
 	@$(RM_TARGET)
+
+-include $(DEP)

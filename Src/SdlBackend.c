@@ -9,6 +9,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <mmsystem.h>
+#include <io.h>
 #endif
 
 #include <stdio.h>
@@ -65,6 +66,7 @@ struct SdlBackend
   SDL_Window *window;
   SDL_Renderer *renderer;
   SDL_Texture *framebuffer;
+  SDL_Texture *displaybuffer;
   SDL_AudioDeviceID audio_device;
   SDL_AudioSpec audio_spec;
   MidiRenderer *midi_renderer;
@@ -1007,6 +1009,24 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
   }
 
   SDL_SetTextureBlendMode(backend->framebuffer, SDL_BLENDMODE_NONE);
+  backend->displaybuffer = SDL_CreateTexture(backend->renderer,
+                                             SDL_PIXELFORMAT_ABGR8888,
+                                             SDL_TEXTUREACCESS_TARGET,
+                                             (int)width,
+                                             (int)height);
+  if (!backend->displaybuffer)
+  {
+    fprintf(stderr, "SDL_CreateTexture displaybuffer failed: %s\n", SDL_GetError());
+    SDL_DestroyTexture(backend->framebuffer);
+    backend->framebuffer = NULL;
+    SDL_DestroyRenderer(backend->renderer);
+    backend->renderer = NULL;
+    SDL_DestroyWindow(backend->window);
+    backend->window = NULL;
+    free(backend);
+    return NULL;
+  }
+  SDL_SetTextureBlendMode(backend->displaybuffer, SDL_BLENDMODE_NONE);
 
   {
     SDL_AudioSpec desired;
@@ -1104,6 +1124,7 @@ int SdlBackend_StartRecording(SdlBackend *backend, const char *record_dir)
 void SdlBackend_StopRecording(SdlBackend *backend)
 {
   uint32_t sample_rate;
+  uint32_t target_audio_bytes;
 
   if (!backend)
   {
@@ -1111,6 +1132,7 @@ void SdlBackend_StopRecording(SdlBackend *backend)
   }
 
   sample_rate = get_record_audio_sample_rate(backend);
+  target_audio_bytes = 0u;
 
   if (backend->record_audio_file && backend->record_frame_count != 0u)
   {
@@ -1118,6 +1140,14 @@ void SdlBackend_StopRecording(SdlBackend *backend)
 
     video_ms = (backend->record_frame_count * 1000u + RECORDING_FPS - 1u) / RECORDING_FPS;
     record_audio_pad_to_ms(backend, video_ms);
+    target_audio_bytes = (uint32_t)((((uint64_t)sample_rate * video_ms) / 1000u) * sizeof(int16_t));
+    if (backend->record_audio_bytes > target_audio_bytes)
+    {
+      backend->record_audio_bytes = target_audio_bytes;
+#ifdef _WIN32
+      (void)_chsize(_fileno(backend->record_audio_file), 44L + (long)backend->record_audio_bytes);
+#endif
+    }
   }
 
   if (backend->record_audio_file)
@@ -1156,6 +1186,11 @@ void SdlBackend_Destroy(SdlBackend *backend)
   {
     SDL_DestroyTexture(backend->framebuffer);
     backend->framebuffer = NULL;
+  }
+  if (backend->displaybuffer)
+  {
+    SDL_DestroyTexture(backend->displaybuffer);
+    backend->displaybuffer = NULL;
   }
 
   if (backend->audio_device != 0u)
@@ -1255,8 +1290,9 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
   MVM_RenderBackend_t render_backend;
   uint32_t color;
   uint32_t first_command;
+  int frame_changed;
 
-  if (!backend || !backend->renderer || !backend->framebuffer || !vm)
+  if (!backend || !backend->renderer || !backend->framebuffer || !backend->displaybuffer || !vm)
   {
     return;
   }
@@ -1270,6 +1306,7 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
 
   color = frame_info.clear_color;
   first_command = backend->last_draw_command_count;
+  frame_changed = (frame_info.frame_serial != backend->last_frame_serial);
 
   if (frame_info.clear_serial != backend->last_clear_serial ||
       frame_info.draw_command_count < backend->last_draw_command_count)
@@ -1303,14 +1340,27 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     backend->last_frame_serial = frame_info.frame_serial;
   }
 
+  if (frame_changed)
+  {
+    SDL_SetRenderTarget(backend->renderer, backend->displaybuffer);
+    SDL_RenderSetClipRect(backend->renderer, NULL);
+    SDL_RenderCopy(backend->renderer, backend->framebuffer, NULL, NULL);
+    MVM_RenderConsumeCommands(vm);
+    backend->last_draw_command_count = 0u;
+  }
+
+  SDL_SetRenderTarget(backend->renderer, backend->displaybuffer);
   record_current_frame(backend);
 
-  SDL_SetRenderTarget(backend->renderer, NULL);
-  SDL_RenderSetClipRect(backend->renderer, NULL);
-  SDL_SetRenderDrawColor(backend->renderer, 0u, 0u, 0u, 255u);
-  SDL_RenderClear(backend->renderer);
-  SDL_RenderCopy(backend->renderer, backend->framebuffer, NULL, NULL);
-  SDL_RenderPresent(backend->renderer);
+  if (frame_changed)
+  {
+    SDL_SetRenderTarget(backend->renderer, NULL);
+    SDL_RenderSetClipRect(backend->renderer, NULL);
+    SDL_SetRenderDrawColor(backend->renderer, 0u, 0u, 0u, 255u);
+    SDL_RenderClear(backend->renderer);
+    SDL_RenderCopy(backend->renderer, backend->displaybuffer, NULL, NULL);
+    SDL_RenderPresent(backend->renderer);
+  }
 }
 
 uint32_t SdlBackend_GetTicksMs(SdlBackend *backend)

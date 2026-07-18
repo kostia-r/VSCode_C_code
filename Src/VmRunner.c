@@ -104,7 +104,7 @@ int VmRunner_Run(MpnVM_t *vm, SdlBackend *backend, const VmRunnerOptions *option
 
     SdlBackend_Present(vm, backend);
 
-    if (MVM_GetLoggedCalls(vm) >= max_logged_calls)
+    if (max_logged_calls != 0u && MVM_GetLoggedCalls(vm) >= max_logged_calls)
     {
       break;
     }

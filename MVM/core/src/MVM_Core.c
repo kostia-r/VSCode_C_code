@@ -43,6 +43,11 @@ static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
  */
 static int MVM_lReadMemoryImage(void *user, size_t offset, void *dst, size_t size);
 
+/**
+ * @brief Initializes the SDK default screen palette from RGB332 indices.
+ */
+static void MVM_lInitDefaultPalette(VMGPContext *ctx);
+
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
  *********************************************************************************************************************/
@@ -161,6 +166,7 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
   ctx->next_stream_handle = 0x30u;
   ctx->random_state = 1u;
   ctx->last_pc = UINT32_MAX;
+  MVM_lInitDefaultPalette(ctx);
   if (!config)
   {
     ctx->watchdog_limit = MVM_U32_DEFAULT_WATCHDOG_LIMIT;
@@ -171,6 +177,28 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
 
   return bResult;
 } /* End of MVM_InitRawWithConfig */
+
+static void MVM_lInitDefaultPalette(VMGPContext *ctx)
+{
+  uint32_t index;
+
+  if (!ctx)
+  {
+    return;
+  }
+
+  for (index = 0u; index < 256u; ++index)
+  {
+    uint32_t red;
+    uint32_t green;
+    uint32_t blue;
+
+    red = (((index >> 5u) & 0x07u) * 31u) / 7u;
+    green = (((index >> 2u) & 0x07u) * 31u) / 7u;
+    blue = ((index & 0x03u) * 31u) / 3u;
+    ctx->palette_entries[index] = (red << 10u) | (green << 5u) | blue;
+  }
+} /* End of MVM_lInitDefaultPalette */
 
 /**********************************************************************************************************************
  *  Name: MVM_ReadImageRange
@@ -408,9 +436,7 @@ void MVM_EmitEvent(const VMGPContext *ctx, MVM_Event_t event, uint32_t arg0, uin
     return;
   }
 
-#if (MVM_MAX_LOG_LEVEL >= 3U)
   MVM_LOG_EVT(ctx, event, arg0, arg1);
-#endif
 
   if (ctx->platform.event)
   {

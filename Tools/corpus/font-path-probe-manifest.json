@@ -1,0 +1,28 @@
+{
+  "_comment": "Short text path probe for system-font vs guest-font rendering.",
+  "defaultDurationMs": 5000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 0,
+  "runs": [
+    {
+      "game": "mpn/T310/DeepAbyss_v.1.4_T310_decrypted.mpn",
+      "profiles": [ "SE_T310" ],
+      "scenarios": [
+        {
+          "name": "none",
+          "input": []
+        }
+      ]
+    },
+    {
+      "game": "mpn/T310/VRally2_T310_decrypted.mpn",
+      "profiles": [ "SE_T310" ],
+      "scenarios": [
+        {
+          "name": "none",
+          "input": []
+        }
+      ]
+    }
+  ]
+}
