@@ -1006,6 +1006,13 @@ Execution plan:
     - verify that every per-instance service and limit needed by a parent can be
       supplied to a precompiled `libmvm.a` without editing library files,
       rebuilding the archive, or mutating library-owned global configuration.
+    - preserve and explicitly test multi-instance operation: two `MpnVM_t`
+      objects with separate runtime pools, images, profiles, callback contexts,
+      input state, framebuffers, audio queues, and VFS namespaces can execute in
+      interleaved bounded slices without cross-instance state leakage;
+    - do not require mutable library globals for normal instances; document that
+      a single VM must not be entered concurrently and that truly parallel host
+      threads additionally require thread-safe parent callbacks/adapters.
 12. Add the portable named-file/VFS service boundary:
     - define a small bounded host-file contract covering the operations required
       by current guest `vStream*` behavior: open, read, write, seek/tell or
@@ -1100,6 +1107,10 @@ Done when:
   host path-resolution policy, and a no-filesystem configuration is valid.
 - A precompiled static library accepts per-instance platform/VFS callbacks
   without requiring library recompilation or mutation of global config.
+- A host can run at least two isolated VM instances cooperatively from one
+  precompiled library, using separate parent-owned storage and callback contexts;
+  display composition, audio mixing, input focus, and shared-device arbitration
+  remain explicit parent responsibilities.
 - Phase 11 corpus behavior remains stable after the packaging/config changes:
   no new fatal VM errors, no lost logs/videos, no new missing opcode/syscall
   regressions, and known short exits remain classified consistently.
