@@ -788,6 +788,11 @@ Tasks:
   - storage/image read and optional write callbacks;
   - persistent-data read/write callbacks that do not require rewriting the
     original `.mpn` image;
+  - an optional named-file/VFS service for guest sidecars and save files, with
+    explicit open/read/write/seek/size/close/delete capabilities or an
+    equivalently small bounded contract; MCU parents can adapt FatFS, LittleFS,
+    raw flash records, or another filesystem without linking those components
+    into MVM;
   - platform system-message callback or event path for guest requests such as
     `vMsgBox` / Help text;
   - static memory/runtime-pool ownership.
@@ -797,6 +802,15 @@ Tasks:
   - audio drivers should not know about VMGP resource tables;
   - storage drivers should not know game-level save-file policy;
   - platform callbacks should receive normalized requests/events from MVM.
+- Keep host filesystem policy outside the portable library:
+  - no `FILE`, `fopen`, host path construction, current-directory lookup, or
+    desktop sidecar naming heuristics inside `MVM/`;
+  - MVM owns guest `vStream*` semantics and translates them into registered
+    host file/VFS services;
+  - the desktop runner provides the stdio/filesystem adapter and path policy;
+  - a bare-metal parent explicitly registers a FatFS/LittleFS/raw-storage
+    adapter when named files are supported, or leaves the service absent for a
+    deterministic no-filesystem configuration.
 - Keep the minimal embedded integration path obvious:
   - add VM sources/include paths;
   - provide one config object;
@@ -804,6 +818,15 @@ Tasks:
   - initialize from an image source;
   - call bounded VM execution from the host loop/task;
   - flush display/audio/input through the platform driver callbacks.
+- Make callback direction explicit and precompiled-library-safe:
+  - parent-to-MVM calls initialize, feed input/events, and run bounded steps;
+  - MVM-to-parent callbacks request display, audio, storage/VFS, time, logging,
+    events, and system messages;
+  - host services are supplied through one init descriptor or explicit
+    per-instance runtime registration, never by editing library config or
+    relying on weak libc/syscall symbols;
+  - guest Mophun imports remain internal dispatch entries and are not exposed as
+    callbacks that the parent must register one by one.
 - Provide a tiny reference port template similar in spirit to an LVGL display
   and input driver skeleton, without SDL or desktop-only dependencies.
 - Add one small static architecture/data-flow overview for integrators.
@@ -931,6 +954,26 @@ Execution plan:
     - evaluate a desktop backend built through the same minimal bare-metal-style
       integration path, so desktop and STM32 exercise one public lifecycle and
       driver contract while SDL remains only a platform implementation;
+    - complete that evaluation by migrating the desktop runner fully onto the
+      same public bare-metal-style lifecycle and integration descriptor used by
+      `Examples/MVM_BareMetalPort`; remove the compatibility-only split between
+      legacy `MpnPlatform_t`, direct config callbacks, and `MVM_Drivers_t` once
+      equivalent behavior is proven;
+    - add the missing named-file/VFS service contract and migrate `.mpc`
+      sidecar/save-file access out of `MVM/runtime`; provide a desktop stdio
+      adapter and a filesystem-free no-op/reference adapter, document how a
+      future MCU parent registers FatFS or LittleFS, and keep actual filesystem
+      component selection/integration in Phase 14;
+    - verify the static/precompiled library path can select all per-instance
+      callbacks and storage services at init/runtime without recompiling MVM or
+      depending on library-owned global configuration;
+    - add the still-missing compact architecture/data-flow overview showing
+      parent-to-MVM control calls, MVM-to-parent services, guest import
+      ownership, memory ownership, and desktop/MCU adapter placement;
+    - finish compile-time and init-time validation for contradictory feature,
+      limit, framebuffer, storage/VFS, and callback configurations, returning
+      deterministic errors rather than relying on a later null callback or
+      linker failure;
     - judge all configuration/API simplifications against the Cortex-M4 RAM,
       Flash, stack, determinism, and non-blocking requirements rather than only
       desktop convenience;
@@ -945,11 +988,89 @@ Execution plan:
       - build and run the documented desktop and STM32-oriented integration
         paths from the clean checkout;
       - repeat the focused and full regression gates after reintegration.
-11. Run regression gates:
-    - run the focused smoke corpus after each major refactor;
-    - run the full corpus before closing Phase 12;
-    - update classifications only for deliberate behavior changes, not for
-      accidental regressions.
+    - Phase 12 stops at architecture, cross-compilation, footprint analysis,
+      integration cleanup, and clean-consumer rehearsal. Real STM32F407VET6
+      linker-script/BSP integration and execution on target hardware belong to
+      Phase 14 and are not a Phase 12 closure gate.
+11. Consolidate the public per-instance integration contract:
+    - replace the transitional split between `MVM_Config_t`, legacy
+      `MpnPlatform_t`, direct image callbacks, and `MVM_Drivers_t` with one
+      clearly documented parent-owned integration descriptor;
+    - define which services are fixed at initialization and whether any service
+      may be registered or replaced at runtime;
+    - make callback direction explicit: parent-to-MVM lifecycle/input/execution
+      calls versus MVM-to-parent display, keyboard/button input polling,
+      audio, storage/VFS, time, log, event, and message requests;
+    - keep guest Mophun imports internal to MVM rather than requiring the parent
+      to register guest syscalls individually;
+    - verify that every per-instance service and limit needed by a parent can be
+      supplied to a precompiled `libmvm.a` without editing library files,
+      rebuilding the archive, or mutating library-owned global configuration.
+12. Add the portable named-file/VFS service boundary:
+    - define a small bounded host-file contract covering the operations required
+      by current guest `vStream*` behavior: open, read, write, seek/tell or
+      positioned I/O, size, close, and delete/truncate where required;
+    - keep guest handles, access-mode interpretation, certificate behavior,
+      sidecar/save classification, and `vStream*` semantics inside MVM;
+    - support explicit registration of a parent VFS adapter and a deterministic
+      no-filesystem configuration;
+    - document how Phase 14 ports can adapt FatFS, LittleFS, raw-flash records,
+      or another storage stack without linking any of them into MVM itself.
+13. Remove host filesystem and path policy from the portable library:
+    - remove `FILE`, `fopen`, `fseek`, `ftell`, `fread`, `fclose`, host path
+      construction, current-directory assumptions, and desktop `.mpc` filename
+      probing from `MVM/` library sources;
+    - move desktop sidecar discovery/naming and stdio access into a desktop-owned
+      VFS adapter under `Src/`;
+    - provide a filesystem-free reference adapter for the bare-metal example;
+    - preserve existing sidecar/certificate/save behavior through focused tests
+      before proceeding to the desktop lifecycle conversion.
+14. Convert the complete desktop sample to the bare-metal-style lifecycle:
+    - make the desktop runner use the same public storage allocation, integration
+      descriptor, initialization, bounded execution loop, and host-service
+      registration demonstrated by `Examples/MVM_BareMetalPort`;
+    - keep SDL video, keyboard/input mapping, audio, stdio/filesystem, input
+      scripting, recording, and desktop timing exclusively in desktop-owned
+      adapters;
+    - remove compatibility-only legacy initialization/callback paths after the
+      unified path reproduces the current corpus behavior;
+    - keep `Src/main.c` thin and make the desktop application the executable
+      reference integration for the future MCU port.
+15. Finalize Phase 12 configuration, footprint, and documentation cleanup:
+    - move parent-selectable memory limits and feature policy out of hidden
+      library-only macros where a precompiled archive must support them;
+    - remove or make optional the fixed heap/address diagnostic probes and the
+      large allocation-tracker workspace; eliminate obsolete allocator helpers
+      and relevant compiler warnings;
+    - ensure memory queries report logical guest layout and actual physical
+      backing requirements accurately;
+    - add compile-time and init-time checks for contradictory limits, features,
+      framebuffer, VFS, storage, and callback combinations;
+    - add one compact architecture/data-flow overview showing callback
+      direction, ownership, guest-import boundaries, and the video/display,
+      keyboard/button input, audio, storage/VFS, time, log/event, and
+      system-message adapters for desktop and MCU parents;
+    - refresh the Cortex-M4 RAM/Flash/context estimates after cleanup, without
+      performing the real hardware bring-up reserved for Phase 14.
+16. Rehearse the final standalone-library/submodule integration:
+    - create the proposed standalone repository named `OpenMophun`;
+    - define and apply the safe rename scope: rename project-owned branding while
+      retaining historical Mophun/VMGP/API terminology where technically
+      required;
+    - integrate the new repository back into this project as a clean submodule;
+    - build source-included, precompiled-static-library, desktop bare-metal-style,
+      and MCU-oriented cross-compile paths without library-local patches.
+17. Run the Phase 12 closure regression gates:
+    - run the focused smoke corpus after every major step above;
+    - run the full T310 and T610 corpus after the unified descriptor/VFS/desktop
+      conversion and again after OpenMophun submodule reintegration;
+    - repeat manual focused gameplay/visual checks for Prehistorik and the known
+      heavy/certificate-sensitive games;
+    - compare terminal states, events, missing imports/opcodes, allocation/OOB
+      diagnostics, recording/audio/video coverage, and accepted classifications;
+    - update classifications only for deliberate behavior changes, then mark
+      Phase 12 closed. Real STM32F407VET6 BSP/linker/hardware execution starts in
+      Phase 14.
 
 Done when:
 
@@ -968,7 +1089,17 @@ Done when:
   flush/present, button mask, audio queue/no-op, ticks, random, storage,
   persistent data, log/event, and system-message hooks.
 - Ordinary MCU integration does not require runtime syscall registration or
-  Mophun-aware display/audio/storage drivers.
+  Mophun-aware display/audio/storage drivers. It does require explicit
+  registration of the host services the application chooses to support,
+  including an optional named-file/VFS adapter; guest syscalls/imports remain
+  implemented inside MVM.
+- The desktop runner uses the same public bare-metal-style initialization,
+  execution, driver, and host-service contract as the reference MCU template;
+  SDL and stdio/filesystem code exist only in desktop-owned adapters.
+- The portable `MVM/` library has no direct `FILE`/stdio filesystem access or
+  host path-resolution policy, and a no-filesystem configuration is valid.
+- A precompiled static library accepts per-instance platform/VFS callbacks
+  without requiring library recompilation or mutation of global config.
 - Phase 11 corpus behavior remains stable after the packaging/config changes:
   no new fatal VM errors, no lost logs/videos, no new missing opcode/syscall
   regressions, and known short exits remain classified consistently.
@@ -996,11 +1127,14 @@ Purpose: prove portability on a constrained embedded target.
 
 Tasks:
 
-- Choose first target board/toolchain.
+- Use STM32F407VET6, its existing parent-owned BSP, and Arm GNU Toolchain as the
+  first target board/toolchain path.
 - Build VM without desktop default allocator/logger.
 - Provide static storage and platform callbacks.
 - Run bounded VM steps from a task or main loop.
-- Measure RAM, stack, and CPU time.
+- Provide the real linker script and place VM context, guest segments, stack,
+  framebuffer, and DMA-visible buffers across SRAM1/SRAM2/CCM as appropriate.
+- Measure RAM, stack, Flash, and CPU time on the actual target.
 
 Done when:
 
