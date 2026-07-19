@@ -54,6 +54,11 @@ bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index)
     ctx->regs[VM_REG_R0] = 0;
   }
 
+  if (ctx->drivers.display_flush && !MVM_RenderApplyPendingFramebuffer(ctx))
+  {
+    MVM_LOG_W(ctx, "display-render", "Unable to apply pending framebuffer commands\n");
+  }
+
   return true;
 } /* End of MVM_HandleRuntimeImportCall */
 

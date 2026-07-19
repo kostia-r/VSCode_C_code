@@ -29,7 +29,7 @@ static MVM_RetCode_t MVM_lMapFatalError(MVM_Err_t error, MVM_RetCode_t fallback)
 /**
  * @brief Finds one configured device profile by name.
  */
-static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name);
+static const MpnDevProfile_t *MVM_lFindDevProfileByName(const MVM_Config_t *config, const char *profile_name);
 
 /**
  * @brief Initializes VM state using one internal integration config object.
@@ -37,6 +37,11 @@ static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name
 static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
                                          const MpnImageSource_t *image,
                                          const MVM_Config_t *config);
+
+/**
+ * @brief Allocates the optional VM-owned driver framebuffer from the runtime pool.
+ */
+static bool MVM_lInitDriverFramebuffer(MpnVM_t *vm);
 
 /**
  * @brief Reads one byte range from a memory-backed VM image.
@@ -133,7 +138,7 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
     return false;
   }
 
-  if (config && !config->image_read)
+  if (config && !config->image_read && !config->drivers.image_read)
   {
     return false;
   }
@@ -143,8 +148,9 @@ bool MVM_InitRawWithConfig(VMGPContext *ctx, const MpnImageSource_t *image, cons
   if (config)
   {
     ctx->platform = config->platform;
-    ctx->image_read = config->image_read;
-    ctx->image_write = config->image_write;
+    ctx->drivers = config->drivers;
+    ctx->image_read = config->image_read ? config->image_read : config->drivers.image_read;
+    ctx->image_write = config->image_write ? config->image_write : config->drivers.image_write;
     ctx->image_map = config->image_map;
     ctx->image_unmap = config->image_unmap;
     ctx->device_profile = config->device_profile;
@@ -259,32 +265,106 @@ bool MVM_WriteImageRange(const VMGPContext *ctx, size_t offset, const void *src,
 } /* End of MVM_WriteImageRange */
 
 /**********************************************************************************************************************
+ *  Name: MVM_InitFromSourceWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state through one image source and one parent-owned integration config.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_InitFromSourceWithConfig(MpnVM_t *vm,
+                                           const MpnImageSource_t *image,
+                                           const char *profile_name,
+                                           const MVM_Config_t *config)
+{
+  MVM_Config_t selectedConfig;
+  const MpnDevProfile_t *profile = NULL;
+
+  if (!config)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  selectedConfig = *config;
+
+  if (profile_name)
+  {
+    profile = MVM_lFindDevProfileByName(config, profile_name);
+    if (!profile)
+    {
+      return MVM_NOT_FOUND;
+    }
+
+    selectedConfig.device_profile = profile;
+  }
+
+  return MVM_lInitWithConfig(vm, image, &selectedConfig);
+} /* End of MVM_InitFromSourceWithConfig */
+
+/**********************************************************************************************************************
  *  Name: MVM_InitFromSource
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Initializes VM state through one image source.
+ *  Description: Initializes VM state through one image source using the built-in integration config.
  *********************************************************************************************************************/
 MVM_RetCode_t MVM_InitFromSource(MpnVM_t *vm, const MpnImageSource_t *image, const char *profile_name)
 {
-  MVM_Config_t config = MVM_Config;
+  return MVM_InitFromSourceWithConfig(vm, image, profile_name, &MVM_Config);
+} /* End of MVM_InitFromSource */
+
+/**********************************************************************************************************************
+ *  Name: MVM_InitWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Initializes VM state from a memory image with one parent-owned integration config.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_InitWithConfig(MpnVM_t *vm,
+                                 const uint8_t *image,
+                                 size_t image_size,
+                                 const char *profile_name,
+                                 const MVM_Config_t *config)
+{
+  MpnImageSource_t source;
+  MVM_Config_t selectedConfig;
   const MpnDevProfile_t *profile = NULL;
+
+  if (!image || image_size < VMGP_HEADER_SIZE || !config)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  selectedConfig = *config;
 
   if (profile_name)
   {
-    profile = MVM_lFindDevProfileByName(profile_name);
+    profile = MVM_lFindDevProfileByName(config, profile_name);
+
     if (!profile)
     {
       return MVM_NOT_FOUND;
     }
 
-    config.device_profile = profile;
+    selectedConfig.device_profile = profile;
   }
 
-  return MVM_lInitWithConfig(vm, image, &config);
-} /* End of MVM_InitFromSource */
+  selectedConfig.image_read = MVM_lReadMemoryImage;
+  selectedConfig.image_write = NULL;
+  selectedConfig.image_map = NULL;
+  selectedConfig.image_unmap = NULL;
+
+  memset(&source, 0, sizeof(source));
+  source.user = (void *)image;
+  source.image_size = image_size;
+
+  return MVM_lInitWithConfig(vm, &source, &selectedConfig);
+} /* End of MVM_InitWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_Init
@@ -300,38 +380,22 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm,
                        size_t image_size,
                        const char *profile_name)
 {
-  MpnImageSource_t source;
-  MVM_Config_t config = MVM_Config;
-  const MpnDevProfile_t *profile = NULL;
-
-  if (!image || image_size < VMGP_HEADER_SIZE)
-  {
-    return MVM_INVALID_ARG;
-  }
-
-  if (profile_name)
-  {
-    profile = MVM_lFindDevProfileByName(profile_name);
-
-    if (!profile)
-    {
-      return MVM_NOT_FOUND;
-    }
-
-    config.device_profile = profile;
-  }
-
-  config.image_read = MVM_lReadMemoryImage;
-  config.image_write = NULL;
-  config.image_map = NULL;
-  config.image_unmap = NULL;
-
-  memset(&source, 0, sizeof(source));
-  source.user = (void *)image;
-  source.image_size = image_size;
-
-  return MVM_lInitWithConfig(vm, &source, &config);
+  return MVM_InitWithConfig(vm, image, image_size, profile_name, &MVM_Config);
 } /* End of MVM_Init */
+
+/**********************************************************************************************************************
+ *  Name: MVM_GetDevProfileCountWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns the number of device profiles in one parent-owned config.
+ *********************************************************************************************************************/
+uint32_t MVM_GetDevProfileCountWithConfig(const MVM_Config_t *config)
+{
+  return config ? config->device_profile_count : 0U;
+} /* End of MVM_GetDevProfileCountWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_GetDevProfileCount
@@ -344,8 +408,27 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm,
  *********************************************************************************************************************/
 uint32_t MVM_GetDevProfileCount(void)
 {
-  return MVM_Config.device_profile_count;
+  return MVM_GetDevProfileCountWithConfig(&MVM_Config);
 } /* End of MVM_GetDevProfileCount */
+
+/**********************************************************************************************************************
+ *  Name: MVM_GetDevProfileWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Returns one device profile from one parent-owned config by index.
+ *********************************************************************************************************************/
+const MpnDevProfile_t *MVM_GetDevProfileWithConfig(const MVM_Config_t *config, uint32_t profile_index)
+{
+  if (!config || !config->device_profiles || profile_index >= config->device_profile_count)
+  {
+    return NULL;
+  }
+
+  return &config->device_profiles[profile_index];
+} /* End of MVM_GetDevProfileWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_GetDevProfile
@@ -358,13 +441,22 @@ uint32_t MVM_GetDevProfileCount(void)
  *********************************************************************************************************************/
 const MpnDevProfile_t *MVM_GetDevProfile(uint32_t profile_index)
 {
-  if (profile_index >= MVM_Config.device_profile_count)
-  {
-    return NULL;
-  }
-
-  return &MVM_Config.device_profiles[profile_index];
+  return MVM_GetDevProfileWithConfig(&MVM_Config, profile_index);
 } /* End of MVM_GetDevProfile */
+
+/**********************************************************************************************************************
+ *  Name: MVM_FindDevProfileByNameWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Finds one named device profile in one parent-owned config.
+ *********************************************************************************************************************/
+const MpnDevProfile_t *MVM_FindDevProfileByNameWithConfig(const MVM_Config_t *config, const char *profile_name)
+{
+  return MVM_lFindDevProfileByName(config, profile_name);
+} /* End of MVM_FindDevProfileByNameWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_FindDevProfileByName
@@ -377,7 +469,7 @@ const MpnDevProfile_t *MVM_GetDevProfile(uint32_t profile_index)
  *********************************************************************************************************************/
 const MpnDevProfile_t *MVM_FindDevProfileByName(const char *profile_name)
 {
-  return MVM_lFindDevProfileByName(profile_name);
+  return MVM_FindDevProfileByNameWithConfig(&MVM_Config, profile_name);
 } /* End of MVM_FindDevProfileByName */
 
 /**********************************************************************************************************************
@@ -441,6 +533,10 @@ void MVM_EmitEvent(const VMGPContext *ctx, MVM_Event_t event, uint32_t arg0, uin
   if (ctx->platform.event)
   {
     ctx->platform.event(ctx->platform.user, event, arg0, arg1);
+  }
+  else if (ctx->drivers.event)
+  {
+    ctx->drivers.event(ctx->drivers.user, event, arg0, arg1);
   }
 } /* End of MVM_EmitEvent */
 
@@ -518,6 +614,31 @@ void MVM_Free(MpnVM_t *vm)
 {
   MVM_FreeRaw(vm);
 } /* End of MVM_Free */
+
+MVM_RetCode_t MVM_GetHeapStats(const MpnVM_t *vm, MVM_HeapStats_t *stats)
+{
+  if (!vm || !stats)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  stats->capacity_bytes = vm->heap_limit - vm->heap_base;
+  stats->soft_limit_bytes = vm->heap_soft_limit - vm->heap_base;
+  stats->high_water_bytes = vm->heap_high_water_bytes;
+  stats->allocation_requests = vm->heap_allocation_requests;
+  stats->free_requests = vm->heap_free_requests;
+  stats->allocation_failures = vm->heap_allocation_failures;
+  stats->invalid_free_requests = vm->heap_invalid_free_requests;
+  stats->double_free_requests = vm->heap_double_free_requests;
+  stats->live_bytes = vm->heap_live_bytes;
+  stats->peak_live_bytes = vm->heap_peak_live_bytes;
+  stats->quarantine_bytes = vm->heap_quarantine_bytes;
+  stats->tracker_overflows = vm->heap_tracker_overflows;
+  stats->reuse_count = vm->heap_reuse_count;
+  stats->soft_limit_fallbacks = vm->heap_soft_limit_fallbacks;
+
+  return MVM_OK;
+} /* End of MVM_GetHeapStats */
 
 /**********************************************************************************************************************
  *  Name: MVM_RunStepsRaw
@@ -695,7 +816,7 @@ MVM_RetCode_t MVM_RunForTime(MpnVM_t *vm, uint32_t budget_ms, uint32_t *executed
 
   *executed_steps = 0u;
 
-  if (!vm->platform.get_ticks_ms)
+  if (!vm->platform.get_ticks_ms && !vm->drivers.get_ticks_ms)
   {
     *executed_steps = MVM_RunStepsRaw(vm, budget_ms);
 
@@ -714,7 +835,14 @@ MVM_RetCode_t MVM_RunForTime(MpnVM_t *vm, uint32_t budget_ms, uint32_t *executed
     return MVM_lMapFatalError(vm->last_error, MVM_EXECUTION_ERROR);
   }
 
-  start = vm->platform.get_ticks_ms(vm->platform.user);
+  if (vm->platform.get_ticks_ms)
+  {
+    start = vm->platform.get_ticks_ms(vm->platform.user);
+  }
+  else
+  {
+    start = vm->drivers.get_ticks_ms(vm->drivers.user);
+  }
   now = start;
 
   while ((now - start) < budget_ms)
@@ -731,7 +859,14 @@ MVM_RetCode_t MVM_RunForTime(MpnVM_t *vm, uint32_t budget_ms, uint32_t *executed
       break;
     }
 
-    now = vm->platform.get_ticks_ms(vm->platform.user);
+    if (vm->platform.get_ticks_ms)
+    {
+      now = vm->platform.get_ticks_ms(vm->platform.user);
+    }
+    else
+    {
+      now = vm->drivers.get_ticks_ms(vm->drivers.user);
+    }
   } /* End of loop */
 
   *executed_steps = executed;
@@ -1061,7 +1196,7 @@ int MVM_PollSoundRequest(MpnVM_t *vm, MVM_SoundRequest_t *request)
  *********************************************************************************************************************/
 int MVM_ReadGuestMemory(const MpnVM_t *vm, uint32_t address, void *dst, size_t size)
 {
-  size_t start;
+  const uint8_t *source;
 
   if (!vm || !vm->mem || (!dst && size != 0u))
   {
@@ -1073,13 +1208,18 @@ int MVM_ReadGuestMemory(const MpnVM_t *vm, uint32_t address, void *dst, size_t s
     return 1;
   }
 
-  start = (size_t)address;
-  if (start > vm->mem_size || size > (vm->mem_size - start))
+  if (size > UINT32_MAX)
   {
     return 0;
   }
 
-  memcpy(dst, vm->mem + start, size);
+  source = MVM_GuestTryMapConst(vm, address, (uint32_t)size);
+  if (!source)
+  {
+    return 0;
+  }
+
+  memcpy(dst, source, size);
 
   return 1;
 } /* End of MVM_ReadGuestMemory */
@@ -1229,9 +1369,25 @@ static MVM_RetCode_t MVM_lMapFatalError(MVM_Err_t error, MVM_RetCode_t fallback)
  *  Returns: See function signature.
  *  Description: Finds one configured device profile by name.
  *********************************************************************************************************************/
-static const MpnDevProfile_t *MVM_lFindDevProfileByName(const char *profile_name)
+static const MpnDevProfile_t *MVM_lFindDevProfileByName(const MVM_Config_t *config, const char *profile_name)
 {
-  return MVM_Cfg_lFindDevProfileByName(&MVM_Config, profile_name);
+  uint32_t profileIndex = 0U;
+
+  if (!config || !profile_name || !config->device_profiles)
+  {
+    return NULL;
+  }
+
+  for (profileIndex = 0U; profileIndex < config->device_profile_count; ++profileIndex)
+  {
+    if (config->device_profiles[profileIndex].name &&
+        strcmp(config->device_profiles[profileIndex].name, profile_name) == 0)
+    {
+      return &config->device_profiles[profileIndex];
+    }
+  } /* End of loop */
+
+  return NULL;
 } /* End of MVM_lFindDevProfileByName */
 
 /**********************************************************************************************************************
@@ -1250,7 +1406,8 @@ static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
   MVM_RetCode_t retCode = MVM_OK;
   const MVM_Config_t *cfg = config;
 
-  if (!vm || !image || image->image_size < VMGP_HEADER_SIZE || !cfg || !cfg->image_read)
+  if (!vm || !image || image->image_size < VMGP_HEADER_SIZE || !cfg ||
+      (!cfg->image_read && !cfg->drivers.image_read))
   {
     return MVM_INVALID_ARG;
   }
@@ -1274,8 +1431,59 @@ static MVM_RetCode_t MVM_lInitWithConfig(MpnVM_t *vm,
     return retCode;
   }
 
+  if (!MVM_lInitDriverFramebuffer(vm))
+  {
+    MVM_SetErrorRaw(vm, MVM_E_MEMORY);
+
+    return MVM_MEMORY_ERROR;
+  }
+
   return retCode;
 } /* End of MVM_lInitWithConfig */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lInitDriverFramebuffer
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Allocates the optional RGB565 framebuffer used by the hardware-oriented display driver.
+ *********************************************************************************************************************/
+static bool MVM_lInitDriverFramebuffer(MpnVM_t *vm)
+{
+  size_t pixelCount = 0U;
+  size_t framebufferBytes = 0U;
+
+  if (!vm || !vm->drivers.display_flush)
+  {
+    return true;
+  }
+
+  if (!vm->device_profile || vm->device_profile->screen_width == 0U || vm->device_profile->screen_height == 0U)
+  {
+    return false;
+  }
+
+  pixelCount = (size_t)vm->device_profile->screen_width * (size_t)vm->device_profile->screen_height;
+  if (pixelCount > (SIZE_MAX / sizeof(uint16_t)))
+  {
+    return false;
+  }
+
+  framebufferBytes = pixelCount * sizeof(uint16_t);
+  vm->driver_framebuffer = (uint16_t *)MVM_AcquireInitBuffer(vm, framebufferBytes);
+  if (!vm->driver_framebuffer)
+  {
+    return false;
+  }
+
+  vm->driver_framebuffer_width = vm->device_profile->screen_width;
+  vm->driver_framebuffer_height = vm->device_profile->screen_height;
+  vm->driver_framebuffer_clear_serial = UINT32_MAX;
+
+  return true;
+} /* End of MVM_lInitDriverFramebuffer */
 
 /**********************************************************************************************************************
  *  Name: MVM_lReadMemoryImage

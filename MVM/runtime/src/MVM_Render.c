@@ -22,6 +22,52 @@ typedef struct SDL_Renderer
   uint8_t blue;
 } SDL_Renderer;
 
+/** @brief Stores software-render state for one VM-owned RGB565 framebuffer. */
+typedef struct MVM_FramebufferBackend_t
+{
+  VMGPContext *ctx;       /**< VM owning the destination framebuffer. */
+  int32_t clipX0;         /**< Inclusive left clip edge. */
+  int32_t clipY0;         /**< Inclusive top clip edge. */
+  int32_t clipX1;         /**< Exclusive right clip edge. */
+  int32_t clipY1;         /**< Exclusive bottom clip edge. */
+  int32_t dirtyX0;        /**< Inclusive left dirty edge. */
+  int32_t dirtyY0;        /**< Inclusive top dirty edge. */
+  int32_t dirtyX1;        /**< Inclusive right dirty edge. */
+  int32_t dirtyY1;        /**< Inclusive bottom dirty edge. */
+  uint8_t hasDirty;       /**< Non-zero after at least one destination pixel changes. */
+} MVM_FramebufferBackend_t;
+
+static void MVM_lFramebufferSetClip(void *user,
+                                    int enabled,
+                                    int32_t x,
+                                    int32_t y,
+                                    int32_t width,
+                                    int32_t height);
+static void MVM_lFramebufferDrawPoint(void *user,
+                                      int32_t x,
+                                      int32_t y,
+                                      uint8_t red,
+                                      uint8_t green,
+                                      uint8_t blue);
+static void MVM_lFramebufferDrawLine(void *user,
+                                     int32_t x0,
+                                     int32_t y0,
+                                     int32_t x1,
+                                     int32_t y1,
+                                     uint8_t red,
+                                     uint8_t green,
+                                     uint8_t blue);
+static void MVM_lFramebufferFillRect(void *user,
+                                     int32_t x,
+                                     int32_t y,
+                                     int32_t width,
+                                     int32_t height,
+                                     uint8_t red,
+                                     uint8_t green,
+                                     uint8_t blue);
+static uint16_t MVM_lRgb565(uint8_t red, uint8_t green, uint8_t blue);
+static void MVM_lDecodeGuestColor(uint32_t color, uint8_t *red, uint8_t *green, uint8_t *blue);
+
 static void SDL_SetRenderDrawColor(SDL_Renderer *renderer, uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha)
 {
   (void)alpha;
@@ -119,7 +165,115 @@ void MVM_RenderConsumeCommands(MpnVM_t *vm)
   ctx = (VMGPContext *)vm;
   ctx->draw_command_count = 0u;
   ctx->draw_palette_count = 0u;
-}
+} /* End of MVM_RenderConsumeCommands */
+
+int MVM_RenderApplyPendingFramebuffer(MpnVM_t *vm)
+{
+  VMGPContext *ctx;
+  MVM_FramebufferBackend_t framebufferBackend;
+  MVM_RenderBackend_t renderBackend;
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+  uint16_t clearPixel;
+  size_t pixelCount;
+  size_t pixelIndex;
+
+  if (!vm)
+  {
+    return 0;
+  }
+
+  ctx = (VMGPContext *)vm;
+  if (!ctx->driver_framebuffer ||
+      ctx->driver_framebuffer_width == 0U || ctx->driver_framebuffer_height == 0U)
+  {
+    return 0;
+  }
+
+  memset(&framebufferBackend, 0, sizeof(framebufferBackend));
+  framebufferBackend.ctx = ctx;
+  framebufferBackend.clipX1 = ctx->driver_framebuffer_width;
+  framebufferBackend.clipY1 = ctx->driver_framebuffer_height;
+  framebufferBackend.hasDirty = ctx->driver_framebuffer_dirty;
+  framebufferBackend.dirtyX0 = ctx->driver_dirty_x0;
+  framebufferBackend.dirtyY0 = ctx->driver_dirty_y0;
+  framebufferBackend.dirtyX1 = ctx->driver_dirty_x1;
+  framebufferBackend.dirtyY1 = ctx->driver_dirty_y1;
+
+  if (ctx->driver_framebuffer_clear_serial != ctx->clear_serial)
+  {
+    MVM_lDecodeGuestColor(ctx->clear_color, &red, &green, &blue);
+    clearPixel = MVM_lRgb565(red, green, blue);
+    pixelCount = (size_t)ctx->driver_framebuffer_width * ctx->driver_framebuffer_height;
+    for (pixelIndex = 0U; pixelIndex < pixelCount; ++pixelIndex)
+    {
+      ctx->driver_framebuffer[pixelIndex] = clearPixel;
+    } /* End of loop */
+
+    framebufferBackend.hasDirty = 1U;
+    framebufferBackend.dirtyX1 = (int32_t)ctx->driver_framebuffer_width - 1;
+    framebufferBackend.dirtyY1 = (int32_t)ctx->driver_framebuffer_height - 1;
+    ctx->driver_framebuffer_clear_serial = ctx->clear_serial;
+  }
+
+  renderBackend.user = &framebufferBackend;
+  renderBackend.set_clip = MVM_lFramebufferSetClip;
+  renderBackend.draw_point = MVM_lFramebufferDrawPoint;
+  renderBackend.draw_line = MVM_lFramebufferDrawLine;
+  renderBackend.fill_rect = MVM_lFramebufferFillRect;
+  (void)MVM_RenderReplayCommands(vm, &renderBackend, 0U);
+  MVM_RenderConsumeCommands(vm);
+
+  ctx->driver_framebuffer_dirty = framebufferBackend.hasDirty;
+  ctx->driver_dirty_x0 = (int16_t)framebufferBackend.dirtyX0;
+  ctx->driver_dirty_y0 = (int16_t)framebufferBackend.dirtyY0;
+  ctx->driver_dirty_x1 = (int16_t)framebufferBackend.dirtyX1;
+  ctx->driver_dirty_y1 = (int16_t)framebufferBackend.dirtyY1;
+
+  return 1;
+} /* End of MVM_RenderApplyPendingFramebuffer */
+
+int MVM_RenderFlushFramebuffer(MpnVM_t *vm)
+{
+  VMGPContext *ctx;
+  MVM_Framebuffer_t framebuffer;
+  int result;
+
+  if (!vm)
+  {
+    return 0;
+  }
+
+  ctx = (VMGPContext *)vm;
+  if (!ctx->drivers.display_flush || !MVM_RenderApplyPendingFramebuffer(vm))
+  {
+    return 0;
+  }
+
+  if (!ctx->driver_framebuffer_dirty)
+  {
+    return 1;
+  }
+
+  framebuffer.pixels = ctx->driver_framebuffer;
+  framebuffer.width = ctx->driver_framebuffer_width;
+  framebuffer.height = ctx->driver_framebuffer_height;
+  framebuffer.stride_bytes = (uint32_t)ctx->driver_framebuffer_width * sizeof(uint16_t);
+  framebuffer.pixel_format = MVM_PIXEL_FORMAT_RGB565;
+  framebuffer.dirty_rect.x = (uint16_t)ctx->driver_dirty_x0;
+  framebuffer.dirty_rect.y = (uint16_t)ctx->driver_dirty_y0;
+  framebuffer.dirty_rect.width = (uint16_t)(ctx->driver_dirty_x1 - ctx->driver_dirty_x0 + 1);
+  framebuffer.dirty_rect.height = (uint16_t)(ctx->driver_dirty_y1 - ctx->driver_dirty_y0 + 1);
+
+  result = ctx->drivers.display_flush(ctx->drivers.user, &framebuffer);
+  if (result == 0)
+  {
+    ctx->driver_framebuffer_dirty = 0U;
+  }
+
+  return result == 0;
+} /* End of MVM_RenderFlushFramebuffer */
 
 typedef struct VmSpriteHeader
 {
@@ -262,7 +416,9 @@ static uint32_t score_legacy_sprite_candidate(const VMGPContext *ctx, const VmSp
   non_zero_count = 0u;
   for (index = 0u; index < pixel_count; ++index)
   {
-    pixel_index = read_packed_sprite_pixel(ctx->mem + sprite->data_addr, index, bits_per_pixel);
+    pixel_index = read_packed_sprite_pixel(MVM_GUEST_CONST_PTR(ctx, sprite->data_addr, byte_count),
+                                           index,
+                                           bits_per_pixel);
 
     if (pixel_index != 0u)
     {
@@ -324,12 +480,12 @@ static int read_font_header_at(const VMGPContext *ctx, uint32_t font_addr, VmFon
     return 0;
   }
 
-  font->font_data_addr = vm_read_u32_le(ctx->mem + font_addr + 0u);
-  font->char_table_addr = vm_read_u32_le(ctx->mem + font_addr + 4u);
-  font->bpp = ctx->mem[font_addr + 8u];
-  font->width = ctx->mem[font_addr + 9u];
-  font->height = ctx->mem[font_addr + 10u];
-  font->palindex = ctx->mem[font_addr + 11u];
+  font->font_data_addr = vm_read_u32_le(MVM_GUEST_PTR(ctx, font_addr + 0u, 4u));
+  font->char_table_addr = vm_read_u32_le(MVM_GUEST_PTR(ctx, font_addr + 4u, 4u));
+  font->bpp = MVM_GUEST_BYTE(ctx, font_addr + 8u);
+  font->width = MVM_GUEST_BYTE(ctx, font_addr + 9u);
+  font->height = MVM_GUEST_BYTE(ctx, font_addr + 10u);
+  font->palindex = MVM_GUEST_BYTE(ctx, font_addr + 11u);
 
   return 1;
 }
@@ -452,12 +608,12 @@ static int read_guest_sprite_header(const VMGPContext *ctx, uint32_t sprite_addr
     return 0;
   }
 
-  sprite->palindex = ctx->mem[sprite_addr + 0u];
-  sprite->format = ctx->mem[sprite_addr + 1u];
-  sprite->center_x = (int16_t)vm_read_u16_le(ctx->mem + sprite_addr + 2u);
-  sprite->center_y = (int16_t)vm_read_u16_le(ctx->mem + sprite_addr + 4u);
-  sprite->width = vm_read_u16_le(ctx->mem + sprite_addr + 6u);
-  sprite->height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+  sprite->palindex = MVM_GUEST_BYTE(ctx, sprite_addr + 0u);
+  sprite->format = MVM_GUEST_BYTE(ctx, sprite_addr + 1u);
+  sprite->center_x = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 2u, 2u));
+  sprite->center_y = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 4u, 2u));
+  sprite->width = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 6u, 2u));
+  sprite->height = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 8u, 2u));
   sprite->data_addr = sprite_addr + 10u;
   sprite->legacy_layout = 0u;
 
@@ -471,11 +627,11 @@ static int read_guest_sprite_header(const VMGPContext *ctx, uint32_t sprite_addr
     return 1;
   }
 
-  word0 = vm_read_u16_le(ctx->mem + sprite_addr + 0u);
-  word1 = vm_read_u16_le(ctx->mem + sprite_addr + 2u);
-  word2 = vm_read_u16_le(ctx->mem + sprite_addr + 4u);
-  word3 = vm_read_u16_le(ctx->mem + sprite_addr + 6u);
-  word4 = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+  word0 = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 0u, 2u));
+  word1 = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 2u, 2u));
+  word2 = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 4u, 2u));
+  word3 = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 6u, 2u));
+  word4 = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 8u, 2u));
   word2_looks_like_offset = (word0 != 0u) &&
                             (word4 != 0u) &&
                             (word2 >= 10u) &&
@@ -825,7 +981,9 @@ static int draw_guest_sprite(SDL_Renderer *renderer, const VMGPContext *ctx, con
 
   for (index = 0u; index < pixel_count; ++index)
   {
-    pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, index, bits_per_pixel);
+    pixel_index = read_packed_sprite_pixel(MVM_GUEST_CONST_PTR(ctx, data_addr, byte_index),
+                                           index,
+                                           bits_per_pixel);
 
     if (pixel_index == 0u && transparent_zero)
     {
@@ -1276,10 +1434,10 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
     text_bytes = command->text;
     char_count = command->text_length;
   }
-  else if (str_addr < ctx->mem_size)
+  else if (MVM_RuntimeMemRangeOk(ctx, str_addr, 1u))
   {
-    text_bytes = ctx->mem + str_addr;
-    char_count = MVM_RuntimeStrLen(ctx->mem + str_addr, ctx->mem_size - str_addr);
+    text_bytes = MVM_GUEST_CONST_PTR(ctx, str_addr, 1u);
+    char_count = MVM_RuntimeStrLen(text_bytes, MVM_GuestContiguousSize(ctx, str_addr));
   }
 
   if (command->aux2 == 0u)
@@ -1352,7 +1510,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
       continue;
     }
 
-    glyph_index = ctx->mem[font.char_table_addr + ch];
+    glyph_index = MVM_GUEST_BYTE(ctx, font.char_table_addr + ch);
     if (glyph_index == 0xFFu)
     {
       continue;
@@ -1365,7 +1523,7 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
       continue;
     }
 
-    glyph_data = ctx->mem + glyph_data_addr;
+    glyph_data = MVM_GUEST_CONST_PTR(ctx, glyph_data_addr, bytes_per_char);
 
     for (bit_index = 0u; bit_index < pixel_count; ++bit_index)
     {
@@ -1465,12 +1623,22 @@ static int draw_guest_text(SDL_Renderer *renderer, const VMGPContext *ctx, const
         sample_ch = text_bytes[sample_index];
         if (MVM_RuntimeMemRangeOk(ctx, font.char_table_addr + sample_ch, 1u))
         {
-          sample_glyph = ctx->mem[font.char_table_addr + sample_ch];
+          sample_glyph = MVM_GUEST_BYTE(ctx, font.char_table_addr + sample_ch);
           sample_addr = font.font_data_addr + ((uint32_t)sample_glyph * bytes_per_char_tight);
           if (sample_glyph != 0xFFu && MVM_RuntimeMemRangeOk(ctx, sample_addr, bytes_per_char_tight))
           {
-            sample_pixel_lsb = read_tight_font_pixel(ctx->mem + sample_addr, 0u, (uint32_t)font.bpp, 0);
-            sample_pixel_msb = read_tight_font_pixel(ctx->mem + sample_addr, 0u, (uint32_t)font.bpp, 1);
+            sample_pixel_lsb = read_tight_font_pixel(MVM_GUEST_CONST_PTR(ctx,
+                                                                         sample_addr,
+                                                                         bytes_per_char_tight),
+                                                     0u,
+                                                     (uint32_t)font.bpp,
+                                                     0);
+            sample_pixel_msb = read_tight_font_pixel(MVM_GUEST_CONST_PTR(ctx,
+                                                                         sample_addr,
+                                                                         bytes_per_char_tight),
+                                                     0u,
+                                                     (uint32_t)font.bpp,
+                                                     1);
           }
         }
       }
@@ -1562,7 +1730,9 @@ static int draw_guest_map_tile(SDL_Renderer *renderer,
     uint32_t pixel_x;
     uint32_t pixel_y;
 
-    pixel_index = read_packed_sprite_pixel(ctx->mem + data_addr, index, bits_per_pixel);
+    pixel_index = read_packed_sprite_pixel(MVM_GUEST_CONST_PTR(ctx, data_addr, byte_count),
+                                           index,
+                                           bits_per_pixel);
     if (pixel_index == 0u && transparent_zero)
     {
       continue;
@@ -1657,7 +1827,9 @@ static int draw_guest_tile(SDL_Renderer *renderer, const VMGPContext *ctx, const
 
   for (index = 0u; index < 64u; ++index)
   {
-    pixel_index = read_packed_sprite_pixel(ctx->mem + command->aux, index, bits_per_pixel);
+    pixel_index = read_packed_sprite_pixel(MVM_GUEST_CONST_PTR(ctx, command->aux, byte_count),
+                                           index,
+                                           bits_per_pixel);
     if (pixel_index == 0u && (((raw_format & 0x08u) != 0u) || ((command->transfer_mode & 0x01u) != 0u)))
     {
       continue;
@@ -1771,8 +1943,8 @@ static void render_guest_map(SDL_Renderer *renderer,
         continue;
       }
 
-      tile_index = ctx->mem[offset];
-      tile_attribute = (stride > 1u) ? ctx->mem[offset + 1u] : 0u;
+      tile_index = MVM_GUEST_BYTE(ctx, offset);
+      tile_attribute = (stride > 1u) ? MVM_GUEST_BYTE(ctx, offset + 1u) : 0u;
       tile_index = apply_guest_map_autoanim(map_state, tile_index, tile_attribute);
       draw_guest_map_tile(renderer,
                           ctx,
@@ -1962,3 +2134,189 @@ uint32_t MVM_RenderReplayCommands(MpnVM_t *vm, const MVM_RenderBackend_t *backen
 
   return ctx->draw_command_count;
 }
+
+static void MVM_lFramebufferSetClip(void *user,
+                                    int enabled,
+                                    int32_t x,
+                                    int32_t y,
+                                    int32_t width,
+                                    int32_t height)
+{
+  MVM_FramebufferBackend_t *backend = (MVM_FramebufferBackend_t *)user;
+
+  if (!backend || !backend->ctx)
+  {
+    return;
+  }
+
+  if (!enabled)
+  {
+    backend->clipX0 = 0;
+    backend->clipY0 = 0;
+    backend->clipX1 = backend->ctx->driver_framebuffer_width;
+    backend->clipY1 = backend->ctx->driver_framebuffer_height;
+    return;
+  }
+
+  backend->clipX0 = (x > 0) ? x : 0;
+  backend->clipY0 = (y > 0) ? y : 0;
+  backend->clipX1 = x + width;
+  backend->clipY1 = y + height;
+
+  if (backend->clipX1 > backend->ctx->driver_framebuffer_width)
+  {
+    backend->clipX1 = backend->ctx->driver_framebuffer_width;
+  }
+
+  if (backend->clipY1 > backend->ctx->driver_framebuffer_height)
+  {
+    backend->clipY1 = backend->ctx->driver_framebuffer_height;
+  }
+
+  if (width <= 0 || height <= 0 || backend->clipX1 < backend->clipX0 || backend->clipY1 < backend->clipY0)
+  {
+    backend->clipX1 = backend->clipX0;
+    backend->clipY1 = backend->clipY0;
+  }
+} /* End of MVM_lFramebufferSetClip */
+
+static void MVM_lFramebufferDrawPoint(void *user,
+                                      int32_t x,
+                                      int32_t y,
+                                      uint8_t red,
+                                      uint8_t green,
+                                      uint8_t blue)
+{
+  MVM_FramebufferBackend_t *backend = (MVM_FramebufferBackend_t *)user;
+  size_t pixelIndex;
+  uint16_t pixel;
+
+  if (!backend || !backend->ctx || x < backend->clipX0 || x >= backend->clipX1 ||
+      y < backend->clipY0 || y >= backend->clipY1)
+  {
+    return;
+  }
+
+  pixelIndex = (size_t)y * backend->ctx->driver_framebuffer_width + (size_t)x;
+  pixel = MVM_lRgb565(red, green, blue);
+  if (backend->ctx->driver_framebuffer[pixelIndex] == pixel)
+  {
+    return;
+  }
+
+  backend->ctx->driver_framebuffer[pixelIndex] = pixel;
+  if (!backend->hasDirty)
+  {
+    backend->dirtyX0 = x;
+    backend->dirtyY0 = y;
+    backend->dirtyX1 = x;
+    backend->dirtyY1 = y;
+    backend->hasDirty = 1U;
+  }
+  else
+  {
+    if (x < backend->dirtyX0)
+    {
+      backend->dirtyX0 = x;
+    }
+    if (y < backend->dirtyY0)
+    {
+      backend->dirtyY0 = y;
+    }
+    if (x > backend->dirtyX1)
+    {
+      backend->dirtyX1 = x;
+    }
+    if (y > backend->dirtyY1)
+    {
+      backend->dirtyY1 = y;
+    }
+  }
+} /* End of MVM_lFramebufferDrawPoint */
+
+static void MVM_lFramebufferDrawLine(void *user,
+                                     int32_t x0,
+                                     int32_t y0,
+                                     int32_t x1,
+                                     int32_t y1,
+                                     uint8_t red,
+                                     uint8_t green,
+                                     uint8_t blue)
+{
+  int32_t deltaX = (x1 >= x0) ? (x1 - x0) : (x0 - x1);
+  int32_t deltaY = (y1 >= y0) ? (y1 - y0) : (y0 - y1);
+  int32_t stepX = (x0 < x1) ? 1 : -1;
+  int32_t stepY = (y0 < y1) ? 1 : -1;
+  int32_t error = deltaX - deltaY;
+  int32_t doubledError;
+
+  for (;;)
+  {
+    MVM_lFramebufferDrawPoint(user, x0, y0, red, green, blue);
+    if (x0 == x1 && y0 == y1)
+    {
+      break;
+    }
+
+    doubledError = error * 2;
+    if (doubledError > -deltaY)
+    {
+      error -= deltaY;
+      x0 += stepX;
+    }
+    if (doubledError < deltaX)
+    {
+      error += deltaX;
+      y0 += stepY;
+    }
+  } /* End of loop */
+} /* End of MVM_lFramebufferDrawLine */
+
+static void MVM_lFramebufferFillRect(void *user,
+                                     int32_t x,
+                                     int32_t y,
+                                     int32_t width,
+                                     int32_t height,
+                                     uint8_t red,
+                                     uint8_t green,
+                                     uint8_t blue)
+{
+  int32_t drawX;
+  int32_t drawY;
+
+  if (width <= 0 || height <= 0)
+  {
+    return;
+  }
+
+  for (drawY = y; drawY < y + height; ++drawY)
+  {
+    for (drawX = x; drawX < x + width; ++drawX)
+    {
+      MVM_lFramebufferDrawPoint(user, drawX, drawY, red, green, blue);
+    } /* End of loop */
+  } /* End of loop */
+} /* End of MVM_lFramebufferFillRect */
+
+static uint16_t MVM_lRgb565(uint8_t red, uint8_t green, uint8_t blue)
+{
+  return (uint16_t)((((uint16_t)red >> 3U) << 11U) |
+                    (((uint16_t)green >> 2U) << 5U) |
+                    ((uint16_t)blue >> 3U));
+} /* End of MVM_lRgb565 */
+
+static void MVM_lDecodeGuestColor(uint32_t color, uint8_t *red, uint8_t *green, uint8_t *blue)
+{
+  if ((color & 0x80000000U) != 0U || color > 0xFFU)
+  {
+    *red = (uint8_t)((((color & 0xFFFFU) >> 10U) & 0x1FU) * 255U / 31U);
+    *green = (uint8_t)((((color & 0xFFFFU) >> 5U) & 0x1FU) * 255U / 31U);
+    *blue = (uint8_t)(((color & 0xFFFFU) & 0x1FU) * 255U / 31U);
+  }
+  else
+  {
+    *red = (uint8_t)(((color >> 5U) & 0x07U) * 255U / 7U);
+    *green = (uint8_t)(((color >> 2U) & 0x07U) * 255U / 7U);
+    *blue = (uint8_t)((color & 0x03U) * 255U / 3U);
+  }
+} /* End of MVM_lDecodeGuestColor */

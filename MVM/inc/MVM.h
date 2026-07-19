@@ -19,7 +19,7 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include "MVM_Types.h"
+#include "MVM_Config.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -43,9 +43,26 @@ size_t MVM_GetStorageAlign(void);
 MpnVM_t *MVM_GetVmFromStorage(void *storage, size_t storage_size);
 
 /**
+ * @brief Initializes VM state from one image source using a parent-owned integration config.
+ */
+MVM_RetCode_t MVM_InitFromSourceWithConfig(MpnVM_t *vm,
+                                           const MpnImageSource_t *image,
+                                           const char *profile_name,
+                                           const MVM_Config_t *config);
+
+/**
  * @brief Initializes VM state from one image source using the built-in integration config.
  */
 MVM_RetCode_t MVM_InitFromSource(MpnVM_t *vm, const MpnImageSource_t *image, const char *profile_name);
+
+/**
+ * @brief Initializes VM state from a memory image using a parent-owned integration config.
+ */
+MVM_RetCode_t MVM_InitWithConfig(MpnVM_t *vm,
+                                 const uint8_t *image,
+                                 size_t image_size,
+                                 const char *profile_name,
+                                 const MVM_Config_t *config);
 
 /**
  * @brief Initializes VM state with the built-in integration config.
@@ -58,9 +75,24 @@ MVM_RetCode_t MVM_Init(MpnVM_t *vm, const uint8_t *image, size_t image_size, con
 void MVM_Free(MpnVM_t *vm);
 
 /**
+ * @brief Queries memory required for a source-backed image using a parent-owned integration config.
+ */
+MVM_RetCode_t MVM_QueryMemReqsFromSourceWithConfig(const MpnImageSource_t *image,
+                                                   const MVM_Config_t *config,
+                                                   MVM_MemReqs_t *requirements);
+
+/**
  * @brief Queries the static memory required for a source-backed VMGP image.
  */
 MVM_RetCode_t MVM_QueryMemReqsFromSource(const MpnImageSource_t *image, MVM_MemReqs_t *requirements);
+
+/**
+ * @brief Queries memory required for a memory image using a parent-owned integration config.
+ */
+MVM_RetCode_t MVM_QueryMemReqsWithConfig(const uint8_t *image,
+                                         size_t image_size,
+                                         const MVM_Config_t *config,
+                                         MVM_MemReqs_t *requirements);
 
 /**
  * @brief Queries the static memory required for a VMGP image.
@@ -68,14 +100,29 @@ MVM_RetCode_t MVM_QueryMemReqsFromSource(const MpnImageSource_t *image, MVM_MemR
 MVM_RetCode_t MVM_QueryMemReqs(const uint8_t *image, size_t image_size, MVM_MemReqs_t *requirements);
 
 /**
+ * @brief Returns the number of profiles in a parent-owned integration config.
+ */
+uint32_t MVM_GetDevProfileCountWithConfig(const MVM_Config_t *config);
+
+/**
  * @brief Returns the number of built-in device profiles.
  */
 uint32_t MVM_GetDevProfileCount(void);
 
 /**
+ * @brief Returns one profile from a parent-owned integration config by zero-based index.
+ */
+const MpnDevProfile_t *MVM_GetDevProfileWithConfig(const MVM_Config_t *config, uint32_t profile_index);
+
+/**
  * @brief Returns one built-in device profile by zero-based index.
  */
 const MpnDevProfile_t *MVM_GetDevProfile(uint32_t profile_index);
+
+/**
+ * @brief Finds one named profile in a parent-owned integration config.
+ */
+const MpnDevProfile_t *MVM_FindDevProfileByNameWithConfig(const MVM_Config_t *config, const char *profile_name);
 
 /**
  * @brief Finds one built-in device profile by name.
@@ -126,6 +173,11 @@ MVM_State_t MVM_GetState(const MpnVM_t *vm);
  * @brief Returns the last fatal execution error.
  */
 MVM_Err_t MVM_GetLastError(const MpnVM_t *vm);
+
+/**
+ * @brief Copies current guest-heap diagnostics into caller-owned storage.
+ */
+MVM_RetCode_t MVM_GetHeapStats(const MpnVM_t *vm, MVM_HeapStats_t *stats);
 
 /**
  * @brief Sets the no-progress step limit for the soft watchdog.

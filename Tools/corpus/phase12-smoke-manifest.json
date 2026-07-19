@@ -1,0 +1,33 @@
+{
+  "_comment": "Focused Phase 12 regression gate for integration and packaging refactors.",
+  "defaultDurationMs": 12000,
+  "defaultMaxSteps": 100000000,
+  "defaultMaxLoggedCalls": 2000000,
+  "defaultFixedDateTime": "2003-10-31T12:00:00",
+  "runs": [
+    {
+      "game": "mpn/T310/DeepAbyss_v.1.4_T310_decrypted.mpn",
+      "profiles": [ "SE_T310" ],
+      "scenarios": [
+        {
+          "name": "start_menu",
+          "input": [
+            { "waitMs": 5500 },
+            { "press": "FIRE", "durationMs": 180 },
+            { "waitMs": 2500 }
+          ]
+        }
+      ]
+    },
+    {
+      "game": "mpn/T610/DeepAbyss_v.1.4_T610_decrypted.mpn",
+      "profiles": [ "SE_T610" ],
+      "scenarios": [
+        {
+          "name": "none",
+          "input": []
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@
  *             File:  MVM_Cfg.h
  *           Module:  MVM_Config
  *           Target:  Portable C
- *      Description:  Internal integration-time VM configuration macros, callback adapters, and built-in config object.
+ *      Description:  Bundled integration defaults, callback adapters, and built-in config object.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -19,9 +19,7 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include "MVM_Types.h"
-#include "MVM_Device.h"
-#include <string.h>
+#include "MVM_Config.h"
 
 /**********************************************************************************************************************
  *  LOCAL DATA TYPES AND STRUCTURES
@@ -86,26 +84,6 @@ typedef struct MVM_LogArgAdapter_t
               const char *message);            /**< Host logger using a foreign user pointer. */
   void *arg;                                   /**< Foreign user pointer passed to the host logger. */
 } MVM_LogArgAdapter_t;
-
-/**
- * @brief Describes one complete internal integration instance for the VM.
- */
-typedef struct MVM_Config_t
-{
-  MpnPlatform_t platform;                    /**< Host callback table used by the VM core. */
-  MpnImageReadFn_t image_read;               /**< Image-backend range-read callback used by the VM core. */
-  MpnImageWriteFn_t image_write;             /**< Optional image-backend range-write callback used for persistent data. */
-  MpnImageMapFn_t image_map;                 /**< Optional image-backend map callback used by the VM core. */
-  MpnImageUnmapFn_t image_unmap;             /**< Optional image-backend unmap callback used by the VM core. */
-  const MpnDevProfile_t *device_profiles;    /**< Catalog of device profiles offered by this integration. */
-  uint32_t device_profile_count;             /**< Number of entries in the device profile catalog. */
-  const MpnDevProfile_t *device_profile;     /**< Active device profile exposed to guest imports. */
-  const MpnSyscall_t *syscalls;              /**< Host syscall table visible to the runtime dispatcher. */
-  uint32_t syscall_count;                    /**< Number of entries in the syscall table. */
-  void *runtime_pool;                        /**< Backing arena used for VM state, RAM, and decoded metadata. */
-  size_t runtime_pool_size;                  /**< Total size of the runtime arena in bytes. */
-  uint32_t watchdog_limit;                   /**< Default no-progress watchdog budget in VM steps. */
-} MVM_Config_t;
 
 /**********************************************************************************************************************
  *  GLOBAL MACROS
@@ -246,29 +224,6 @@ static inline int MVM_Cfg_lAdaptLogArg(void *user,
   adapter->log(adapter->arg, level, module, event, message);
 
   return 0;
-}
-
-/**
- * @brief Finds one named device profile inside one integration config.
- */
-static inline const MpnDevProfile_t *MVM_Cfg_lFindDevProfileByName(const MVM_Config_t *config, const char *name)
-{
-  uint32_t i = 0u;
-
-  if (!config || !name || !config->device_profiles)
-  {
-    return NULL;
-  }
-
-  for (i = 0u; i < config->device_profile_count; ++i)
-  {
-    if (config->device_profiles[i].name && strcmp(config->device_profiles[i].name, name) == 0)
-    {
-      return &config->device_profiles[i];
-    }
-  }
-
-  return NULL;
 }
 
 /**********************************************************************************************************************

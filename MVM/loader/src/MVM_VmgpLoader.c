@@ -29,11 +29,6 @@ _Static_assert(sizeof(VMGPHeader) == VMGP_HEADER_SIZE, "VMGPHeader layout must s
 static bool MVM_lLoadVmgpResources(VMGPContext *ctx);
 
 /**
- * @brief Counts resource table entries in a VMGP image.
- */
-static uint32_t MVM_lCountVmgpResources(const MpnImageSource_t *image, uint32_t res_file_offset, uint32_t res_size);
-
-/**
  * @brief Builds the initial VM memory image.
  */
 static bool MVM_lBuildVmgpMemory(VMGPContext *ctx);
@@ -54,11 +49,6 @@ static uint32_t MVM_lResolvePoolIndexValue(const VMGPContext *ctx, uint32_t pool
 static bool MVM_lReadImageWord(const VMGPContext *ctx, size_t offset, uint32_t *out);
 
 /**
- * @brief Reads one 32-bit little-endian word from one image source.
- */
-static bool MVM_lReadSourceWord(const MpnImageSource_t *image, size_t offset, uint32_t *out);
-
-/**
  * @brief Returns a string-table pointer from a file offset.
  */
 static const char *vm_file_str(const VMGPContext *ctx, uint32_t off);
@@ -67,6 +57,32 @@ static const char *vm_file_str(const VMGPContext *ctx, uint32_t off);
  * @brief Aligns one size value for runtime-pool planning.
  */
 static size_t MVM_lAlignPoolSize(size_t value);
+
+/**
+ * @brief Reads one byte range while planning memory without constructing a complete VM context.
+ */
+static bool MVM_lReadQueryImage(const MpnImageSource_t *image,
+                                const MVM_Config_t *config,
+                                size_t offset,
+                                void *dst,
+                                size_t size);
+
+/**
+ * @brief Parses the VMGP header fields required by memory planning.
+ */
+static bool MVM_lParseQueryHeader(const MpnImageSource_t *image,
+                                  const MVM_Config_t *config,
+                                  VMGPHeader *header,
+                                  size_t *res_file_offset,
+                                  uint32_t *res_offset);
+
+/**
+ * @brief Counts resource entries while planning memory without a complete VM context.
+ */
+static uint32_t MVM_lCountQueryResources(const MpnImageSource_t *image,
+                                         const MVM_Config_t *config,
+                                         size_t res_file_offset,
+                                         uint32_t res_size);
 
 /**
  * @brief Reads one byte range from a memory-backed VM image.
@@ -83,7 +99,9 @@ static MVM_RetCode_t MVM_lQueryMemReqsWithConfig(const MpnImageSource_t *image,
 /**
  * @brief Queries memory requirements for one source-backed VMGP image.
  */
-MVM_RetCode_t MVM_QueryMemReqsFromSource(const MpnImageSource_t *image, MVM_MemReqs_t *requirements);
+MVM_RetCode_t MVM_QueryMemReqsFromSourceWithConfig(const MpnImageSource_t *image,
+                                                   const MVM_Config_t *config,
+                                                   MVM_MemReqs_t *requirements);
 
 /**********************************************************************************************************************
  *  GLOBAL FUNCTIONS
@@ -441,7 +459,7 @@ bool MVM_ParseVmgpHeaderRaw(VMGPContext *ctx)
   }
 
   memcpy(ctx->header.magic, headerBytes + 0x00, 4);
-  ctx->header.unknown1 = vm_read_u16_le(headerBytes + 0x04);
+  ctx->header.data_heap_words = vm_read_u16_le(headerBytes + 0x04);
   ctx->header.unknown2 = vm_read_u16_le(headerBytes + 0x06);
   ctx->header.stack_words = vm_read_u16_le(headerBytes + 0x08);
   ctx->header.unknown3 = headerBytes[0x0A];
@@ -494,37 +512,72 @@ bool MVM_ParseVmgpHeader(VMGPContext *ctx)
 } /* End of MVM_ParseVmgpHeader */
 
 /**********************************************************************************************************************
+ *  Name: MVM_QueryMemReqsWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Queries static memory requirements using one parent-owned integration config.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_QueryMemReqsWithConfig(const uint8_t *image,
+                                         size_t image_size,
+                                         const MVM_Config_t *config,
+                                         MVM_MemReqs_t *requirements)
+{
+  MpnImageSource_t source;
+  MVM_Config_t selectedConfig;
+
+  if (!image || image_size < VMGP_HEADER_SIZE || !config)
+  {
+    return MVM_INVALID_ARG;
+  }
+
+  selectedConfig = *config;
+
+  memset(&source, 0, sizeof(source));
+  source.user = (void *)image;
+  source.image_size = image_size;
+
+  selectedConfig.image_read = MVM_lReadMemoryImage;
+  selectedConfig.image_write = NULL;
+  selectedConfig.image_map = NULL;
+  selectedConfig.image_unmap = NULL;
+
+  return MVM_lQueryMemReqsWithConfig(&source, &selectedConfig, requirements);
+} /* End of MVM_QueryMemReqsWithConfig */
+
+/**********************************************************************************************************************
  *  Name: MVM_QueryMemReqs
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Queries static memory requirements for a VMGP image.
+ *  Description: Queries static memory requirements using the built-in integration config.
  *********************************************************************************************************************/
 MVM_RetCode_t MVM_QueryMemReqs(const uint8_t *image,
                                size_t image_size,
                                MVM_MemReqs_t *requirements)
 {
-  MpnImageSource_t source;
-  MVM_Config_t config = MVM_Config;
-
-  if (!image || image_size < VMGP_HEADER_SIZE)
-  {
-    return MVM_INVALID_ARG;
-  }
-
-  memset(&source, 0, sizeof(source));
-  source.user = (void *)image;
-  source.image_size = image_size;
-
-  config.image_read = MVM_lReadMemoryImage;
-  config.image_write = NULL;
-  config.image_map = NULL;
-  config.image_unmap = NULL;
-
-  return MVM_lQueryMemReqsWithConfig(&source, &config, requirements);
+  return MVM_QueryMemReqsWithConfig(image, image_size, &MVM_Config, requirements);
 } /* End of MVM_QueryMemReqs */
+
+/**********************************************************************************************************************
+ *  Name: MVM_QueryMemReqsFromSourceWithConfig
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: No
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Queries source-backed memory requirements using one parent-owned integration config.
+ *********************************************************************************************************************/
+MVM_RetCode_t MVM_QueryMemReqsFromSourceWithConfig(const MpnImageSource_t *image,
+                                                   const MVM_Config_t *config,
+                                                   MVM_MemReqs_t *requirements)
+{
+  return MVM_lQueryMemReqsWithConfig(image, config, requirements);
+} /* End of MVM_QueryMemReqsFromSourceWithConfig */
 
 /**********************************************************************************************************************
  *  Name: MVM_QueryMemReqsFromSource
@@ -533,11 +586,11 @@ MVM_RetCode_t MVM_QueryMemReqs(const uint8_t *image,
  *  Reentrancy: No
  *  Parameters: See function signature.
  *  Returns: See function signature.
- *  Description: Queries static memory requirements for a source-backed VMGP image.
+ *  Description: Queries source-backed memory requirements using the built-in integration config.
  *********************************************************************************************************************/
 MVM_RetCode_t MVM_QueryMemReqsFromSource(const MpnImageSource_t *image, MVM_MemReqs_t *requirements)
 {
-  return MVM_lQueryMemReqsWithConfig(image, &MVM_Config, requirements);
+  return MVM_QueryMemReqsFromSourceWithConfig(image, &MVM_Config, requirements);
 } /* End of MVM_QueryMemReqsFromSource */
 
 /**********************************************************************************************************************
@@ -642,9 +695,17 @@ static MVM_RetCode_t MVM_lQueryMemReqsWithConfig(const MpnImageSource_t *image,
                                                  const MVM_Config_t *config,
                                                  MVM_MemReqs_t *requirements)
 {
-  VMGPContext ctx;
+  VMGPHeader header;
   uint32_t resource_count = 0;
+  uint32_t res_offset = 0;
+  size_t res_file_offset = 0;
+  size_t heapBytes = 0;
+  size_t stackBytes = 0;
+  size_t guestMemoryBytes = 0;
+  size_t logicalMemoryBytes = 0;
+  size_t highMemoryBytes = 0;
   size_t runtimePoolBytes = 0;
+  size_t framebufferPixelCount = 0;
 
   if (!requirements)
   {
@@ -653,52 +714,243 @@ static MVM_RetCode_t MVM_lQueryMemReqsWithConfig(const MpnImageSource_t *image,
 
   memset(requirements, 0, sizeof(*requirements));
 
-  if (!image || !config || !config->image_read || image->image_size < VMGP_HEADER_SIZE)
+  if (!image || !config || (!config->image_read && !config->drivers.image_read) ||
+      image->image_size < VMGP_HEADER_SIZE)
   {
     return MVM_INVALID_ARG;
   }
 
-  memset(&ctx, 0, sizeof(ctx));
-
-  if (!MVM_InitRawWithConfig(&ctx, image, config))
+  memset(&header, 0, sizeof(header));
+  if (!MVM_lParseQueryHeader(image, config, &header, &res_file_offset, &res_offset))
   {
     return MVM_INIT_FAILED;
   }
 
-  if (!MVM_ParseVmgpHeaderRaw(&ctx))
+  resource_count = MVM_lCountQueryResources(image, config, res_file_offset, header.res_size);
+  heapBytes = VM_HEAP_EXTRA;
+  stackBytes = (size_t)header.stack_words * sizeof(uint32_t);
+  guestMemoryBytes = (size_t)vm_align4(res_offset);
+  if (heapBytes > SIZE_MAX - guestMemoryBytes)
   {
-    return MVM_INIT_FAILED;
+    return MVM_MEMORY_ERROR;
   }
+  guestMemoryBytes += heapBytes;
+  logicalMemoryBytes = (size_t)vm_align4(res_offset);
+  if (VM_LOGICAL_HEAP_EXTRA > SIZE_MAX - logicalMemoryBytes)
+  {
+    return MVM_MEMORY_ERROR;
+  }
+  logicalMemoryBytes += VM_LOGICAL_HEAP_EXTRA;
+  if (stackBytes > SIZE_MAX - logicalMemoryBytes)
+  {
+    return MVM_MEMORY_ERROR;
+  }
+  logicalMemoryBytes += stackBytes;
+  if (VM_STACK_GUARD_EXTRA > SIZE_MAX - logicalMemoryBytes || logicalMemoryBytes < VM_HIGH_MEMORY_BASE)
+  {
+    return MVM_MEMORY_ERROR;
+  }
+  logicalMemoryBytes += VM_STACK_GUARD_EXTRA;
+  highMemoryBytes = logicalMemoryBytes - VM_HIGH_MEMORY_BASE;
+  if (highMemoryBytes > SIZE_MAX - guestMemoryBytes)
+  {
+    return MVM_MEMORY_ERROR;
+  }
+  guestMemoryBytes += highMemoryBytes;
 
-  resource_count = MVM_lCountVmgpResources(&ctx.image, ctx.res_file_offset, ctx.header.res_size);
-  ctx.vm_end = ctx.res_offset;
-  ctx.heap_base = vm_align4(ctx.vm_end);
-  ctx.heap_cur = ctx.heap_base;
-  ctx.heap_limit = ctx.heap_base + VM_HEAP_EXTRA;
-  ctx.stack_top = ctx.heap_limit + VM_STACK_EXTRA;
-  ctx.mem_size = ctx.stack_top + VM_STACK_GUARD_EXTRA;
-  requirements->guest_memory_bytes = ctx.mem_size;
-  requirements->pool_entries_bytes = (size_t)ctx.header.pool_slots * sizeof(VMGPPoolEntry);
+  requirements->guest_memory_bytes = guestMemoryBytes;
+  requirements->pool_entries_bytes = (size_t)header.pool_slots * sizeof(VMGPPoolEntry);
   requirements->resource_entries_bytes = (size_t)resource_count * sizeof(VMGPResource);
   runtimePoolBytes = MVM_lAlignPoolSize(0u);
   runtimePoolBytes += requirements->pool_entries_bytes;
   runtimePoolBytes = MVM_lAlignPoolSize(runtimePoolBytes);
   runtimePoolBytes += requirements->resource_entries_bytes;
   runtimePoolBytes = MVM_lAlignPoolSize(runtimePoolBytes);
-  runtimePoolBytes += ctx.header.string_size;
+  runtimePoolBytes += header.string_size;
   runtimePoolBytes = MVM_lAlignPoolSize(runtimePoolBytes);
   runtimePoolBytes += requirements->guest_memory_bytes;
+  if (config->drivers.display_flush && config->device_profile)
+  {
+    framebufferPixelCount = (size_t)config->device_profile->screen_width *
+                            (size_t)config->device_profile->screen_height;
+    if (framebufferPixelCount > (SIZE_MAX / sizeof(uint16_t)))
+    {
+      return MVM_MEMORY_ERROR;
+    }
+
+    runtimePoolBytes = MVM_lAlignPoolSize(runtimePoolBytes);
+    if (runtimePoolBytes > SIZE_MAX - (framebufferPixelCount * sizeof(uint16_t)))
+    {
+      return MVM_MEMORY_ERROR;
+    }
+
+    runtimePoolBytes += framebufferPixelCount * sizeof(uint16_t);
+  }
   requirements->runtime_pool_bytes = runtimePoolBytes;
-  requirements->pool_entry_count = ctx.header.pool_slots;
+  requirements->pool_entry_count = header.pool_slots;
   requirements->resource_count = resource_count;
-  requirements->static_data_bytes = ctx.header.data_size;
-  requirements->bss_bytes = ctx.header.bss_size;
+  requirements->static_data_bytes = header.data_size;
+  requirements->bss_bytes = header.bss_size;
   requirements->resource_bytes = 0u;
-  requirements->heap_bytes = VM_HEAP_EXTRA;
-  requirements->stack_bytes = ctx.stack_top - ctx.heap_limit;
+  requirements->heap_bytes = (uint32_t)heapBytes;
+  requirements->stack_bytes = (uint32_t)stackBytes;
 
   return MVM_OK;
 } /* End of MVM_lQueryMemReqsWithConfig */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lReadQueryImage
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: Yes
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Reads one image range through a parent config without constructing a complete VM context.
+ *********************************************************************************************************************/
+static bool MVM_lReadQueryImage(const MpnImageSource_t *image,
+                                const MVM_Config_t *config,
+                                size_t offset,
+                                void *dst,
+                                size_t size)
+{
+  MpnImageReadFn_t imageRead;
+
+  if (!image || !config || !dst || offset > image->image_size || size > image->image_size - offset)
+  {
+    return false;
+  }
+
+  if (size == 0u)
+  {
+    return true;
+  }
+
+  imageRead = config->image_read ? config->image_read : config->drivers.image_read;
+
+  return imageRead && imageRead(image->user, offset, dst, size) == 0;
+} /* End of MVM_lReadQueryImage */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lParseQueryHeader
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: Yes
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Parses VMGP layout and authored memory requirements into one small planning structure.
+ *********************************************************************************************************************/
+static bool MVM_lParseQueryHeader(const MpnImageSource_t *image,
+                                  const MVM_Config_t *config,
+                                  VMGPHeader *header,
+                                  size_t *res_file_offset,
+                                  uint32_t *res_offset)
+{
+  uint8_t headerBytes[VMGP_HEADER_SIZE];
+  size_t sectionOffset;
+
+  if (!header || !res_file_offset || !res_offset ||
+      !MVM_lReadQueryImage(image, config, 0u, headerBytes, sizeof(headerBytes)))
+  {
+    return false;
+  }
+
+  memcpy(header->magic, headerBytes + 0x00, 4u);
+  header->data_heap_words = vm_read_u16_le(headerBytes + 0x04);
+  header->unknown2 = vm_read_u16_le(headerBytes + 0x06);
+  header->stack_words = vm_read_u16_le(headerBytes + 0x08);
+  header->unknown3 = headerBytes[0x0A];
+  header->unknown4 = headerBytes[0x0B];
+  header->code_size = vm_read_u32_le(headerBytes + 0x0C);
+  header->data_size = vm_read_u32_le(headerBytes + 0x10);
+  header->bss_size = vm_read_u32_le(headerBytes + 0x14);
+  header->res_size = vm_read_u32_le(headerBytes + 0x18);
+  header->unknown5 = vm_read_u32_le(headerBytes + 0x1C);
+  header->pool_slots = vm_read_u32_le(headerBytes + 0x20);
+  header->string_size = vm_read_u32_le(headerBytes + 0x24);
+
+  if (memcmp(header->magic, VMGP_MAGIC, 4u) != 0 ||
+      header->data_size > UINT32_MAX - header->bss_size)
+  {
+    return false;
+  }
+
+  *res_offset = header->data_size + header->bss_size;
+  sectionOffset = VMGP_HEADER_SIZE;
+  if (header->code_size > image->image_size - sectionOffset)
+  {
+    return false;
+  }
+  sectionOffset += header->code_size;
+  if (header->data_size > image->image_size - sectionOffset)
+  {
+    return false;
+  }
+  sectionOffset += header->data_size;
+  *res_file_offset = sectionOffset;
+  if (header->res_size > image->image_size - sectionOffset)
+  {
+    return false;
+  }
+  sectionOffset += header->res_size;
+  if (header->pool_slots > (image->image_size - sectionOffset) / VMGP_POOL_SLOT_SIZE)
+  {
+    return false;
+  }
+  sectionOffset += (size_t)header->pool_slots * VMGP_POOL_SLOT_SIZE;
+  if (header->string_size > image->image_size - sectionOffset)
+  {
+    return false;
+  }
+
+  return true;
+} /* End of MVM_lParseQueryHeader */
+
+/**********************************************************************************************************************
+ *  Name: MVM_lCountQueryResources
+ *  Upstream: N/A
+ *  Synch/Asynch: Synchronous
+ *  Reentrancy: Yes
+ *  Parameters: See function signature.
+ *  Returns: See function signature.
+ *  Description: Counts resource offsets through the small memory-query path.
+ *********************************************************************************************************************/
+static uint32_t MVM_lCountQueryResources(const MpnImageSource_t *image,
+                                         const MVM_Config_t *config,
+                                         size_t res_file_offset,
+                                         uint32_t res_size)
+{
+  uint8_t bytes[4];
+  uint32_t previous;
+  uint32_t count;
+  uint32_t index;
+  uint32_t offset;
+
+  previous = 0u;
+  count = 0u;
+  if (res_size < 8u)
+  {
+    return 0u;
+  }
+
+  for (index = 0u; index + sizeof(bytes) <= res_size; index += sizeof(bytes))
+  {
+    if (!MVM_lReadQueryImage(image, config, res_file_offset + index, bytes, sizeof(bytes)))
+    {
+      break;
+    }
+
+    offset = vm_read_u32_le(bytes);
+    if (offset == 0u || offset >= res_size || offset < previous)
+    {
+      break;
+    }
+
+    previous = offset;
+    ++count;
+  } /* End of loop */
+
+  return count;
+} /* End of MVM_lCountQueryResources */
 
 /**********************************************************************************************************************
  *  Name: MVM_lLoadVmgpResources
@@ -798,24 +1050,65 @@ static bool MVM_lLoadVmgpResources(VMGPContext *ctx)
 static bool MVM_lBuildVmgpMemory(VMGPContext *ctx)
 {
   bool bResult = false;
+  uint32_t heapBytes;
+  uint32_t logicalHeapBytes;
+  uint32_t stackBytes;
+  uint32_t highMemoryBytes;
 
   ctx->vm_end = ctx->res_offset;
   ctx->heap_base = vm_align4(ctx->vm_end);
   ctx->heap_cur = ctx->heap_base;
-  ctx->heap_limit = ctx->heap_base + VM_HEAP_EXTRA;
-  ctx->stack_top = ctx->heap_limit + VM_STACK_EXTRA;
+  /* Keep query/init sizing identical while the monotonic heap is validated against long gameplay. */
+  heapBytes = VM_HEAP_EXTRA;
+  logicalHeapBytes = VM_LOGICAL_HEAP_EXTRA;
+  stackBytes = (uint32_t)ctx->header.stack_words * sizeof(uint32_t);
+  if (heapBytes > UINT32_MAX - ctx->heap_base)
+  {
+    return false;
+  }
+  ctx->heap_limit = ctx->heap_base + heapBytes;
+  ctx->heap_soft_limit = ctx->heap_limit;
+  if (ctx->header.data_heap_words != 0u &&
+      ((uint32_t)ctx->header.data_heap_words * sizeof(uint32_t)) < heapBytes)
+  {
+    ctx->heap_soft_limit = ctx->heap_base +
+                           ((uint32_t)ctx->header.data_heap_words * sizeof(uint32_t));
+  }
+  if (logicalHeapBytes > UINT32_MAX - ctx->heap_base ||
+      stackBytes > UINT32_MAX - (ctx->heap_base + logicalHeapBytes))
+  {
+    return false;
+  }
+  ctx->stack_top = ctx->heap_base + logicalHeapBytes + stackBytes;
+  if (VM_STACK_GUARD_EXTRA > UINT32_MAX - ctx->stack_top)
+  {
+    return false;
+  }
   ctx->mem_size = ctx->stack_top + VM_STACK_GUARD_EXTRA;
 
-  ctx->mem = (uint8_t *)MVM_AcquireInitBuffer(ctx, ctx->mem_size);
+  ctx->mem_low_size = ctx->heap_limit;
+  if (ctx->mem_low_size > VM_HIGH_MEMORY_BASE || ctx->mem_size < VM_HIGH_MEMORY_BASE)
+  {
+    return false;
+  }
+  ctx->mem_high_base = VM_HIGH_MEMORY_BASE;
+  highMemoryBytes = (uint32_t)(ctx->mem_size - ctx->mem_high_base);
+  ctx->mem_high_size = highMemoryBytes;
 
-  if (!ctx->mem)
+  ctx->mem = (uint8_t *)MVM_AcquireInitBuffer(ctx, ctx->mem_low_size);
+  ctx->mem_high = (uint8_t *)MVM_AcquireInitBuffer(ctx, ctx->mem_high_size);
+
+  if (!ctx->mem || !ctx->mem_high)
   {
     MVM_SetErrorRaw(ctx, MVM_E_MEMORY);
 
     return false;
   }
 
-  if (!MVM_ReadImageRange(ctx, ctx->data_file_offset, ctx->mem + ctx->data_offset, ctx->header.data_size))
+  if (!MVM_ReadImageRange(ctx,
+                          ctx->data_file_offset,
+                          MVM_GUEST_PTR(ctx, ctx->data_offset, ctx->header.data_size),
+                          ctx->header.data_size))
   {
     return false;
   }
@@ -882,7 +1175,7 @@ static bool MVM_lApplyVmgpDataRelocations(VMGPContext *ctx)
           return false;
         }
 
-        patchedValue = vm_read_u32_le(ctx->mem + targetAddr);
+        patchedValue = vm_read_u32_le(MVM_GUEST_CONST_PTR(ctx, targetAddr, 4u));
         switch (entry->aux24)
         {
           case 0x01u:
@@ -909,7 +1202,7 @@ static bool MVM_lApplyVmgpDataRelocations(VMGPContext *ctx)
           }
         }
 
-        vm_write_u32_le(ctx->mem + targetAddr, patchedValue);
+        vm_write_u32_le(MVM_GUEST_PTR(ctx, targetAddr, 4u), patchedValue);
         break;
       }
 
@@ -936,51 +1229,6 @@ static bool MVM_lApplyVmgpDataRelocations(VMGPContext *ctx)
 } /* End of MVM_lApplyVmgpDataRelocations */
 
 /**********************************************************************************************************************
- *  Name: MVM_lCountVmgpResources
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Counts resource table entries in a VMGP image.
- *********************************************************************************************************************/
-static uint32_t MVM_lCountVmgpResources(const MpnImageSource_t *image, uint32_t res_file_offset, uint32_t res_size)
-{
-  uint32_t prev = 0;
-  uint32_t count = 0;
-  uint32_t i;
-  uint32_t off = 0;
-
-  if (!image || !MVM_Config.image_read || res_size < 8u)
-  {
-    return 0;
-  }
-
-  for (i = 0; i + 4u <= res_size; i += 4u)
-  {
-    if (!MVM_lReadSourceWord(image, res_file_offset + i, &off))
-    {
-      break;
-    }
-
-    if (off == 0u)
-    {
-      break;
-    }
-
-    if (off >= res_size || off < prev)
-    {
-      break;
-    }
-
-    prev = off;
-    ++count;
-  } /* End of loop */
-
-  return count;
-} /* End of MVM_lCountVmgpResources */
-
-/**********************************************************************************************************************
  *  Name: MVM_lReadImageWord
  *  Upstream: N/A
  *  Synch/Asynch: Synchronous
@@ -1002,39 +1250,6 @@ static bool MVM_lReadImageWord(const VMGPContext *ctx, size_t offset, uint32_t *
 
   return true;
 } /* End of MVM_lReadImageWord */
-
-/**********************************************************************************************************************
- *  Name: MVM_lReadSourceWord
- *  Upstream: N/A
- *  Synch/Asynch: Synchronous
- *  Reentrancy: No
- *  Parameters: See function signature.
- *  Returns: See function signature.
- *  Description: Reads one little-endian 32-bit word from one image source.
- *********************************************************************************************************************/
-static bool MVM_lReadSourceWord(const MpnImageSource_t *image, size_t offset, uint32_t *out)
-{
-  uint8_t bytes[4];
-
-  if (!image || !out)
-  {
-    return false;
-  }
-
-  if (offset > image->image_size || sizeof(bytes) > (image->image_size - offset))
-  {
-    return false;
-  }
-
-  if (MVM_Config.image_read(image->user, offset, bytes, sizeof(bytes)) != 0)
-  {
-    return false;
-  }
-
-  *out = vm_read_u32_le(bytes);
-
-  return true;
-} /* End of MVM_lReadSourceWord */
 
 /**********************************************************************************************************************
  *  Name: vm_file_str

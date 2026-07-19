@@ -583,10 +583,11 @@ Tasks:
   - 2026-07-18 reference-input corpus reruns after Phase 11 close-out fixes:
     - T610: `Runs/RefInputT610/20260718_232534`;
     - T310: `Runs/RefInputT310/20260718_233046`;
-    - both batches completed with process exit code 0 for every manifest entry
-      and no runner timeouts;
-    - no `invalid-opcode`, `missing-syscall`, or `memory-oob` failures were
-      observed in these rerun logs;
+    - both batches completed without runner timeouts; the saved T310 summary
+      has one `snowboardx_T310` process exit 2 with `LDBU addr OOB`, while all
+      other entries have process exit code 0;
+    - no `invalid-opcode` or `missing-syscall` failures were observed in these
+      rerun logs;
     - C-side recording audio is now trimmed to the recorded video interval at
       WAV finalization, fixing long-audio MP4s such as `4in1`,
       `SpaceExplorer`, and `SnowBob`;
@@ -833,48 +834,118 @@ Tasks:
 
 Execution plan:
 
-1. Freeze the current Phase 11 baseline:
-   - identify the focused smoke corpus subset used during Phase 12 refactors;
-   - record the full-corpus baseline paths, classifications, known renderer
-     defects, known timing/cadence defects, and accepted short-exit outcomes.
-2. Split public integration contract from bundled defaults:
-   - move reusable config/port types into public or clearly documented
-     integration headers;
-   - keep bundled `Config/` as default/example config, not the only supported
-     integration path.
-3. Add external-config build support:
-   - teach `vm.mk` to accept an external config include/source directory;
-   - ensure external config has priority without editing files under `MVM/`;
-   - keep the existing desktop/default build working.
-4. Add public `WithConfig` APIs:
-   - expose init and memory-query entry points that accept a parent-owned
-     `MVM_Config_t`;
-   - keep built-in-config wrappers for local smoke tests and desktop runner
+1. Done: freeze the current Phase 11 baseline:
+   - focused gate: `Tools/corpus/phase12-smoke-manifest.json`;
+   - baseline paths, acceptance criteria, classifications, known renderer and
+     timing defects, and accepted short-exit outcomes:
+     `Tools/corpus/PHASE12_BASELINE.md`.
+2. Done: split public integration contract from bundled defaults:
+   - `MVM_Config_t`, device profiles, and capability flags live in public
+     `inc/MVM_Config.h` and `inc/MVM_Device.h`;
+   - bundled `Config/` retains default macros, adapters, profiles, storage, and
+     the built-in `MVM_Config` object for desktop/local use.
+3. Done: add external-config build support:
+   - `vm.mk` accepts parent-owned `MVM_CONFIG_DIR` and optional
+     `MVM_CONFIG_SOURCE` overrides;
+   - the external config include directory has priority, with bundled build
+     switches remaining available as fallback;
+   - a no-SDL build smoke under `Tools/integration/external-config-smoke/`
+     verifies external profile/config selection while the desktop build keeps
+     using bundled defaults.
+4. Done: add public `WithConfig` APIs:
+   - init, memory-query, and profile-query entry points accept a parent-owned
+     `MVM_Config_t` without modifying it;
+   - built-in-config wrappers preserve local smoke tests and desktop runner
      compatibility.
-5. Define the MCU-facing driver contract:
-   - keep display/input/audio/storage/time/random/log/event/system-message
+5. Done: define the MCU-facing driver contract:
+   - public `MVM_Drivers_t` keeps display, button input, normalized PCM audio,
+     image/persistent storage, time, random, log, event, and system-message
      callbacks hardware-oriented and small;
-   - keep VMGP-specific behavior inside MVM;
-   - provide valid no-op/read-only paths for optional audio, persistence, and
-     system-message handling.
-6. Make the display path MCU-friendly:
-   - provide a simple framebuffer/dirty-rect flush path suitable for bare-metal
-     LCD drivers;
-   - keep primitive draw replay as an optional desktop/debug backend path.
-7. Add a no-SDL reference port template:
-   - demonstrate static VM storage, runtime pool, image source callbacks, fixed
-     date setup, button-mask input, framebuffer flush stub, audio no-op, and
-     event/log hooks;
-   - show a bare-metal-style bounded `while (1)` loop.
-8. Add static-library packaging:
-   - build `libmvm.a` / `mvm.lib` from the same VM sources;
-   - link that artifact into a tiny parent-project smoke executable or back
-     into the desktop runner using only public headers and external config.
-9. Document the integration path:
-   - write a short checklist for source-included and static-library modes;
-   - document compile-time vs runtime/init-time responsibilities;
-   - document required, optional, and no-op platform callbacks.
-10. Run regression gates:
+   - VMGP-specific behavior and guest pointers stay inside MVM;
+   - zero initialization, no-audio/no-persistence/no-system-message operation,
+     and read-only image storage are valid documented paths in
+     `MVM/DRIVER_CONTRACT.md`.
+6. Done: make the display path MCU-friendly:
+   - `drivers.display_flush` enables a runtime-pool-backed RGB565 framebuffer
+     with changed-pixel dirty-rectangle accumulation for bare-metal LCD drivers;
+   - desktop and MCU use the same immediate RGB565 framebuffer path; SDL remains
+     only the desktop platform implementation of `display_flush`;
+   - the former 2,048-command/128-palette deferred storage is reduced to one
+     scratch command and palette, cutting Cortex-M4 `MpnVM_t` from 473,344 to
+     7,600 bytes before later heap-diagnostics metadata.
+7. Done: add a no-SDL reference port template:
+   - `Examples/MVM_BareMetalPort/` demonstrates aligned static VM storage,
+     runtime pool, flash image reads, fixed date, button polling, RGB565 flush,
+     audio no-op, event/log, and system-message hooks;
+   - its bare-metal-style loop runs bounded `MVM_RunSteps()` slices and yields
+     through a replaceable idle hook.
+8. Done: add static-library packaging:
+   - `MVM_LIBRARY_SRC` and the root `static-lib` target build `libmvm.a` without
+     embedding a bundled or parent-owned config object;
+   - `Tools/integration/static-library-smoke/` links the archive into a real-MPN
+     parent executable using only public headers and external config sources.
+9. Done: document the integration path:
+    - write a short checklist for source-included and static-library modes;
+    - document compile-time vs runtime/init-time responsibilities;
+    - document required, optional, and no-op platform callbacks.
+    - `MVM/INTEGRATION.md` is the parent-project entry point and links the
+      public driver contract, no-SDL reference port, and integration smokes.
+10. Optimize the integration footprint for the first Cortex-M4 bring-up target:
+    - use `STM32F407VET6` and its existing parent-owned BSP as the initial
+      constrained integration target;
+    - initial measured footprint breakdown, feasibility model, and safe
+      implementation order are recorded in `MVM/CORTEX_M4_ANALYSIS.md`;
+    - confirmed from official `pip-gcc`/`pip-ld` output probes: VMGP header
+      offsets `0x04` and `0x08` store the game-authored additional data-heap
+      and stack requirements in 32-bit words; replace the current fixed guest
+      reservations with these decoded requirements during the implementation;
+    - remove the approximately 462 KiB loader-query context from the host stack;
+    - make the large VM tables/limits configurable and reduce `MpnVM_t` from its
+      current approximately 462 KiB footprint without changing guest behavior;
+    - measure the real runtime-pool, framebuffer, VM-storage, host-stack, and
+      Flash requirements for at least one small decrypted image;
+    - avoid pulling desktop-oriented newlib/file I/O paths into the minimal MCU
+      link when their features are disabled;
+    - current heap experiments use compatibility-oriented oldest-quarantine
+      reuse with a parent-visible soft limit, statistics, and physical fallback;
+      the full 34-game automated corpus has no fatal/allocation failures, while
+      manual gameplay measured 83,352 bytes for Prehistorik and the automated
+      maximum is 87,508 bytes for snowboardx; validate the experimental 96 KiB
+      physical heap on the focused heavy-game set before another full corpus;
+    - rejected experiment: reducing the contiguous guest heap/address span to
+      96 KiB makes Prehistorik access `0x40030` during level load despite zero
+      allocation failures; the fixed 256 KiB span currently affects guest stack
+      placement/address ABI, not only allocator capacity. Restore 256 KiB until
+      logical guest addresses can be decoupled safely from physical backing;
+    - keep this footprint work after the integration contract/documentation is
+      stable and validate behavior before attempting hardware bring-up.
+    - before changing the public contract, evaluate the precompiled-library
+      configuration model explicitly: compile-time options are fixed when the
+      archive is built, so parent-selectable limits/features must either move
+      into a runtime descriptor or be supplied as documented library variants;
+    - evaluate replacing the current split legacy/config/driver setup with one
+      parent-owned integration descriptor covering platform context, storage,
+      profiles, limits, and callbacks, including runtime registration where it
+      genuinely simplifies use without adding hidden allocation or mutable
+      global state;
+    - evaluate a desktop backend built through the same minimal bare-metal-style
+      integration path, so desktop and STM32 exercise one public lifecycle and
+      driver contract while SDL remains only a platform implementation;
+    - judge all configuration/API simplifications against the Cortex-M4 RAM,
+      Flash, stack, determinism, and non-blocking requirements rather than only
+      desktop convenience;
+    - after the architecture decisions and MCU footprint work stabilize, run a
+      clean consumer-repository rehearsal:
+      - create the proposed standalone library repository named `OpenMophun`;
+      - decide the safe rename scope before changing terminology: project-owned
+        names may become OpenMophun, while historical VMGP/Mophun format and API
+        terms may need to remain for technical accuracy and compatibility;
+      - integrate that repository back into this project as a fresh git
+        submodule without library-local patches;
+      - build and run the documented desktop and STM32-oriented integration
+        paths from the clean checkout;
+      - repeat the focused and full regression gates after reintegration.
+11. Run regression gates:
     - run the focused smoke corpus after each major refactor;
     - run the full corpus before closing Phase 12;
     - update classifications only for deliberate behavior changes, not for
@@ -1059,6 +1130,73 @@ runs change the defect picture.
 - `1849GoldRush_T610` and `bombjack_T610` remain certificate/demo policy gaps.
 - Missing `.mpc` sidecars are classified, but full sidecar/certificate semantics
   still need real policy interpretation.
+- `vCheckDataCert` has at least two observed ABI/result conventions: pointer-only
+  callers such as VRally2 require boolean success `1`, while sized-certificate
+  callers such as Prehistorik require status success `0`; replace the current
+  argument-shape compatibility rule with verified SDK signatures and real
+  certificate parsing.
+
+### Guest Heap / Allocation Compatibility
+
+- Immediate first-fit reuse regresses Prehistorik because legacy guests can
+  double-free, free unknown pointers, or retain data after `vDisposePtr`.
+- Monotonic allocation preserves compatibility but exhausted a 256 KiB heap in
+  Prehistorik despite measured peak-live data below 76 KiB.
+- Finish and validate deterministic oldest-quarantine reuse without guest-RAM
+  block headers; keep double-free/unknown-free handling non-fatal and expose
+  high-water, peak-live, reuse, fallback, and failure statistics.
+- VMGP `data_heap_bytes` is a useful soft requirement, not yet a proven hard
+  capacity: Alien Scum and Prehistorik required physical fallback above their
+  declared values. Establish the safe runtime/configuration policy before MCU
+  bring-up and remove temporary diagnostic metadata or move it to configured
+  parent-owned workspace.
+- A 96 KiB physical/contiguous heap experiment regressed Prehistorik with an
+  access near the former 256 KiB boundary while allocator statistics remained
+  below the new capacity. Investigate fixed guest address-space/stack-top
+  expectations and segmented or sparse backing before claiming the live-heap
+  reduction as physical SRAM savings.
+- First instruction-level finding for that regression: Prehistorik `pc=0x0F14`
+  executes `LDBU r12, [r30 + 0x30]`; the preceding `LDWd` loads `r30/R0` as the
+  exact logical base `0x40000` from a structure field at offset `0x84`, producing
+  failed address `0x40030`. A successful 256 KiB gameplay trace confirmed that
+  the byte read there is zero, while a separate access at `0x411D4` belongs to
+  the guest stack below `stack_top=0x4121C`. This supports preserving the logical
+  address map with sparse/segmented physical backing rather than reserving the
+  full span as ordinary heap SRAM; trace all reads/writes in the high region and
+  validate a low heap plus explicit zero/system page and stack segment.
+- Implemented the complete segmented guest-memory experiment after rejecting a
+  partial PIP-only prototype that caused broad graphical/runtime regressions:
+  all core, loader, PIP, import, renderer, debug/public guest accesses now cross
+  one checked mapping API; no direct `ctx->mem[address]` or guest-derived
+  `ctx->mem + address` remains outside the backend. The physical layout uses a
+  96 KiB low heap segment plus backing from logical `0x40000` through the legacy
+  stack/guard, while preserving the 256 KiB logical heap ABI and stack address.
+- Full segmented-memory regression checkpoint:
+  `Runs/Segmented96T310/20260719_195347` (21/21) and
+  `Runs/Segmented96T610/20260719_195347` (13/13); zero timeout, process failure,
+  memory OOB, invalid opcode, allocation failure, or fatal VM event. An injected
+  first-instruction `LDBU 0x007FFFFF` probe terminated deterministically as
+  `state=5,error=4` without a host crash.
+- Manual acceptance completed: Prehistorik T310 loaded and completed its full
+  demo level, returned to the application flow, and terminated normally as
+  `state=4,error=0` with a 96 KiB physical heap. Final statistics were 83,352
+  bytes high-water, 75,248 bytes peak-live, 172 allocations, 197 frees, 76
+  quarantined-block reuses, 70 soft-limit fallbacks, and zero allocation
+  failures. Additional manual spot checks of multiple games reported no visual
+  or runtime regression. Treat segmented guest memory as accepted for the
+  current corpus; retain broader hardware validation as the next gate.
+
+### VM Tasks / Termination Semantics
+
+- `vTerminateVMGP` currently terminates the whole VM, but the reference VRally
+  T610 trace terminates one VMGP task and subsequently starts another task.
+- Investigate and implement the minimum task model required by `vCreateTask`,
+  `vThisTask`, `vKillTask`, `vTaskAlive`, and task-local termination; the VM must
+  only enter its final terminal state when the application/task model actually
+  finishes.
+- Do not special-case VRally by image name or simply ignore termination; preserve
+  bounded execution and deterministic task scheduling suitable for bare metal
+  and RTOS hosts.
 
 ### Platform Events / System UI
 

@@ -33,6 +33,16 @@ For focused follow-up on the currently known very-short exits:
 corpus-run.bat -Manifest Tools\corpus\short-exit-recheck-manifest.json -OutRoot Runs\CorpusShortExitRecheck
 ```
 
+During Phase 12 integration and packaging work, run the focused regression gate
+after every major refactor:
+
+```bat
+corpus-run.bat -Manifest Tools\corpus\phase12-smoke-manifest.json -OutRoot Runs\Phase12Smoke
+```
+
+The frozen full-corpus paths, accepted differences, and gate criteria are in
+`Tools/corpus/PHASE12_BASELINE.md`.
+
 When classifying startup exits, prefer terminal events in the logs over video
 duration alone. A run can stop early because it hit a host-side cap such as
 `maxLoggedCalls` while the VM is still in `state=0`; actual guest exits show

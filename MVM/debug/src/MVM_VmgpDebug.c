@@ -36,7 +36,10 @@ void MVM_DumpVmgpSummary(const VMGPContext *ctx)
 
   MVM_LOG_I(ctx, "vmgp-summary", "=== VMGP summary ===\n");
   MVM_LOG_I(ctx, "vmgp-summary", "magic             : %.4s\n", ctx->header.magic);
-  MVM_LOG_I(ctx, "vmgp-summary", "unknown1          : 0x%04X\n", ctx->header.unknown1);
+  MVM_LOG_I(ctx,
+            "vmgp-summary",
+            "data_heap_bytes   : %u\n",
+            (uint32_t)ctx->header.data_heap_words * 4u);
   MVM_LOG_I(ctx, "vmgp-summary", "unknown2          : 0x%04X\n", ctx->header.unknown2);
   MVM_LOG_I(ctx, "vmgp-summary", "stack_words       : %u (0x%X)\n", ctx->header.stack_words, ctx->header.stack_words);
   MVM_LOG_I(ctx, "vmgp-summary", "code_size         : %u (0x%X)\n", ctx->header.code_size, ctx->header.code_size);

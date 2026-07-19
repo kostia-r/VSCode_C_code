@@ -48,5 +48,6 @@ typedef struct MVM_RenderFrameInfo_t
 int MVM_RenderGetFrameInfo(const MpnVM_t *vm, MVM_RenderFrameInfo_t *info);
 uint32_t MVM_RenderReplayCommands(MpnVM_t *vm, const MVM_RenderBackend_t *backend, uint32_t first_command);
 void MVM_RenderConsumeCommands(MpnVM_t *vm);
+int MVM_RenderFlushFramebuffer(MpnVM_t *vm);
 
 #endif

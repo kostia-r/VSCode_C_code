@@ -45,7 +45,7 @@
 typedef struct VMGPHeader
 {
   char magic[4];            /**< File magic, expected to be "VMGP". */
-  uint16_t unknown1;        /**< Header field preserved for analysis. */
+  uint16_t data_heap_words; /**< Additional guest data-heap size in 32-bit words. */
   uint16_t unknown2;        /**< Header field preserved for analysis. */
   uint16_t stack_words;     /**< Guest stack size in 32-bit words. */
   uint8_t unknown3;         /**< Header field preserved for analysis. */

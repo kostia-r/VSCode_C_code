@@ -65,6 +65,13 @@ void MVM_LogMessage(const VMGPContext *ctx,
     return;
   }
 
+  if (ctx && ctx->drivers.log)
+  {
+    ctx->drivers.log(ctx->drivers.user, level, module, event, buffer);
+
+    return;
+  }
+
 #if MVM_ENABLE_DEFAULT_LOGGER
   MVM_DefaultLog(NULL, level, module, event, buffer);
 #else
@@ -88,7 +95,8 @@ void MVM_LogEvent(const VMGPContext *ctx, MVM_Event_t event, uint32_t arg0, uint
   if (event == MVM_EVENT_DATA_CERT_CHECKED ||
       event == MVM_EVENT_LICENSE_EXPIRED ||
       event == MVM_EVENT_DEVICE_UNSUPPORTED ||
-      event == MVM_EVENT_SIDECAR_MISSING)
+      event == MVM_EVENT_SIDECAR_MISSING ||
+      event == MVM_EVENT_SYSTEM_MESSAGE)
   {
     MVM_LOG_I(ctx,
               "event",
@@ -338,6 +346,12 @@ static const char *MVM_lGetEventName(MVM_Event_t event)
     case MVM_EVENT_SIDECAR_MISSING:
     {
       name = "sidecar-missing";
+      break;
+    }
+
+    case MVM_EVENT_SYSTEM_MESSAGE:
+    {
+      name = "system-message";
       break;
     }
 

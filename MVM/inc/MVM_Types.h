@@ -63,6 +63,7 @@ typedef enum MVM_Event_t
   MVM_EVENT_LICENSE_EXPIRED,     /**< Guest reported an expired game/license path. */
   MVM_EVENT_DEVICE_UNSUPPORTED,  /**< Guest reported that the current device/profile is unsupported. */
   MVM_EVENT_SIDECAR_MISSING,     /**< Guest requested one read-only sidecar file that is absent on the host. */
+  MVM_EVENT_SYSTEM_MESSAGE,      /**< Guest requested one normalized platform system message. */
 } MVM_Event_t;
 
 /**
@@ -189,6 +190,25 @@ typedef struct MVM_SoundRequest_t
 } MVM_SoundRequest_t;
 
 typedef struct MpnVM_t MpnVM_t;
+
+/** @brief Reports deterministic guest-heap usage without exposing VM internals. */
+typedef struct MVM_HeapStats_t
+{
+  uint32_t capacity_bytes;
+  uint32_t soft_limit_bytes;
+  uint32_t high_water_bytes;
+  uint32_t allocation_requests;
+  uint32_t free_requests;
+  uint32_t allocation_failures;
+  uint32_t invalid_free_requests;
+  uint32_t double_free_requests;
+  uint32_t live_bytes;
+  uint32_t peak_live_bytes;
+  uint32_t quarantine_bytes;
+  uint32_t tracker_overflows;
+  uint32_t reuse_count;
+  uint32_t soft_limit_fallbacks;
+} MVM_HeapStats_t;
 
 /**
  * @brief Represents a host syscall callback.

@@ -37,13 +37,16 @@
 #define VMGP_FILE_NAME_BYTES                                    (32U)
 #define VMGP_FILE_INITIAL_BYTES                                 (4096U)
 #define VMGP_MAX_SPRITE_SLOTS                                   (255U)
-#define VMGP_MAX_DRAW_COMMANDS                                  (2048U)
-#define VMGP_MAX_DRAW_PALETTE_SNAPSHOTS                         (128U)
+#define VMGP_MAX_DRAW_COMMANDS                                  (1U)
+#define VMGP_MAX_DRAW_PALETTE_SNAPSHOTS                         (1U)
+#define VMGP_MAX_HEAP_TRACKED_ALLOCATIONS                       (512U)
 #define VMGP_MAX_MAP_UPDATE_CACHES                              (8U)
 #define VMGP_MAX_SOUND_REQUESTS                                 (8U)
 #define VMGP_DRAW_TEXT_SNAPSHOT_BYTES                           (64U)
 #define VM_STACK_EXTRA                                          (64U * 1024U)
-#define VM_HEAP_EXTRA                                           (256U * 1024U)
+#define VM_HEAP_EXTRA                                           (96U * 1024U)
+#define VM_LOGICAL_HEAP_EXTRA                                   (256U * 1024U)
+#define VM_HIGH_MEMORY_BASE                                     (0x00040000U)
 #define VM_STACK_GUARD_EXTRA                                    (0x1000U)
 #define MVM_U32_DEFAULT_WATCHDOG_LIMIT                          (0U)
 
@@ -131,6 +134,14 @@ typedef struct VMGPMapState
   uint32_t tile_data_addr;  /**< Guest pointer to the tile sprite atlas data. */
 } VMGPMapState;
 
+/** @brief Tracks one guest allocation for compatibility diagnostics and deferred reuse design. */
+typedef struct MVM_HeapAllocation_t
+{
+  uint32_t address;       /**< Guest payload address, or zero for an unused record. */
+  uint32_t size;          /**< Aligned guest payload size. */
+  uint32_t free_serial;   /**< Zero while live; otherwise the free-request serial. */
+} MVM_HeapAllocation_t;
+
 /**
  * @brief Tracks SDK-like dirty update state for one guest tilemap header.
  */
@@ -196,6 +207,7 @@ typedef struct MVM_DrawCommand_t
 struct MpnVM_t
 {
   MpnPlatform_t platform;          /**< Host integration callbacks. */
+  MVM_Drivers_t drivers;           /**< Hardware-oriented parent callbacks copied at initialization. */
   const MpnDevProfile_t *device_profile; /**< Selected device profile exposed to platform wrappers. */
 
   MpnImageSource_t image;           /**< Active VM image source descriptor. */
@@ -229,10 +241,29 @@ struct MpnVM_t
   size_t runtime_pool_used;         /**< Number of runtime arena bytes consumed. */
 
   uint8_t *mem;                     /**< Backing VM memory buffer. */
-  size_t mem_size;                  /**< Total VM memory size in bytes. */
+  size_t mem_size;                  /**< Total logical VM address-space size in bytes. */
+  size_t mem_low_size;              /**< Physically backed low-memory segment size. */
+  uint8_t *mem_high;                /**< Physically backed high-memory segment. */
+  uint32_t mem_high_base;           /**< Guest base address of the high-memory segment. */
+  size_t mem_high_size;             /**< Physically backed high-memory segment size. */
+  uint8_t guest_fault_scratch[8];   /**< Safe scalar sink returned after a detected invalid guest access. */
   uint32_t heap_base;               /**< Start offset of the VM heap. */
   uint32_t heap_cur;                /**< Current heap allocation cursor. */
   uint32_t heap_limit;              /**< End offset of the VM heap. */
+  uint32_t heap_soft_limit;         /**< Preferred heap end used before compatibility reuse. */
+  uint32_t heap_high_water_bytes;   /**< Largest monotonic heap consumption observed. */
+  uint32_t heap_allocation_requests; /**< Number of guest allocation requests. */
+  uint32_t heap_free_requests;      /**< Number of guest free requests. */
+  uint32_t heap_allocation_failures; /**< Number of guest allocation failures. */
+  uint32_t heap_invalid_free_requests; /**< Number of free requests outside the active heap range. */
+  uint32_t heap_double_free_requests; /**< Number of repeated frees of a tracked allocation. */
+  uint32_t heap_live_bytes;          /**< Sum of currently live tracked payload bytes. */
+  uint32_t heap_peak_live_bytes;     /**< Largest tracked live-payload total. */
+  uint32_t heap_quarantine_bytes;    /**< Tracked freed payload bytes not yet reused. */
+  uint32_t heap_tracker_overflows;   /**< Allocations that could not obtain a tracking record. */
+  uint32_t heap_reuse_count;         /**< Allocations served from oldest quarantined blocks. */
+  uint32_t heap_soft_limit_fallbacks; /**< Allocations grown past the soft limit when reuse could not fit. */
+  MVM_HeapAllocation_t heap_allocations[VMGP_MAX_HEAP_TRACKED_ALLOCATIONS]; /**< Fixed metadata table. */
   uint32_t stack_top;               /**< Initial stack top offset. */
 
   VMGPStream streams[VMGP_MAX_STREAMS]; /**< Open stream table. */
@@ -259,6 +290,15 @@ struct MpnVM_t
   MVM_DrawCommand_t draw_commands[VMGP_MAX_DRAW_COMMANDS]; /**< Deferred draw commands for the current frame. */
   uint32_t draw_command_count;      /**< Number of deferred draw commands currently stored. */
   uint32_t frame_serial;            /**< Monotonic frame-present counter bumped by vFlipScreen. */
+  uint16_t *driver_framebuffer;     /**< Optional VM-owned RGB565 framebuffer for MCU display flush. */
+  uint16_t driver_framebuffer_width;  /**< Driver framebuffer width in pixels. */
+  uint16_t driver_framebuffer_height; /**< Driver framebuffer height in pixels. */
+  uint32_t driver_framebuffer_clear_serial; /**< Clear serial already applied to the driver framebuffer. */
+  int16_t driver_dirty_x0;        /**< Inclusive left edge changed since the last successful flush. */
+  int16_t driver_dirty_y0;        /**< Inclusive top edge changed since the last successful flush. */
+  int16_t driver_dirty_x1;        /**< Inclusive right edge changed since the last successful flush. */
+  int16_t driver_dirty_y1;        /**< Inclusive bottom edge changed since the last successful flush. */
+  uint8_t driver_framebuffer_dirty; /**< Non-zero when the platform has not received all framebuffer changes. */
   uint32_t button_state;            /**< Current polled button bit-mask. */
   MVM_SoundRequest_t sound_requests[VMGP_MAX_SOUND_REQUESTS]; /**< Pending platform sound requests. */
   uint32_t sound_request_read;      /**< Oldest pending sound request index. */
@@ -273,6 +313,9 @@ struct MpnVM_t
   uint32_t pc;                      /**< Program counter. */
   uint32_t steps;                   /**< Executed instruction count. */
   uint32_t logged_calls;            /**< Number of traced calls already logged. */
+  bool fixed_address_load_logged;   /**< Diagnostic guard for the first guest load of logical base 0x40000. */
+  bool fixed_address_store_logged;  /**< Diagnostic guard for the first guest store of logical base 0x40000. */
+  bool fixed_region_access_logged;  /**< Diagnostic guard for the first access to logical region 0x40000. */
   uint32_t tick_count;              /**< Cached tick counter value. */
   uint32_t random_state;            /**< Internal pseudo-random state. */
   uint16_t fixed_time_year;         /**< Host-configured deterministic local/UTC year, or zero when disabled. */
@@ -392,6 +435,7 @@ void MVM_WatchMemoryWrite(const VMGPContext *ctx, uint32_t addr, uint32_t size, 
  * @brief Handles a VM runtime import group.
  */
 bool MVM_HandleRuntimeImportCall(VMGPContext *ctx, uint32_t pool_index);
+int MVM_RenderApplyPendingFramebuffer(MpnVM_t *vm);
 
 /**
  * @brief Initializes VM state with one integration config object.
@@ -442,6 +486,21 @@ void MVM_RequestExitRaw(VMGPContext *ctx);
  * @brief Checks one VM memory range.
  */
 bool MVM_RuntimeMemRangeOk(const VMGPContext *ctx, uint32_t addr, uint32_t size);
+
+uint8_t *MVM_GuestTryMap(VMGPContext *ctx, uint32_t addr, uint32_t size);
+const uint8_t *MVM_GuestTryMapConst(const VMGPContext *ctx, uint32_t addr, uint32_t size);
+uint32_t MVM_GuestContiguousSize(const VMGPContext *ctx, uint32_t addr);
+uint8_t *MVM_GuestMap(VMGPContext *ctx, uint32_t addr, uint32_t size, const char *operation);
+const uint8_t *MVM_GuestMapConst(VMGPContext *ctx, uint32_t addr, uint32_t size, const char *operation);
+bool MVM_GuestCopy(VMGPContext *ctx, uint32_t dst, uint32_t src, uint32_t size);
+bool MVM_GuestSet(VMGPContext *ctx, uint32_t dst, uint8_t value, uint32_t size);
+
+#define MVM_GUEST_BYTE(ctx, addr) \
+  (*MVM_GuestMap((VMGPContext *)(ctx), (uint32_t)(addr), 1u, __func__))
+#define MVM_GUEST_PTR(ctx, addr, size) \
+  MVM_GuestMap((VMGPContext *)(ctx), (uint32_t)(addr), (uint32_t)(size), __func__)
+#define MVM_GUEST_CONST_PTR(ctx, addr, size) \
+  MVM_GuestMapConst((VMGPContext *)(ctx), (uint32_t)(addr), (uint32_t)(size), __func__)
 
 /**
  * @brief Measures one bounded VM string length.

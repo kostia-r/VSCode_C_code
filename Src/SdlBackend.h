@@ -9,6 +9,7 @@ typedef struct SdlBackend SdlBackend;
 
 SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile);
 void SdlBackend_Destroy(SdlBackend *backend);
+void SdlBackend_ConfigureDrivers(MVM_Config_t *config, SdlBackend *backend);
 int SdlBackend_StartRecording(SdlBackend *backend, const char *record_dir);
 void SdlBackend_StopRecording(SdlBackend *backend);
 void SdlBackend_AttachVmTiming(MpnVM_t *vm, SdlBackend *backend);

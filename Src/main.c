@@ -1,4 +1,5 @@
 #include "MVM.h"
+#include "MVM_Cfg.h"
 #include "MVM_Device.h"
 #include "InputScript.h"
 #include "SdlBackend.h"
@@ -370,6 +371,7 @@ static void print_stop_summary(MpnVM_t *vm)
 {
   MVM_State_t state;
   MVM_Err_t error;
+  MVM_HeapStats_t heap_stats;
 
   state = MVM_GetState(vm);
   error = MVM_GetLastError(vm);
@@ -380,6 +382,27 @@ static void print_stop_summary(MpnVM_t *vm)
           MVM_GetLoggedCalls(vm),
           (unsigned)state,
           (unsigned)error);
+  if (MVM_GetHeapStats(vm, &heap_stats) == MVM_OK)
+  {
+    fprintf(stdout,
+            "heap_capacity=%u heap_soft_limit=%u heap_high_water=%u heap_live=%u heap_peak_live=%u heap_quarantine=%u "
+            "allocations=%u frees=%u allocation_failures=%u invalid_frees=%u double_frees=%u "
+            "tracker_overflows=%u reuses=%u soft_limit_fallbacks=%u\n",
+            heap_stats.capacity_bytes,
+            heap_stats.soft_limit_bytes,
+            heap_stats.high_water_bytes,
+            heap_stats.live_bytes,
+            heap_stats.peak_live_bytes,
+            heap_stats.quarantine_bytes,
+            heap_stats.allocation_requests,
+            heap_stats.free_requests,
+            heap_stats.allocation_failures,
+            heap_stats.invalid_free_requests,
+            heap_stats.double_free_requests,
+            heap_stats.tracker_overflows,
+            heap_stats.reuse_count,
+            heap_stats.soft_limit_fallbacks);
+  }
 }
 
 int main(int argc, char **argv)
@@ -393,6 +416,7 @@ int main(int argc, char **argv)
   InputScript *input_script;
   VmRunnerOptions runner_options;
   MVM_MemReqs_t memory_requirements;
+  MVM_Config_t integration_config;
   const MpnDevProfile_t *profile;
   MVM_RetCode_t retVal;
   int exit_code;
@@ -411,6 +435,7 @@ int main(int argc, char **argv)
   input_script = NULL;
   runner_options = (VmRunnerOptions){0};
   memory_requirements = (MVM_MemReqs_t){0};
+  integration_config = MVM_Config;
   profile = NULL;
   retVal = MVM_OK;
   exit_code = 1;
@@ -441,6 +466,8 @@ int main(int argc, char **argv)
   {
     return exit_code;
   }
+  integration_config.device_profile = profile;
+  SdlBackend_ConfigureDrivers(&integration_config, backend);
 
   if (options.input_script_path)
   {
@@ -505,7 +532,7 @@ int main(int argc, char **argv)
   /* Query image-driven runtime memory needs before init so the integration can
    * validate its configured runtime pool capacity.
    */
-  retVal = MVM_QueryMemReqsFromSource(&image_source, &memory_requirements);
+  retVal = MVM_QueryMemReqsFromSourceWithConfig(&image_source, &integration_config, &memory_requirements);
   if (MVM_OK != retVal)
   {
     fprintf(stderr, "Could not query VM memory requirements. ret=%u\n", (unsigned)retVal);
@@ -522,7 +549,7 @@ int main(int argc, char **argv)
   /* Initialize the VM through the source-based public API. The host only
    * provides VM storage, the image source, and the optional device profile.
    */
-  retVal = MVM_InitFromSource(vm, &image_source, options.profile_name);
+  retVal = MVM_InitFromSourceWithConfig(vm, &image_source, options.profile_name, &integration_config);
   if (MVM_OK != retVal)
   {
     fprintf(stderr,

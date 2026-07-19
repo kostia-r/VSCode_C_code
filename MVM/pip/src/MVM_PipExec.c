@@ -734,11 +734,24 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        ctx->regs[rd] = vm_read_u32_le(ctx->mem + addr);
+        ctx->regs[rd] = vm_read_u32_le(MVM_GUEST_PTR(ctx, addr, 4u));
+        if (!ctx->fixed_address_load_logged && ctx->regs[rd] == 0x00040000u)
+        {
+          ctx->fixed_address_load_logged = true;
+          MVM_LOG_I(ctx,
+                    "fixed-address-load",
+                    "loaded logical base 0x00040000: pc=0x%08X source=0x%08X rd=%u rs=%u base=0x%08X off=0x%08X\n",
+                    ctx->pc,
+                    addr,
+                    rd,
+                    rs,
+                    ctx->regs[rs],
+                    off);
+        }
       }
       else if (op == OP_LDBD)
       {
-        if (addr >= ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 1u))
         {
           MVM_LOG_E(ctx, "mem-oob", "LDBd addr OOB: 0x%X\n", addr);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 1u);
@@ -746,7 +759,7 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        ctx->regs[rd] = (uint32_t)(int32_t)(int8_t)ctx->mem[addr];
+        ctx->regs[rd] = (uint32_t)(int32_t)(int8_t)MVM_GUEST_BYTE(ctx, addr);
       }
       else if (op == OP_LDHD)
       {
@@ -758,19 +771,48 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        ctx->regs[rd] = (uint32_t)(int32_t)(int16_t)vm_read_u16_le(ctx->mem + addr);
+        ctx->regs[rd] = (uint32_t)(int32_t)(int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, addr, 2u));
       }
       else if (op == OP_LDBU)
       {
-        if (addr >= ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 1u))
         {
-          MVM_LOG_E(ctx, "mem-oob", "LDBU addr OOB: 0x%X\n", addr);
+          MVM_LOG_E(ctx,
+                    "mem-oob",
+                    "LDBU addr OOB: pc=0x%08X addr=0x%08X rd=%u rs=%u base=0x%08X off=0x%08X ext=0x%08X r0=0x%08X r1=0x%08X p0=0x%08X p1=0x%08X p2=0x%08X p3=0x%08X\n",
+                    ctx->pc,
+                    addr,
+                    rd,
+                    rs,
+                    ctx->regs[rs],
+                    off,
+                    ext,
+                    ctx->regs[VM_REG_R0],
+                    ctx->regs[VM_REG_R1],
+                    ctx->regs[VM_REG_P0],
+                    ctx->regs[VM_REG_P1],
+                    ctx->regs[VM_REG_P2],
+                    ctx->regs[VM_REG_P3]);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 1u);
 
           return false;
         }
 
-        ctx->regs[rd] = ctx->mem[addr];
+        ctx->regs[rd] = MVM_GUEST_BYTE(ctx, addr);
+        if (!ctx->fixed_region_access_logged && addr >= 0x00040000u && addr < 0x00040100u)
+        {
+          ctx->fixed_region_access_logged = true;
+          MVM_LOG_I(ctx,
+                    "fixed-region-access",
+                    "first byte read from logical region 0x40000: pc=0x%08X addr=0x%08X value=0x%02X rd=%u rs=%u base=0x%08X off=0x%08X\n",
+                    ctx->pc,
+                    addr,
+                    ctx->regs[rd],
+                    rd,
+                    rs,
+                    ctx->regs[rs],
+                    off);
+        }
       }
       else if (op == OP_LDHU)
       {
@@ -782,7 +824,7 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        ctx->regs[rd] = vm_read_u16_le(ctx->mem + addr);
+        ctx->regs[rd] = vm_read_u16_le(MVM_GUEST_PTR(ctx, addr, 2u));
       }
       else if (op == OP_STWD)
       {
@@ -794,7 +836,20 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        vm_write_u32_le(ctx->mem + addr, ctx->regs[rd]);
+        vm_write_u32_le(MVM_GUEST_PTR(ctx, addr, 4u), ctx->regs[rd]);
+        if (!ctx->fixed_address_store_logged && ctx->regs[rd] == 0x00040000u)
+        {
+          ctx->fixed_address_store_logged = true;
+          MVM_LOG_I(ctx,
+                    "fixed-address-store",
+                    "stored logical base 0x00040000: pc=0x%08X destination=0x%08X rd=%u rs=%u base=0x%08X off=0x%08X\n",
+                    ctx->pc,
+                    addr,
+                    rd,
+                    rs,
+                    ctx->regs[rs],
+                    off);
+        }
         MVM_WatchMemoryWrite(ctx, addr, 4, "STWD");
       }
       else if (op == OP_STHD)
@@ -807,12 +862,12 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        vm_write_u16_le(ctx->mem + addr, (uint16_t)(ctx->regs[rd] & 0xFFFFu));
+        vm_write_u16_le(MVM_GUEST_PTR(ctx, addr, 2u), (uint16_t)(ctx->regs[rd] & 0xFFFFu));
         MVM_WatchMemoryWrite(ctx, addr, 2, "STHD");
       }
       else
       {
-        if (addr >= ctx->mem_size)
+        if (!MVM_RuntimeMemRangeOk(ctx, addr, 1u))
         {
           MVM_LOG_E(ctx, "mem-oob", "STBd addr OOB: 0x%X\n", addr);
           MVM_EmitEvent(ctx, MVM_EVENT_MEMORY_OOB, addr, 1u);
@@ -820,7 +875,7 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        ctx->mem[addr] = (uint8_t)(ctx->regs[rd] & 0xFFu);
+        MVM_GUEST_BYTE(ctx, addr) = (uint8_t)(ctx->regs[rd] & 0xFFu);
         MVM_WatchMemoryWrite(ctx, addr, 1, "STBD");
       }
 
@@ -837,7 +892,10 @@ bool MVM_PipStep(VMGPContext *ctx)
       }
 
       MVM_WatchMemoryWrite(ctx, ctx->regs[rd], ctx->regs[rt], "SYSCPY");
-      memmove(ctx->mem + ctx->regs[rd], ctx->mem + ctx->regs[rs], ctx->regs[rt]);
+      if (!MVM_GuestCopy(ctx, ctx->regs[rd], ctx->regs[rs], ctx->regs[rt]))
+      {
+        return false;
+      }
       ctx->pc += 4;
       break;
     } /* End of case OP_SYSCPY */
@@ -850,7 +908,10 @@ bool MVM_PipStep(VMGPContext *ctx)
       }
 
       MVM_WatchMemoryWrite(ctx, ctx->regs[rd], ctx->regs[rt], "SYSSET");
-      memset(ctx->mem + ctx->regs[rd], (int)(ctx->regs[rs] & 0xFFu), ctx->regs[rt]);
+      if (!MVM_GuestSet(ctx, ctx->regs[rd], (uint8_t)(ctx->regs[rs] & 0xFFu), ctx->regs[rt]))
+      {
+        return false;
+      }
       ctx->pc += 4;
       break;
     } /* End of case OP_SYSSET */
@@ -876,7 +937,7 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        vm_write_u32_le(ctx->mem + ctx->regs[VM_REG_SP], ctx->regs[r]);
+        vm_write_u32_le(MVM_GUEST_PTR(ctx, ctx->regs[VM_REG_SP], 4u), ctx->regs[r]);
       } /* End of loop */
 
       MVM_LOG_D(ctx,
@@ -915,7 +976,7 @@ bool MVM_PipStep(VMGPContext *ctx)
           return false;
         }
 
-        ctx->regs[regno] = vm_read_u32_le(ctx->mem + ctx->regs[VM_REG_SP]);
+        ctx->regs[regno] = vm_read_u32_le(MVM_GUEST_PTR(ctx, ctx->regs[VM_REG_SP], 4u));
         ctx->regs[VM_REG_SP] += 4;
       } /* End of loop */
 
@@ -2062,7 +2123,9 @@ static uint32_t stack_arg0(const VMGPContext *ctx)
 {
   uint32_t arg0 = 0;
 
-  arg0 = (ctx->regs[VM_REG_SP] + 4 <= ctx->mem_size) ? vm_read_u32_le(ctx->mem + ctx->regs[VM_REG_SP]) : 0u;
+  arg0 = MVM_RuntimeMemRangeOk(ctx, ctx->regs[VM_REG_SP], 4u)
+      ? vm_read_u32_le(MVM_GUEST_CONST_PTR((VMGPContext *)ctx, ctx->regs[VM_REG_SP], 4u))
+      : 0u;
 
   return arg0;
 } /* End of stack_arg0 */

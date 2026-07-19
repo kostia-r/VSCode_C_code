@@ -3,9 +3,9 @@
  *  -------------------------------------------------------------------------------------------------------------------
  *          Project:  Mophun
  *             File:  MVM_Device.h
- *           Module:  MVM_Config
+ *           Module:  MVM_Inc
  *           Target:  Portable C
- *      Description:  Internal device profile definitions used by the integration configuration layer.
+ *      Description:  Public device-profile contract used by VM integrations.
  *********************************************************************************************************************/
 
 /**********************************************************************************************************************
@@ -19,11 +19,10 @@
  *  INCLUDES
  *********************************************************************************************************************/
 
-#include <stddef.h>
 #include <stdint.h>
 
 /**********************************************************************************************************************
- *  GLOBAL DATA TYPES AND STRUCTURES
+ *  GLOBAL MACROS
  *********************************************************************************************************************/
 
 #define MVM_DEVICE_CAP_VIDEO                                    (1UL << 0U)
@@ -31,6 +30,10 @@
 #define MVM_DEVICE_CAP_SOUND                                    (1UL << 2U)
 #define MVM_DEVICE_CAP_COMM                                     (1UL << 3U)
 #define MVM_DEVICE_CAP_SYSTEM                                   (1UL << 4U)
+
+/**********************************************************************************************************************
+ *  GLOBAL DATA TYPES AND STRUCTURES
+ *********************************************************************************************************************/
 
 /**
  * @brief Describes one target device profile exposed to VM code.

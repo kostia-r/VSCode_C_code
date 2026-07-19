@@ -108,6 +108,7 @@ static const uint32_t MVM_lSdlButtonMasks[SDL_BACKEND_BUTTON_COUNT] =
 };
 
 static uint32_t sdl_platform_get_ticks_ms(void *user);
+static int sdl_display_flush(void *user, const MVM_Framebuffer_t *framebuffer);
 
 static int build_record_path(char *dst, size_t dst_size, const char *dir, const char *name)
 {
@@ -275,123 +276,6 @@ static void record_current_frame(SdlBackend *backend)
   }
 
   free(pixels);
-}
-
-static void decode_guest_color(uint32_t color, uint8_t *red, uint8_t *green, uint8_t *blue)
-{
-  if ((color & 0x80000000u) != 0u || color > 0xFFu)
-  {
-    *red = (uint8_t)((((color & 0xFFFFu) >> 10) & 0x1Fu) * 255u / 31u);
-    *green = (uint8_t)((((color & 0xFFFFu) >> 5) & 0x1Fu) * 255u / 31u);
-    *blue = (uint8_t)(((color & 0xFFFFu) & 0x1Fu) * 255u / 31u);
-  }
-  else
-  {
-    *red = (uint8_t)(((color >> 5) & 0x07u) * 255u / 7u);
-    *green = (uint8_t)(((color >> 2) & 0x07u) * 255u / 7u);
-    *blue = (uint8_t)((color & 0x03u) * 255u / 3u);
-  }
-}
-
-static void set_renderer_guest_color(SDL_Renderer *renderer, uint32_t color)
-{
-  uint8_t red;
-  uint8_t green;
-  uint8_t blue;
-
-  if (!renderer)
-  {
-    return;
-  }
-
-  decode_guest_color(color, &red, &green, &blue);
-  SDL_SetRenderDrawColor(renderer, red, green, blue, 255u);
-}
-
-static void sdl_render_set_clip(void *user, int enabled, int32_t x, int32_t y, int32_t width, int32_t height)
-{
-  SdlBackend *backend;
-  SDL_Rect clip_rect;
-
-  backend = (SdlBackend *)user;
-  if (!backend || !backend->renderer)
-  {
-    return;
-  }
-
-  if (enabled)
-  {
-    clip_rect.x = (int)x;
-    clip_rect.y = (int)y;
-    clip_rect.w = (int)width;
-    clip_rect.h = (int)height;
-    SDL_RenderSetClipRect(backend->renderer, &clip_rect);
-  }
-  else
-  {
-    SDL_RenderSetClipRect(backend->renderer, NULL);
-  }
-}
-
-static void sdl_render_draw_point(void *user, int32_t x, int32_t y, uint8_t red, uint8_t green, uint8_t blue)
-{
-  SdlBackend *backend;
-
-  backend = (SdlBackend *)user;
-  if (!backend || !backend->renderer)
-  {
-    return;
-  }
-
-  SDL_SetRenderDrawColor(backend->renderer, red, green, blue, 255u);
-  SDL_RenderDrawPoint(backend->renderer, x, y);
-}
-
-static void sdl_render_draw_line(void *user,
-                                 int32_t x0,
-                                 int32_t y0,
-                                 int32_t x1,
-                                 int32_t y1,
-                                 uint8_t red,
-                                 uint8_t green,
-                                 uint8_t blue)
-{
-  SdlBackend *backend;
-
-  backend = (SdlBackend *)user;
-  if (!backend || !backend->renderer)
-  {
-    return;
-  }
-
-  SDL_SetRenderDrawColor(backend->renderer, red, green, blue, 255u);
-  SDL_RenderDrawLine(backend->renderer, x0, y0, x1, y1);
-}
-
-static void sdl_render_fill_rect(void *user,
-                                 int32_t x,
-                                 int32_t y,
-                                 int32_t width,
-                                 int32_t height,
-                                 uint8_t red,
-                                 uint8_t green,
-                                 uint8_t blue)
-{
-  SdlBackend *backend;
-  SDL_Rect rect;
-
-  backend = (SdlBackend *)user;
-  if (!backend || !backend->renderer)
-  {
-    return;
-  }
-
-  rect.x = (int)x;
-  rect.y = (int)y;
-  rect.w = (int)width;
-  rect.h = (int)height;
-  SDL_SetRenderDrawColor(backend->renderer, red, green, blue, 255u);
-  SDL_RenderFillRect(backend->renderer, &rect);
 }
 
 static uint32_t sdl_platform_get_ticks_ms(void *user)
@@ -996,8 +880,8 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
   SDL_RenderSetLogicalSize(backend->renderer, (int)width, (int)height);
 
   backend->framebuffer = SDL_CreateTexture(backend->renderer,
-                                           SDL_PIXELFORMAT_RGBA8888,
-                                           SDL_TEXTUREACCESS_TARGET,
+                                           SDL_PIXELFORMAT_RGB565,
+                                           SDL_TEXTUREACCESS_STREAMING,
                                            (int)width,
                                            (int)height);
   if (!backend->framebuffer)
@@ -1027,6 +911,10 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
     return NULL;
   }
   SDL_SetTextureBlendMode(backend->displaybuffer, SDL_BLENDMODE_NONE);
+  SDL_SetRenderTarget(backend->renderer, backend->displaybuffer);
+  SDL_SetRenderDrawColor(backend->renderer, 0u, 0u, 0u, 255u);
+  SDL_RenderClear(backend->renderer);
+  SDL_SetRenderTarget(backend->renderer, NULL);
 
   {
     SDL_AudioSpec desired;
@@ -1058,6 +946,18 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
   backend->height = height;
 
   return backend;
+}
+
+void SdlBackend_ConfigureDrivers(MVM_Config_t *config, SdlBackend *backend)
+{
+  if (!config || !backend)
+  {
+    return;
+  }
+
+  config->drivers.user = backend;
+  config->drivers.display_flush = sdl_display_flush;
+  config->drivers.get_ticks_ms = sdl_platform_get_ticks_ms;
 }
 
 int SdlBackend_StartRecording(SdlBackend *backend, const char *record_dir)
@@ -1287,9 +1187,6 @@ int SdlBackend_PumpEvents(MpnVM_t *vm, SdlBackend *backend)
 void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
 {
   MVM_RenderFrameInfo_t frame_info;
-  MVM_RenderBackend_t render_backend;
-  uint32_t color;
-  uint32_t first_command;
   int frame_changed;
 
   if (!backend || !backend->renderer || !backend->framebuffer || !backend->displaybuffer || !vm)
@@ -1304,36 +1201,7 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     return;
   }
 
-  color = frame_info.clear_color;
-  first_command = backend->last_draw_command_count;
   frame_changed = (frame_info.frame_serial != backend->last_frame_serial);
-
-  if (frame_info.clear_serial != backend->last_clear_serial ||
-      frame_info.draw_command_count < backend->last_draw_command_count)
-  {
-    backend->last_clear_serial = frame_info.clear_serial;
-    backend->last_draw_command_count = 0u;
-    first_command = 0u;
-
-    SDL_SetRenderTarget(backend->renderer, backend->framebuffer);
-    SDL_RenderSetClipRect(backend->renderer, NULL);
-    set_renderer_guest_color(backend->renderer, color);
-    SDL_RenderClear(backend->renderer);
-  }
-
-  SDL_SetRenderTarget(backend->renderer, backend->framebuffer);
-  render_backend.user = backend;
-  render_backend.set_clip = sdl_render_set_clip;
-  render_backend.draw_point = sdl_render_draw_point;
-  render_backend.draw_line = sdl_render_draw_line;
-  render_backend.fill_rect = sdl_render_fill_rect;
-  (void)MVM_RenderReplayCommands(vm, &render_backend, first_command);
-
-  SDL_RenderSetClipRect(backend->renderer, NULL);
-  if (MVM_RenderGetFrameInfo(vm, &frame_info))
-  {
-    backend->last_draw_command_count = frame_info.draw_command_count;
-  }
 
   if (frame_info.frame_serial != backend->last_frame_serial)
   {
@@ -1345,8 +1213,6 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     SDL_SetRenderTarget(backend->renderer, backend->displaybuffer);
     SDL_RenderSetClipRect(backend->renderer, NULL);
     SDL_RenderCopy(backend->renderer, backend->framebuffer, NULL, NULL);
-    MVM_RenderConsumeCommands(vm);
-    backend->last_draw_command_count = 0u;
   }
 
   SDL_SetRenderTarget(backend->renderer, backend->displaybuffer);
@@ -1361,6 +1227,42 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     SDL_RenderCopy(backend->renderer, backend->displaybuffer, NULL, NULL);
     SDL_RenderPresent(backend->renderer);
   }
+}
+
+static int sdl_display_flush(void *user, const MVM_Framebuffer_t *framebuffer)
+{
+  SdlBackend *backend;
+  SDL_Rect dirtyRect;
+  const uint8_t *pixels;
+
+  backend = (SdlBackend *)user;
+  if (!backend || !backend->framebuffer || !framebuffer || !framebuffer->pixels ||
+      framebuffer->pixel_format != MVM_PIXEL_FORMAT_RGB565 ||
+      framebuffer->width != backend->width || framebuffer->height != backend->height)
+  {
+    return -1;
+  }
+
+  if (framebuffer->dirty_rect.width == 0u || framebuffer->dirty_rect.height == 0u)
+  {
+    return SDL_UpdateTexture(backend->framebuffer,
+                             NULL,
+                             framebuffer->pixels,
+                             (int)framebuffer->stride_bytes);
+  }
+
+  dirtyRect.x = (int)framebuffer->dirty_rect.x;
+  dirtyRect.y = (int)framebuffer->dirty_rect.y;
+  dirtyRect.w = (int)framebuffer->dirty_rect.width;
+  dirtyRect.h = (int)framebuffer->dirty_rect.height;
+  pixels = (const uint8_t *)framebuffer->pixels +
+           (size_t)dirtyRect.y * framebuffer->stride_bytes +
+           (size_t)dirtyRect.x * sizeof(uint16_t);
+
+  return SDL_UpdateTexture(backend->framebuffer,
+                           &dirtyRect,
+                           pixels,
+                           (int)framebuffer->stride_bytes);
 }
 
 uint32_t SdlBackend_GetTicksMs(SdlBackend *backend)

@@ -5,10 +5,15 @@ as a standalone Mophun VM component.
 
 Development roadmap: see `ROADMAP.md`.
 
+Parent-project and firmware integration checklist: see `INTEGRATION.md`.
+
 Public host-facing headers are:
 
 - `inc/MVM.h` - primary VM API.
 - `inc/MVM_Types.h` - shared public types.
+- `inc/MVM_Config.h` - parent-owned integration configuration.
+- `inc/MVM_Device.h` - device profiles and capability flags.
+- `inc/MVM_Drivers.h` - hardware-oriented platform callbacks.
 
 Internal headers and sources are grouped by subsystem:
 
@@ -112,8 +117,10 @@ Current Windows/SDL runner notes:
 
 Integration-time glue lives under `Config/`:
 
-- `Config/MVM_Cfg.h` - build-time pool sizes, device-profile parameters, and
-  thin `static inline` callback adapters.
+- `inc/MVM_Config.h` - public parent-owned integration object contract.
+- `inc/MVM_Device.h` - public device-profile contract and capability flags.
+- `Config/MVM_Cfg.h` - bundled pool-size defaults, thin `static inline`
+  callback adapters, and the built-in config declaration.
 - `Config/MVM_BuildCfg.h` - internal build switches used by the VM sources.
 - `Config/MVM_Lcfg.c` - one global integration object with runtime pool,
   platform callbacks, device profile, and image-backend bindings.
@@ -138,6 +145,64 @@ The default integration path is:
 - replace the default callback bindings in `Config/MVM_Lcfg.c` when connecting
   the VM to a real platform backend.
 
+For a parent-owned config, set `MVM_CONFIG_DIR` before including `vm.mk`. The
+directory must provide `MVM_Cfg.h` and `MVM_Lcfg.c`; it is placed first in the
+VM include search path, while bundled `Config/MVM_BuildCfg.h` remains the
+fallback for VM build switches:
+
+```make
+MVM_CONFIG_DIR := $(PROJECT_ROOT)/Config/MVM
+include third_party/MVM/MVM/vm.mk
+```
+
+`MVM_CONFIG_SOURCE` may be overridden separately when the config source does
+not use the conventional `MVM_Lcfg.c` name.
+
+Parent projects that keep more than one config object, or do not want public
+operations to rely on the linked `MVM_Config`, can call the explicit APIs:
+
+- `MVM_InitWithConfig()` / `MVM_InitFromSourceWithConfig()`;
+- `MVM_QueryMemReqsWithConfig()` / `MVM_QueryMemReqsFromSourceWithConfig()`;
+- `MVM_GetDevProfileCountWithConfig()`, `MVM_GetDevProfileWithConfig()`, and
+  `MVM_FindDevProfileByNameWithConfig()`.
+
+These APIs do not modify the parent-owned config. Selecting a profile creates a
+temporary config copy for that initialization. The original APIs remain
+built-in-config wrappers for desktop and local smoke compatibility.
+
+New MCU-style ports can populate `MVM_Config_t.drivers` using the public
+`MVM_Drivers_t` contract. Callback requirements, no-op/read-only configurations,
+ownership, and blocking rules are documented in `DRIVER_CONTRACT.md`.
+
+Setting `drivers.display_flush` enables the MCU framebuffer path. MVM adds one
+profile-sized RGB565 framebuffer to the queried runtime-pool requirement,
+renders VMGP commands into it, and supplies dirty rectangles on `vFlipScreen`.
+Leaving the callback `NULL` preserves the optional primitive replay path used
+by the desktop/debug backend.
+
+A complete no-SDL starting point is available in
+`Examples/MVM_BareMetalPort/`. It demonstrates parent-owned config, aligned VM
+storage, runtime pool, flash image reads, framebuffer/button/audio/system hooks,
+fixed date, and a bounded bare-metal loop.
+
+## Static Library
+
+`vm.mk` exports two source lists:
+
+- `MVM_LIBRARY_SRC` contains VM implementation sources without any integration
+  config object;
+- `MVM_SRC` adds `MVM_CONFIG_SOURCE` for source-included builds.
+
+Build the bundled standalone archive with:
+
+```bat
+C:\mingw64\bin\mingw32-make.exe static-lib
+```
+
+The resulting `libmvm.a` intentionally leaves `MVM_Config` unresolved. A parent
+links its own `MVM_Lcfg.c` alongside the archive. The end-to-end external-config
+example is `Tools/integration/static-library-smoke/`.
+
 The VM can read code, resources, pool entries, and string-table data directly
 from a host-backed image source such as a file, flash window, or external
 storage driver. Image-backend callbacks are configured in `Config/`, while host
@@ -151,7 +216,7 @@ The platform owns:
 - optional structured VM event consumption;
 - optional tick and random providers.
 
-`Config/MVM_Cfg.h` already includes reusable callback adapters for common
+The bundled `Config/MVM_Cfg.h` includes callback adapters for common
 signature mismatches, for example:
 
 - host tick APIs that return raw ticks instead of milliseconds;

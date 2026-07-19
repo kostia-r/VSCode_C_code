@@ -13,6 +13,7 @@
  *********************************************************************************************************************/
 
 #include "MVM_Internal.h"
+#include "MVM_Render.h"
 #include "MVM_SystemFontT230.h"
 #include <math.h>
 #include <stdio.h>
@@ -27,19 +28,14 @@
 #define MVM_IMPORT_IMPL(name)  MVM_IMPORT_PROTO(name)
 #define MVM_BIND_IMPORT(symbol) { .name = #symbol, .handler = symbol }
 
+#define HEAP_BLOCK_HEADER_SIZE 8u
+#define HEAP_BLOCK_FLAG_USED   1u
 #define STREAM_WRITE_FLAG  0x0200u
 #define STREAM_CREATE_FLAG 0x0800u
 #define STREAM_TRUNC_FLAG  0x1000u
 #define STREAM_DELETE_FLAG 0x4000u
-#define MVM_KEY_UP_MASK          0x00000001u
-#define MVM_KEY_DOWN_MASK        0x00000002u
-#define MVM_KEY_LEFT_MASK        0x00000004u
-#define MVM_KEY_RIGHT_MASK       0x00000008u
-#define MVM_KEY_FIRE_MASK        0x00000010u
-#define MVM_KEY_SELECT_MASK      0x00000020u
 #define MVM_POINTER_DOWN_MASK    0x00000040u
 #define MVM_POINTER_ALTDOWN_MASK 0x00000080u
-#define MVM_KEY_FIRE2_MASK       0x00000100u
 #define MVM_SE_YES_ASCII         202u
 #define MVM_SE_NO_ASCII          203u
 #define MVM_SE_CLEAR_ASCII       204u
@@ -55,6 +51,7 @@
 #define MVM_CAPS_COMM            3u
 #define MVM_CAPS_SYSTEM          4u
 #define MVM_INPUT_NUMERIC_KEYPAD 0x0008u
+#define MVM_SYSTEM_MESSAGE_TEXT_SIZE                             (256U)
 
 /**********************************************************************************************************************
  *  LOCAL DATA TYPES AND STRUCTURES
@@ -221,6 +218,14 @@ static uint32_t MVM_lSystemFontGlyphAdvance(const VMGPContext *ctx, uint8_t ch);
 static uint32_t MVM_lSystemTextWidth(const VMGPContext *ctx, uint32_t str, bool unicode);
 static uint32_t MVM_lPackTextExtent(uint32_t width, uint32_t height);
 static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, uint32_t str, uint32_t font, bool unicode);
+static bool MVM_lHeapReadBlock(const VMGPContext *ctx, uint32_t block_addr, uint32_t *size, bool *used);
+static void MVM_lHeapWriteBlock(VMGPContext *ctx, uint32_t block_addr, uint32_t size, bool used);
+static void MVM_lHeapCompact(VMGPContext *ctx);
+static bool MVM_lHeapFindBlockByPayload(const VMGPContext *ctx,
+                                        uint32_t payload_addr,
+                                        uint32_t *block_addr,
+                                        uint32_t *size,
+                                        bool *used);
 static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_addr);
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr);
 static uint32_t MVM_lHeapMaxFreeBlock(VMGPContext *ctx);
@@ -891,7 +896,7 @@ static void MVM_lReadFileName(const VMGPContext *ctx, uint32_t addr, char *dst, 
   }
 
   dst[0] = '\0';
-  if (!ctx || addr == 0u || addr >= ctx->mem_size)
+  if (!ctx || addr == 0u || !MVM_RuntimeMemRangeOk(ctx, addr, 1u))
   {
     strncpy(dst, "__default", dst_size - 1u);
     dst[dst_size - 1u] = '\0';
@@ -903,7 +908,7 @@ static void MVM_lReadFileName(const VMGPContext *ctx, uint32_t addr, char *dst, 
   {
     uint8_t ch;
 
-    ch = ctx->mem[addr + (uint32_t)index];
+    ch = MVM_GUEST_BYTE(ctx, addr + (uint32_t)index);
     if (ch == 0u)
     {
       break;
@@ -1612,18 +1617,19 @@ static bool MVM_lGuestStringEquals(const VMGPContext *ctx, uint32_t addr, uint32
 {
   size_t text_len;
 
-  if (!ctx || !text || addr >= ctx->mem_size)
+  if (!ctx || !text)
   {
     return false;
   }
 
   text_len = strlen(text);
-  if (len != text_len || (size_t)addr + text_len > ctx->mem_size)
+  if (len != text_len || text_len > UINT32_MAX ||
+      !MVM_RuntimeMemRangeOk(ctx, addr, (uint32_t)text_len))
   {
     return false;
   }
 
-  return memcmp(ctx->mem + addr, text, text_len) == 0;
+  return memcmp(MVM_GUEST_CONST_PTR(ctx, addr, (uint32_t)text_len), text, text_len) == 0;
 } /* End of MVM_lGuestStringEquals */
 
 static int32_t MVM_lFixedFromDouble(double value)
@@ -1659,13 +1665,13 @@ static bool MVM_lReadSpriteHeader(const VMGPContext *ctx,
     return false;
   }
 
-  *width = vm_read_u16_le(ctx->mem + sprite_addr + 6u);
-  *height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+  *width = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 6u, 2u));
+  *height = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 8u, 2u));
 
   if (*width == 0u || *height == 0u)
   {
-    legacy_width = vm_read_u16_le(ctx->mem + sprite_addr + 0u);
-    legacy_height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+    legacy_width = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 0u, 2u));
+    legacy_height = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 8u, 2u));
     if (legacy_width != 0u && legacy_height != 0u)
     {
       *width = legacy_width;
@@ -1673,8 +1679,8 @@ static bool MVM_lReadSpriteHeader(const VMGPContext *ctx,
     }
     else
     {
-      legacy_width = vm_read_u16_le(ctx->mem + sprite_addr + 4u);
-      legacy_height = vm_read_u16_le(ctx->mem + sprite_addr + 8u);
+      legacy_width = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 4u, 2u));
+      legacy_height = vm_read_u16_le(MVM_GUEST_PTR(ctx, sprite_addr + 8u, 2u));
       if (legacy_width != 0u && legacy_height != 0u)
       {
         *width = legacy_width;
@@ -1714,19 +1720,19 @@ static bool MVM_lReadMapHeader(const VMGPContext *ctx, uint32_t header_addr, VMG
   }
 
   map_state->valid = true;
-  map_state->flags = ctx->mem[header_addr + 0u];
-  map_state->format = ctx->mem[header_addr + 1u];
-  map_state->width = ctx->mem[header_addr + 2u];
-  map_state->height = ctx->mem[header_addr + 3u];
-  map_state->animation_speed = ctx->mem[header_addr + 4u];
-  map_state->animation_count = ctx->mem[header_addr + 5u];
-  map_state->animation_active = ctx->mem[header_addr + 6u];
-  map_state->x_pan = (int16_t)vm_read_u16_le(ctx->mem + header_addr + 8u);
-  map_state->y_pan = (int16_t)vm_read_u16_le(ctx->mem + header_addr + 10u);
-  map_state->x_pos = (int16_t)vm_read_u16_le(ctx->mem + header_addr + 12u);
-  map_state->y_pos = (int16_t)vm_read_u16_le(ctx->mem + header_addr + 14u);
-  map_state->map_data_addr = vm_read_u32_le(ctx->mem + header_addr + 16u);
-  map_state->tile_data_addr = vm_read_u32_le(ctx->mem + header_addr + 20u);
+  map_state->flags = MVM_GUEST_BYTE(ctx, header_addr + 0u);
+  map_state->format = MVM_GUEST_BYTE(ctx, header_addr + 1u);
+  map_state->width = MVM_GUEST_BYTE(ctx, header_addr + 2u);
+  map_state->height = MVM_GUEST_BYTE(ctx, header_addr + 3u);
+  map_state->animation_speed = MVM_GUEST_BYTE(ctx, header_addr + 4u);
+  map_state->animation_count = MVM_GUEST_BYTE(ctx, header_addr + 5u);
+  map_state->animation_active = MVM_GUEST_BYTE(ctx, header_addr + 6u);
+  map_state->x_pan = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, header_addr + 8u, 2u));
+  map_state->y_pan = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, header_addr + 10u, 2u));
+  map_state->x_pos = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, header_addr + 12u, 2u));
+  map_state->y_pos = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, header_addr + 14u, 2u));
+  map_state->map_data_addr = vm_read_u32_le(MVM_GUEST_PTR(ctx, header_addr + 16u, 4u));
+  map_state->tile_data_addr = vm_read_u32_le(MVM_GUEST_PTR(ctx, header_addr + 20u, 4u));
   map_state->header_addr = header_addr;
 
   return true;
@@ -1765,7 +1771,7 @@ static uint8_t *MVM_lMapCellPtr(const VMGPContext *ctx, const VMGPMapState *map_
     return NULL;
   }
 
-  return ctx->mem + offset;
+  return MVM_GUEST_PTR(ctx, offset, stride);
 } /* End of MVM_lMapCellPtr */
 
 static uint32_t MVM_lMapTileBytes(const VMGPMapState *map_state)
@@ -2053,13 +2059,13 @@ static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *m
         continue;
       }
 
-      tile_index = ctx->mem[offset];
+      tile_index = MVM_GUEST_BYTE(ctx, offset);
       if (tile_index == 0u)
       {
         continue;
       }
 
-      tile_attribute = (stride > 1u) ? ctx->mem[offset + 1u] : 0u;
+      tile_attribute = (stride > 1u) ? MVM_GUEST_BYTE(ctx, offset + 1u) : 0u;
       masked_attribute = (uint8_t)(tile_attribute & attr_mask);
       raw_format = map_state->format & 0x07u;
       --tile_index;
@@ -2157,47 +2163,269 @@ static uint32_t MVM_lEmitMapTileCommands(VMGPContext *ctx, const VMGPMapState *m
   return emitted;
 } /* End of MVM_lEmitMapTileCommands */
 
+static bool MVM_lHeapReadBlock(const VMGPContext *ctx, uint32_t block_addr, uint32_t *size, bool *used)
+{
+  uint32_t payload_size;
+  uint32_t flags;
+  uint32_t next_addr;
+
+  if (!ctx || block_addr < ctx->heap_base || block_addr > ctx->heap_cur ||
+      (ctx->heap_cur - block_addr) < HEAP_BLOCK_HEADER_SIZE ||
+      !MVM_RuntimeMemRangeOk(ctx, block_addr, HEAP_BLOCK_HEADER_SIZE))
+  {
+    return false;
+  }
+
+  payload_size = vm_align4(vm_read_u32_le(MVM_GUEST_PTR(ctx, block_addr, 4u)));
+  flags = vm_read_u32_le(MVM_GUEST_PTR(ctx, block_addr + 4u, 4u));
+  if (payload_size == 0u)
+  {
+    return false;
+  }
+
+  next_addr = block_addr + HEAP_BLOCK_HEADER_SIZE + payload_size;
+  if (next_addr < block_addr || next_addr > ctx->heap_cur)
+  {
+    return false;
+  }
+
+  if (size)
+  {
+    *size = payload_size;
+  }
+  if (used)
+  {
+    *used = ((flags & HEAP_BLOCK_FLAG_USED) != 0u);
+  }
+
+  return true;
+} /* End of MVM_lHeapReadBlock */
+
+static void MVM_lHeapWriteBlock(VMGPContext *ctx, uint32_t block_addr, uint32_t size, bool used)
+{
+  vm_write_u32_le(MVM_GUEST_PTR(ctx, block_addr, 4u), vm_align4(size));
+  vm_write_u32_le(MVM_GUEST_PTR(ctx, block_addr + 4u, 4u), used ? HEAP_BLOCK_FLAG_USED : 0u);
+  MVM_WatchMemoryWrite(ctx, block_addr, HEAP_BLOCK_HEADER_SIZE, "heap-header");
+} /* End of MVM_lHeapWriteBlock */
+
+static void MVM_lHeapCompact(VMGPContext *ctx)
+{
+  uint32_t addr;
+  uint32_t size;
+  uint32_t next_addr;
+  uint32_t next_size;
+  bool used;
+  bool next_used;
+
+  if (!ctx || ctx->heap_cur <= ctx->heap_base)
+  {
+    return;
+  }
+
+  addr = ctx->heap_base;
+  while (addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, addr, &size, &used))
+  {
+    next_addr = addr + HEAP_BLOCK_HEADER_SIZE + size;
+    if (!used)
+    {
+      while (next_addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, next_addr, &next_size, &next_used) && !next_used)
+      {
+        size += HEAP_BLOCK_HEADER_SIZE + next_size;
+        next_addr += HEAP_BLOCK_HEADER_SIZE + next_size;
+      }
+
+      MVM_lHeapWriteBlock(ctx, addr, size, false);
+      if (next_addr == ctx->heap_cur)
+      {
+        ctx->heap_cur = addr;
+        break;
+      }
+    }
+
+    addr = next_addr;
+  }
+} /* End of MVM_lHeapCompact */
+
+static bool MVM_lHeapFindBlockByPayload(const VMGPContext *ctx,
+                                        uint32_t payload_addr,
+                                        uint32_t *block_addr,
+                                        uint32_t *size,
+                                        bool *used)
+{
+  uint32_t addr;
+  uint32_t block_size;
+  bool block_used;
+
+  if (!ctx || payload_addr < (ctx->heap_base + HEAP_BLOCK_HEADER_SIZE) || payload_addr >= ctx->heap_cur)
+  {
+    return false;
+  }
+
+  addr = ctx->heap_base;
+  while (addr < ctx->heap_cur && MVM_lHeapReadBlock(ctx, addr, &block_size, &block_used))
+  {
+    if ((addr + HEAP_BLOCK_HEADER_SIZE) == payload_addr)
+    {
+      if (block_addr)
+      {
+        *block_addr = addr;
+      }
+      if (size)
+      {
+        *size = block_size;
+      }
+      if (used)
+      {
+        *used = block_used;
+      }
+
+      return true;
+    }
+
+    addr += HEAP_BLOCK_HEADER_SIZE + block_size;
+  }
+
+  return false;
+} /* End of MVM_lHeapFindBlockByPayload */
+
 /**
- * @brief Allocates one guest heap block using monotonic guest addresses.
+ * @brief Allocates one guest heap block using compatibility-safe monotonic addresses.
  */
 static bool MVM_lHeapAlloc(VMGPContext *ctx, uint32_t size, uint32_t *payload_addr)
 {
   uint32_t addr;
   uint32_t next_addr;
-
-  addr = 0u;
-  next_addr = 0u;
+  uint32_t index;
+  MVM_HeapAllocation_t *allocation;
+  MVM_HeapAllocation_t *oldest_free;
 
   if (!ctx || !payload_addr)
   {
     return false;
   }
 
+  ++ctx->heap_allocation_requests;
+
   size = vm_align4(size ? size : 4u);
   addr = vm_align4(ctx->heap_cur);
   next_addr = addr + size;
-
-  if (addr > ctx->heap_limit ||
-      next_addr < addr ||
-      next_addr > ctx->heap_limit)
+  if (addr > ctx->heap_soft_limit || next_addr < addr || next_addr > ctx->heap_soft_limit)
   {
-    return false;
+    oldest_free = NULL;
+    for (index = 0u; index < VMGP_MAX_HEAP_TRACKED_ALLOCATIONS; ++index)
+    {
+      allocation = &ctx->heap_allocations[index];
+      if (allocation->address != 0u && allocation->free_serial != 0u && allocation->size >= size &&
+          (!oldest_free || allocation->free_serial < oldest_free->free_serial))
+      {
+        oldest_free = allocation;
+      }
+    }
+
+    if (oldest_free)
+    {
+      oldest_free->free_serial = 0u;
+      ctx->heap_quarantine_bytes -= oldest_free->size;
+      ctx->heap_live_bytes += oldest_free->size;
+      if (ctx->heap_live_bytes > ctx->heap_peak_live_bytes)
+      {
+        ctx->heap_peak_live_bytes = ctx->heap_live_bytes;
+      }
+      ++ctx->heap_reuse_count;
+      *payload_addr = oldest_free->address;
+
+      return true;
+    }
+
+    if (addr > ctx->heap_limit || next_addr < addr || next_addr > ctx->heap_limit)
+    {
+      ++ctx->heap_allocation_failures;
+      return false;
+    }
+    ++ctx->heap_soft_limit_fallbacks;
   }
 
   ctx->heap_cur = next_addr;
+  if ((ctx->heap_cur - ctx->heap_base) > ctx->heap_high_water_bytes)
+  {
+    ctx->heap_high_water_bytes = ctx->heap_cur - ctx->heap_base;
+  }
   *payload_addr = addr;
+
+  allocation = NULL;
+  for (index = 0u; index < VMGP_MAX_HEAP_TRACKED_ALLOCATIONS; ++index)
+  {
+    if (ctx->heap_allocations[index].address == 0u)
+    {
+      allocation = &ctx->heap_allocations[index];
+      break;
+    }
+  }
+
+  if (allocation)
+  {
+    allocation->address = addr;
+    allocation->size = size;
+    allocation->free_serial = 0u;
+    ctx->heap_live_bytes += size;
+    if (ctx->heap_live_bytes > ctx->heap_peak_live_bytes)
+    {
+      ctx->heap_peak_live_bytes = ctx->heap_live_bytes;
+    }
+  }
+  else
+  {
+    ++ctx->heap_tracker_overflows;
+  }
 
   return true;
 } /* End of MVM_lHeapAlloc */
 
 /**
- * @brief Validates one guest heap pointer.
+ * @brief Validates one guest heap pointer without immediately reusing its storage.
  */
 static bool MVM_lHeapFree(VMGPContext *ctx, uint32_t payload_addr)
 {
+  uint32_t index;
+  MVM_HeapAllocation_t *allocation;
+
+  if (ctx)
+  {
+    ++ctx->heap_free_requests;
+  }
+
   if (!ctx || payload_addr < ctx->heap_base || payload_addr >= ctx->heap_cur)
   {
+    if (ctx)
+    {
+      ++ctx->heap_invalid_free_requests;
+    }
     return false;
+  }
+
+  allocation = NULL;
+  for (index = 0u; index < VMGP_MAX_HEAP_TRACKED_ALLOCATIONS; ++index)
+  {
+    if (ctx->heap_allocations[index].address == payload_addr)
+    {
+      allocation = &ctx->heap_allocations[index];
+      break;
+    }
+  }
+
+  if (!allocation)
+  {
+    ++ctx->heap_invalid_free_requests;
+  }
+  else if (allocation->free_serial != 0u)
+  {
+    ++ctx->heap_double_free_requests;
+  }
+  else
+  {
+    allocation->free_serial = ctx->heap_free_requests;
+    ctx->heap_live_bytes -= allocation->size;
+    ctx->heap_quarantine_bytes += allocation->size;
   }
 
   return true;
@@ -2230,7 +2458,13 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
   MVM_DrawCommand_t *command;
   uint32_t snapshot;
 
-  if (!ctx || ctx->draw_command_count >= VMGP_MAX_DRAW_COMMANDS)
+  if (!ctx)
+  {
+    return NULL;
+  }
+
+  if (ctx->draw_command_count >= VMGP_MAX_DRAW_COMMANDS &&
+      (!ctx->drivers.display_flush || !MVM_RenderApplyPendingFramebuffer(ctx)))
   {
     return NULL;
   }
@@ -2271,9 +2505,9 @@ static MVM_DrawCommand_t *MVM_lAllocDrawCommand(VMGPContext *ctx, MVM_DrawComman
 
 static uint32_t MVM_lFontCharWidth(const VMGPContext *ctx, uint32_t font_addr)
 {
-  if (MVM_RuntimeMemRangeOk(ctx, font_addr, 12u) && ctx->mem[font_addr + 9u] != 0u)
+  if (MVM_RuntimeMemRangeOk(ctx, font_addr, 12u) && MVM_GUEST_BYTE(ctx, font_addr + 9u) != 0u)
   {
-    return ctx->mem[font_addr + 9u];
+    return MVM_GUEST_BYTE(ctx, font_addr + 9u);
   }
 
   return 6u;
@@ -2281,9 +2515,9 @@ static uint32_t MVM_lFontCharWidth(const VMGPContext *ctx, uint32_t font_addr)
 
 static uint32_t MVM_lFontCharHeight(const VMGPContext *ctx, uint32_t font_addr)
 {
-  if (MVM_RuntimeMemRangeOk(ctx, font_addr, 12u) && ctx->mem[font_addr + 10u] != 0u)
+  if (MVM_RuntimeMemRangeOk(ctx, font_addr, 12u) && MVM_GUEST_BYTE(ctx, font_addr + 10u) != 0u)
   {
-    return ctx->mem[font_addr + 10u];
+    return MVM_GUEST_BYTE(ctx, font_addr + 10u);
   }
 
   return 8u;
@@ -2329,18 +2563,18 @@ static uint32_t MVM_lSystemTextWidth(const VMGPContext *ctx, uint32_t str, bool 
   uint32_t width;
   uint32_t index;
 
-  if (!ctx || str >= ctx->mem_size)
+  if (!ctx || !MVM_RuntimeMemRangeOk(ctx, str, 1u))
   {
     return 0u;
   }
 
   width = 0u;
   index = 0u;
-  while (str + index < ctx->mem_size)
+  while (MVM_RuntimeMemRangeOk(ctx, str + index, 1u))
   {
     uint8_t ch;
 
-    ch = ctx->mem[str + index];
+    ch = MVM_GUEST_BYTE(ctx, str + index);
     if (ch == 0u)
     {
       break;
@@ -2378,10 +2612,10 @@ static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, u
   length = 0u;
   copy_length = 0u;
 
-  if (str < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, str, 1u))
   {
-    length = unicode ? MVM_lUnicodeStrLen(ctx->mem + str, ctx->mem_size - str)
-                     : MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str);
+    length = unicode ? MVM_lUnicodeStrLen(MVM_GUEST_CONST_PTR(ctx, str, 1u), MVM_GuestContiguousSize(ctx, str))
+                     : MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, str, 1u), MVM_GuestContiguousSize(ctx, str));
   }
 
   command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TEXT);
@@ -2409,13 +2643,13 @@ static uint32_t MVM_lEmitTextCommand(VMGPContext *ctx, uint32_t x, uint32_t y, u
       copy_length = VMGP_DRAW_TEXT_SNAPSHOT_BYTES - 1u;
     }
 
-    if (str < ctx->mem_size)
+    if (MVM_RuntimeMemRangeOk(ctx, str, 1u))
     {
       for (index = 0u; index < copy_length; ++index)
       {
         uint8_t ch;
 
-        ch = unicode ? ctx->mem[str + index * 2u] : ctx->mem[str + index];
+        ch = unicode ? MVM_GUEST_BYTE(ctx, str + index * 2u) : MVM_GUEST_BYTE(ctx, str + index);
         command->text[index] = (ch >= 0x20u && ch < 0x7Fu) ? ch : (uint8_t)'.';
       }
       command->text[copy_length] = 0u;
@@ -2500,12 +2734,12 @@ static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t 
     return;
   }
 
-  font_data_addr = vm_read_u32_le(ctx->mem + font_addr + 0u);
-  char_table_addr = vm_read_u32_le(ctx->mem + font_addr + 4u);
-  bpp = ctx->mem[font_addr + 8u];
-  width = ctx->mem[font_addr + 9u];
-  height = ctx->mem[font_addr + 10u];
-  palindex = ctx->mem[font_addr + 11u];
+  font_data_addr = vm_read_u32_le(MVM_GUEST_PTR(ctx, font_addr + 0u, 4u));
+  char_table_addr = vm_read_u32_le(MVM_GUEST_PTR(ctx, font_addr + 4u, 4u));
+  bpp = MVM_GUEST_BYTE(ctx, font_addr + 8u);
+  width = MVM_GUEST_BYTE(ctx, font_addr + 9u);
+  height = MVM_GUEST_BYTE(ctx, font_addr + 10u);
+  palindex = MVM_GUEST_BYTE(ctx, font_addr + 11u);
 
   if ((bpp != 1u && bpp != 2u) || width == 0u || height == 0u ||
       !MVM_RuntimeMemRangeOk(ctx, char_table_addr, 256u))
@@ -2560,7 +2794,7 @@ static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t 
       continue;
     }
 
-    glyph_index = ctx->mem[char_table_addr + ch];
+    glyph_index = MVM_GUEST_BYTE(ctx, char_table_addr + ch);
     if (glyph_index == 0xFFu)
     {
       MVM_LOG_D(ctx, "font-dump", "font-dump char='%c' code=%02X glyph=FF\n", ch, ch);
@@ -2582,7 +2816,7 @@ static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t 
       written = snprintf(bytes_text + out_index,
                          sizeof(bytes_text) - out_index,
                          "%02X%s",
-                         ctx->mem[glyph_addr + byte_index],
+                         MVM_GUEST_BYTE(ctx, glyph_addr + byte_index),
                          (byte_index + 1u < bytes_per_char) ? " " : "");
       if (written <= 0)
       {
@@ -2606,7 +2840,9 @@ static void MVM_lMaybeDumpTextFont(VMGPContext *ctx, const char *text, uint32_t 
       {
         uint32_t pixel;
 
-        pixel = MVM_lReadPackedLsbPixel(ctx->mem + glyph_addr, row * (uint32_t)width + col, (uint32_t)bpp);
+        pixel = MVM_lReadPackedLsbPixel(MVM_GUEST_CONST_PTR(ctx, glyph_addr, bytes_per_char),
+                                        row * (uint32_t)width + col,
+                                        (uint32_t)bpp);
         raster_text[out_index++] = (pixel == 0u) ? '.' : (char)('0' + pixel);
       }
     }
@@ -2778,7 +3014,9 @@ MVM_IMPORT_IMPL(vStrLen)
   uint32_t src;
 
   src = ctx->regs[VM_REG_P0];
-  ctx->regs[VM_REG_R0] = (src < ctx->mem_size) ? MVM_RuntimeStrLen(ctx->mem + src, ctx->mem_size - src) : 0u;
+  ctx->regs[VM_REG_R0] = MVM_RuntimeMemRangeOk(ctx, src, 1u)
+      ? MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, src, 1u), MVM_GuestContiguousSize(ctx, src))
+      : 0u;
 
   MVM_LOG_D(ctx,
             "str-len",
@@ -2808,10 +3046,10 @@ MVM_IMPORT_IMPL(vStrCpy)
   max_copy = 0u;
   copied = 0u;
 
-  if (dst < ctx->mem_size && src < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, dst, 1u) && MVM_RuntimeMemRangeOk(ctx, src, 1u))
   {
-    max_copy = ctx->mem_size - dst;
-    copied = MVM_RuntimeStrLen(ctx->mem + src, ctx->mem_size - src);
+    max_copy = MVM_GuestContiguousSize(ctx, dst);
+    copied = MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, src, 1u), MVM_GuestContiguousSize(ctx, src));
 
     if ((copied + 1u) > max_copy)
     {
@@ -2819,11 +3057,14 @@ MVM_IMPORT_IMPL(vStrCpy)
     }
 
     MVM_WatchMemoryWrite(ctx, dst, (uint32_t)(copied + 1u), "vStrCpy");
-    memmove(ctx->mem + dst, ctx->mem + src, copied);
+    if (!MVM_GuestCopy(ctx, dst, src, copied))
+    {
+      return false;
+    }
 
     if (max_copy)
     {
-      ctx->mem[dst + copied] = 0u;
+      MVM_GUEST_BYTE(ctx, dst + copied) = 0u;
     }
   }
 
@@ -2857,9 +3098,10 @@ MVM_IMPORT_IMPL(vStrCmp)
   right = ctx->regs[VM_REG_P1];
   result = 0;
 
-  if (left < ctx->mem_size && right < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, left, 1u) && MVM_RuntimeMemRangeOk(ctx, right, 1u))
   {
-    result = strcmp((const char *)(ctx->mem + left), (const char *)(ctx->mem + right));
+    result = strcmp((const char *)MVM_GUEST_CONST_PTR(ctx, left, 1u),
+                    (const char *)MVM_GUEST_CONST_PTR(ctx, right, 1u));
   }
 
   ctx->regs[VM_REG_R0] = (uint32_t)result;
@@ -2895,11 +3137,11 @@ MVM_IMPORT_IMPL(vStrCat)
   max_copy = 0u;
   copied = 0u;
 
-  if (dst < ctx->mem_size && src < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, dst, 1u) && MVM_RuntimeMemRangeOk(ctx, src, 1u))
   {
-    dst_len = MVM_RuntimeStrLen(ctx->mem + dst, ctx->mem_size - dst);
-    max_copy = ctx->mem_size - dst - dst_len;
-    copied = MVM_RuntimeStrLen(ctx->mem + src, ctx->mem_size - src);
+    dst_len = MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, dst, 1u), MVM_GuestContiguousSize(ctx, dst));
+    max_copy = MVM_GuestContiguousSize(ctx, dst) - dst_len;
+    copied = MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, src, 1u), MVM_GuestContiguousSize(ctx, src));
 
     if ((copied + 1u) > max_copy)
     {
@@ -2907,11 +3149,14 @@ MVM_IMPORT_IMPL(vStrCat)
     }
 
     MVM_WatchMemoryWrite(ctx, dst + dst_len, (uint32_t)(copied + 1u), "vStrCat");
-    memmove(ctx->mem + dst + dst_len, ctx->mem + src, copied);
+    if (!MVM_GuestCopy(ctx, dst + dst_len, src, copied))
+    {
+      return false;
+    }
 
     if (max_copy)
     {
-      ctx->mem[dst + dst_len + copied] = 0u;
+      MVM_GUEST_BYTE(ctx, dst + dst_len + copied) = 0u;
     }
   }
 
@@ -2940,7 +3185,9 @@ MVM_IMPORT_IMPL(vStrLenU)
   uint32_t src;
 
   src = ctx->regs[VM_REG_P0];
-  ctx->regs[VM_REG_R0] = (src < ctx->mem_size) ? MVM_lUnicodeStrLen(ctx->mem + src, ctx->mem_size - src) : 0u;
+  ctx->regs[VM_REG_R0] = MVM_RuntimeMemRangeOk(ctx, src, 1u)
+      ? MVM_lUnicodeStrLen(MVM_GUEST_CONST_PTR(ctx, src, 1u), MVM_GuestContiguousSize(ctx, src))
+      : 0u;
 
   MVM_LOG_D(ctx,
             "str-lenu",
@@ -2973,8 +3220,8 @@ MVM_IMPORT_IMPL(vStrCpyU)
   while (MVM_RuntimeMemRangeOk(ctx, dst + copied_units * 2u, 2u) &&
          MVM_RuntimeMemRangeOk(ctx, src + copied_units * 2u, 2u))
   {
-    code_unit = vm_read_u16_le(ctx->mem + src + copied_units * 2u);
-    vm_write_u16_le(ctx->mem + dst + copied_units * 2u, code_unit);
+    code_unit = vm_read_u16_le(MVM_GUEST_PTR(ctx, src + copied_units * 2u, 2u));
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, dst + copied_units * 2u, 2u), code_unit);
     copied_units++;
 
     if (code_unit == 0u)
@@ -3014,9 +3261,12 @@ MVM_IMPORT_IMPL(vStrCmpU)
   right = ctx->regs[VM_REG_P1];
   result = 0;
 
-  if (left < ctx->mem_size && right < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, left, 1u) && MVM_RuntimeMemRangeOk(ctx, right, 1u))
   {
-    result = MVM_lUnicodeStrCmp(ctx->mem + left, ctx->mem_size - left, ctx->mem + right, ctx->mem_size - right);
+    result = MVM_lUnicodeStrCmp(MVM_GUEST_CONST_PTR(ctx, left, 1u),
+                                MVM_GuestContiguousSize(ctx, left),
+                                MVM_GUEST_CONST_PTR(ctx, right, 1u),
+                                MVM_GuestContiguousSize(ctx, right));
   }
 
   ctx->regs[VM_REG_R0] = (uint32_t)result;
@@ -3058,13 +3308,13 @@ MVM_IMPORT_IMPL(vStrCatU)
     return true;
   }
 
-  dst_units = MVM_lUnicodeStrLen(ctx->mem + dst, ctx->mem_size - dst);
+  dst_units = MVM_lUnicodeStrLen(MVM_GUEST_CONST_PTR(ctx, dst, 1u), MVM_GuestContiguousSize(ctx, dst));
 
   while (MVM_RuntimeMemRangeOk(ctx, dst + (dst_units + copied_units) * 2u, 2u) &&
          MVM_RuntimeMemRangeOk(ctx, src + copied_units * 2u, 2u))
   {
-    code_unit = vm_read_u16_le(ctx->mem + src + copied_units * 2u);
-    vm_write_u16_le(ctx->mem + dst + (dst_units + copied_units) * 2u, code_unit);
+    code_unit = vm_read_u16_le(MVM_GUEST_PTR(ctx, src + copied_units * 2u, 2u));
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, dst + (dst_units + copied_units) * 2u, 2u), code_unit);
     copied_units++;
 
     if (code_unit == 0u)
@@ -3109,8 +3359,8 @@ MVM_IMPORT_IMPL(vStrToU)
   while (MVM_RuntimeMemRangeOk(ctx, dst + copied_units * 2u, 2u) &&
          MVM_RuntimeMemRangeOk(ctx, src + copied_units, 1u))
   {
-    value = ctx->mem[src + copied_units];
-    vm_write_u16_le(ctx->mem + dst + copied_units * 2u, value);
+    value = MVM_GUEST_BYTE(ctx, src + copied_units);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, dst + copied_units * 2u, 2u), value);
     copied_units++;
 
     if (value == 0u)
@@ -3225,19 +3475,19 @@ MVM_IMPORT_IMPL(vitoa)
   temp[index] = '\0';
   written = (int)index;
 
-  if (buffer < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, buffer, 1u))
   {
     index = 0u;
 
     while (index < (uint32_t)written && MVM_RuntimeMemRangeOk(ctx, buffer + index, 1u))
     {
-      ctx->mem[buffer + index] = (uint8_t)temp[index];
+      MVM_GUEST_BYTE(ctx, buffer + index) = (uint8_t)temp[index];
       index++;
     }
 
     if (MVM_RuntimeMemRangeOk(ctx, buffer + index, 1u))
     {
-      ctx->mem[buffer + index] = 0u;
+      MVM_GUEST_BYTE(ctx, buffer + index) = 0u;
       MVM_WatchMemoryWrite(ctx, buffer, index + 1u, "vitoa");
     }
   }
@@ -3323,19 +3573,19 @@ MVM_IMPORT_IMPL(vutoa)
   temp[index] = '\0';
   written = (int)index;
 
-  if (buffer < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, buffer, 1u))
   {
     index = 0u;
 
     while (index < (uint32_t)written && MVM_RuntimeMemRangeOk(ctx, buffer + index, 1u))
     {
-      ctx->mem[buffer + index] = (uint8_t)temp[index];
+      MVM_GUEST_BYTE(ctx, buffer + index) = (uint8_t)temp[index];
       index++;
     }
 
     if (MVM_RuntimeMemRangeOk(ctx, buffer + index, 1u))
     {
-      ctx->mem[buffer + index] = 0u;
+      MVM_GUEST_BYTE(ctx, buffer + index) = 0u;
       MVM_WatchMemoryWrite(ctx, buffer, index + 1u, "vutoa");
     }
   }
@@ -3574,7 +3824,7 @@ MVM_IMPORT_IMPL(vStreamRead)
   available = 0u;
   first_byte = 0u;
 
-  if (!stream || buffer >= ctx->mem_size)
+  if (!stream || !MVM_RuntimeMemRangeOk(ctx, buffer, 1u))
   {
     ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
@@ -3590,10 +3840,10 @@ MVM_IMPORT_IMPL(vStreamRead)
 
   if (!MVM_RuntimeMemRangeOk(ctx, buffer, count))
   {
-    count = (buffer < ctx->mem_size) ? (uint32_t)(ctx->mem_size - buffer) : 0u;
+    count = MVM_GuestContiguousSize(ctx, buffer);
   }
 
-  if (!MVM_lReadStreamBytes(ctx, stream, stream->pos, ctx->mem + buffer, count))
+  if (!MVM_lReadStreamBytes(ctx, stream, stream->pos, MVM_GUEST_PTR(ctx, buffer, count), count))
   {
     ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
@@ -3603,7 +3853,7 @@ MVM_IMPORT_IMPL(vStreamRead)
   MVM_WatchMemoryWrite(ctx, buffer, count, "vStreamRead");
   if (count != 0u && MVM_RuntimeMemRangeOk(ctx, buffer, 1u))
   {
-    first_byte = ctx->mem[buffer];
+    first_byte = MVM_GUEST_BYTE(ctx, buffer);
   }
   stream->pos += count;
   ctx->regs[VM_REG_R0] = count;
@@ -3672,7 +3922,7 @@ MVM_IMPORT_IMPL(vStreamWrite)
   writable = count;
   if (count != 0u)
   {
-    first_byte = ctx->mem[buffer];
+    first_byte = MVM_GUEST_BYTE(ctx, buffer);
   }
 
   if (stream->overlay_data)
@@ -3684,7 +3934,7 @@ MVM_IMPORT_IMPL(vStreamWrite)
       writable = count;
     }
 
-    memcpy(stream->overlay_data + stream->pos, ctx->mem + buffer, writable);
+    memcpy(stream->overlay_data + stream->pos, MVM_GUEST_CONST_PTR(ctx, buffer, writable), writable);
     stream->pos += writable;
     ctx->regs[VM_REG_R0] = writable;
 
@@ -3885,8 +4135,8 @@ MVM_IMPORT_IMPL(vDecompHdr)
   packed_size = 0u;
 
   if (!MVM_RuntimeMemRangeOk(ctx, header_addr, 22u) ||
-      !MVM_lReadLzHeader(ctx->mem + header_addr,
-                         ctx->mem_size - header_addr,
+      !MVM_lReadLzHeader(MVM_GUEST_CONST_PTR(ctx, header_addr, 22u),
+                         MVM_GuestContiguousSize(ctx, header_addr),
                          &extended_offset_bits,
                          &max_offset_bits,
                          &raw_size,
@@ -3899,14 +4149,14 @@ MVM_IMPORT_IMPL(vDecompHdr)
 
   if (info != 0u && MVM_RuntimeMemRangeOk(ctx, info, 20u))
   {
-    ctx->mem[info + 0u] = 0u;
-    ctx->mem[info + 1u] = 0u;
-    vm_write_u16_le(ctx->mem + info + 2u, 0x1234u);
-    vm_write_u16_le(ctx->mem + info + 4u, 0u);
-    vm_write_u16_le(ctx->mem + info + 6u, 0u);
-    vm_write_u32_le(ctx->mem + info + 8u, packed_size);
-    vm_write_u32_le(ctx->mem + info + 12u, raw_size);
-    vm_write_u32_le(ctx->mem + info + 16u, 0u);
+    MVM_GUEST_BYTE(ctx, info + 0u) = 0u;
+    MVM_GUEST_BYTE(ctx, info + 1u) = 0u;
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, info + 2u, 2u), 0x1234u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, info + 4u, 2u), 0u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, info + 6u, 2u), 0u);
+    vm_write_u32_le(MVM_GUEST_PTR(ctx, info + 8u, 4u), packed_size);
+    vm_write_u32_le(MVM_GUEST_PTR(ctx, info + 12u, 4u), raw_size);
+    vm_write_u32_le(MVM_GUEST_PTR(ctx, info + 16u, 4u), 0u);
   }
 
   ctx->regs[VM_REG_R0] = raw_size;
@@ -3979,8 +4229,8 @@ MVM_IMPORT_IMPL(vDecompress)
       return true;
     }
 
-    base = ctx->mem + src;
-    available = (uint32_t)(ctx->mem_size - src);
+    base = MVM_GUEST_CONST_PTR(ctx, src, 1u);
+    available = MVM_GuestContiguousSize(ctx, src);
     header_ptr = base;
   }
   else
@@ -4010,14 +4260,14 @@ MVM_IMPORT_IMPL(vDecompress)
   {
     copy_size = available;
 
-    if (dst >= ctx->mem_size)
+    if (!MVM_RuntimeMemRangeOk(ctx, dst, 1u))
     {
       ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
       return true;
     }
 
-    dst_limit = ctx->mem_size - dst;
+    dst_limit = MVM_GuestContiguousSize(ctx, dst);
 
     if (dst < ctx->heap_cur)
     {
@@ -4038,9 +4288,13 @@ MVM_IMPORT_IMPL(vDecompress)
     {
       if (base)
       {
-        memcpy(ctx->mem + dst, base, copy_size);
+        memcpy(MVM_GUEST_PTR(ctx, dst, copy_size), base, copy_size);
       }
-      else if (!MVM_lReadStreamBytes(ctx, stream, stream_base_pos, ctx->mem + dst, copy_size))
+      else if (!MVM_lReadStreamBytes(ctx,
+                                     stream,
+                                     stream_base_pos,
+                                     MVM_GUEST_PTR(ctx, dst, copy_size),
+                                     copy_size))
       {
         ctx->regs[VM_REG_R0] = 0xFFFFFFFFu;
 
@@ -4096,7 +4350,7 @@ MVM_IMPORT_IMPL(vDecompress)
   }
 
   produced = MVM_lDecompressLzContent(&bit_stream,
-                                      ctx->mem + dst,
+                                      MVM_GUEST_PTR(ctx, dst, raw_size),
                                       raw_size,
                                       extended_offset_bits,
                                       max_offset_bits);
@@ -4159,46 +4413,46 @@ MVM_IMPORT_IMPL(vGetCaps)
       query == MVM_CAPS_VIDEO &&
       MVM_RuntimeMemRangeOk(ctx, out, 8u))
   {
-    vm_write_u16_le(ctx->mem + out + 0u, 8u);
-    vm_write_u16_le(ctx->mem + out + 2u, profile->color_mode);
-    vm_write_u16_le(ctx->mem + out + 4u, profile->screen_width);
-    vm_write_u16_le(ctx->mem + out + 6u, profile->screen_height);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), 8u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), profile->color_mode);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 4u, 2u), profile->screen_width);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 6u, 2u), profile->screen_height);
     result = 1u;
   }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_INPUT) != 0u &&
            query == MVM_CAPS_INPUT &&
            MVM_RuntimeMemRangeOk(ctx, out, 6u))
   {
-    vm_write_u16_le(ctx->mem + out + 0u, 6u);
-    vm_write_u16_le(ctx->mem + out + 2u, MVM_INPUT_NUMERIC_KEYPAD);
-    ctx->mem[out + 4u] = 12u;
-    ctx->mem[out + 5u] = 0u;
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), 6u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), MVM_INPUT_NUMERIC_KEYPAD);
+    MVM_GUEST_BYTE(ctx, out + 4u) = 12u;
+    MVM_GUEST_BYTE(ctx, out + 5u) = 0u;
     result = 1u;
   }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_SOUND) != 0u &&
            query == MVM_CAPS_SOUND &&
            MVM_RuntimeMemRangeOk(ctx, out, 4u))
   {
-    vm_write_u16_le(ctx->mem + out + 0u, 4u);
-    vm_write_u16_le(ctx->mem + out + 2u, profile->sound_flags);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), 4u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), profile->sound_flags);
     result = 1u;
   }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_COMM) != 0u &&
            query == MVM_CAPS_COMM &&
            MVM_RuntimeMemRangeOk(ctx, out, 4u))
   {
-    vm_write_u16_le(ctx->mem + out + 0u, 4u);
-    vm_write_u16_le(ctx->mem + out + 2u, 0x0027u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), 4u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), 0x0027u);
     result = 1u;
   }
   else if ((profile->supported_caps & MVM_DEVICE_CAP_SYSTEM) != 0u &&
            query == MVM_CAPS_SYSTEM &&
            MVM_RuntimeMemRangeOk(ctx, out, 12u))
   {
-    vm_write_u16_le(ctx->mem + out + 0u, 12u);
-    vm_write_u16_le(ctx->mem + out + 2u, profile->system_flags);
-    vm_write_u32_le(ctx->mem + out + 4u, profile->device_id);
-    vm_write_u32_le(ctx->mem + out + 8u, 0u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), 12u);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), profile->system_flags);
+    vm_write_u32_le(MVM_GUEST_PTR(ctx, out + 4u, 4u), profile->device_id);
+    vm_write_u32_le(MVM_GUEST_PTR(ctx, out + 8u, 4u), 0u);
     result = 1u;
   }
 
@@ -4232,6 +4486,10 @@ MVM_IMPORT_IMPL(vGetTickCount)
   if (ctx->platform.get_ticks_ms)
   {
     ctx->tick_count = ctx->platform.get_ticks_ms(ctx->platform.user);
+  }
+  else if (ctx->drivers.get_ticks_ms)
+  {
+    ctx->tick_count = ctx->drivers.get_ticks_ms(ctx->drivers.user);
   }
   else
   {
@@ -4280,12 +4538,12 @@ MVM_IMPORT_IMPL(vGetTimeDate)
 
   if (ctx->fixed_time_year != 0u)
   {
-    vm_write_u16_le(ctx->mem + out + 0u, ctx->fixed_time_year);
-    vm_write_u16_le(ctx->mem + out + 2u, ctx->fixed_time_day);
-    ctx->mem[out + 4u] = ctx->fixed_time_month;
-    ctx->mem[out + 5u] = ctx->fixed_time_hour;
-    ctx->mem[out + 6u] = ctx->fixed_time_minute;
-    ctx->mem[out + 7u] = ctx->fixed_time_second;
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), ctx->fixed_time_year);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), ctx->fixed_time_day);
+    MVM_GUEST_BYTE(ctx, out + 4u) = ctx->fixed_time_month;
+    MVM_GUEST_BYTE(ctx, out + 5u) = ctx->fixed_time_hour;
+    MVM_GUEST_BYTE(ctx, out + 6u) = ctx->fixed_time_minute;
+    MVM_GUEST_BYTE(ctx, out + 7u) = ctx->fixed_time_second;
     MVM_WatchMemoryWrite(ctx, out, 8u, "vGetTimeDate");
     ctx->regs[VM_REG_R0] = 0u;
 
@@ -4308,17 +4566,17 @@ MVM_IMPORT_IMPL(vGetTimeDate)
 
   if (!tm_value)
   {
-    memset(ctx->mem + out, 0, 8u);
+    MVM_GuestSet(ctx, out, 0u, 8u);
     ctx->regs[VM_REG_R0] = 0u;
     return true;
   }
 
-  vm_write_u16_le(ctx->mem + out + 0u, (uint16_t)(tm_value->tm_year + 1900));
-  vm_write_u16_le(ctx->mem + out + 2u, (uint16_t)tm_value->tm_mday);
-  ctx->mem[out + 4u] = (uint8_t)(tm_value->tm_mon + 1);
-  ctx->mem[out + 5u] = (uint8_t)tm_value->tm_hour;
-  ctx->mem[out + 6u] = (uint8_t)tm_value->tm_min;
-  ctx->mem[out + 7u] = (uint8_t)tm_value->tm_sec;
+  vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), (uint16_t)(tm_value->tm_year + 1900));
+  vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), (uint16_t)tm_value->tm_mday);
+  MVM_GUEST_BYTE(ctx, out + 4u) = (uint8_t)(tm_value->tm_mon + 1);
+  MVM_GUEST_BYTE(ctx, out + 5u) = (uint8_t)tm_value->tm_hour;
+  MVM_GUEST_BYTE(ctx, out + 6u) = (uint8_t)tm_value->tm_min;
+  MVM_GUEST_BYTE(ctx, out + 7u) = (uint8_t)tm_value->tm_sec;
   MVM_WatchMemoryWrite(ctx, out, 8u, "vGetTimeDate");
   ctx->regs[VM_REG_R0] = 0u;
 
@@ -4361,12 +4619,12 @@ MVM_IMPORT_IMPL(vGetTimeDateUTC)
 
   if (ctx->fixed_time_year != 0u)
   {
-    vm_write_u16_le(ctx->mem + out + 0u, ctx->fixed_time_year);
-    vm_write_u16_le(ctx->mem + out + 2u, ctx->fixed_time_day);
-    ctx->mem[out + 4u] = ctx->fixed_time_month;
-    ctx->mem[out + 5u] = ctx->fixed_time_hour;
-    ctx->mem[out + 6u] = ctx->fixed_time_minute;
-    ctx->mem[out + 7u] = ctx->fixed_time_second;
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), ctx->fixed_time_year);
+    vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), ctx->fixed_time_day);
+    MVM_GUEST_BYTE(ctx, out + 4u) = ctx->fixed_time_month;
+    MVM_GUEST_BYTE(ctx, out + 5u) = ctx->fixed_time_hour;
+    MVM_GUEST_BYTE(ctx, out + 6u) = ctx->fixed_time_minute;
+    MVM_GUEST_BYTE(ctx, out + 7u) = ctx->fixed_time_second;
     MVM_WatchMemoryWrite(ctx, out, 8u, "vGetTimeDateUTC");
     ctx->regs[VM_REG_R0] = 0u;
 
@@ -4389,17 +4647,17 @@ MVM_IMPORT_IMPL(vGetTimeDateUTC)
 
   if (!tm_value)
   {
-    memset(ctx->mem + out, 0, 8u);
+    MVM_GuestSet(ctx, out, 0u, 8u);
     ctx->regs[VM_REG_R0] = 0u;
     return true;
   }
 
-  vm_write_u16_le(ctx->mem + out + 0u, (uint16_t)(tm_value->tm_year + 1900));
-  vm_write_u16_le(ctx->mem + out + 2u, (uint16_t)tm_value->tm_mday);
-  ctx->mem[out + 4u] = (uint8_t)(tm_value->tm_mon + 1);
-  ctx->mem[out + 5u] = (uint8_t)tm_value->tm_hour;
-  ctx->mem[out + 6u] = (uint8_t)tm_value->tm_min;
-  ctx->mem[out + 7u] = (uint8_t)tm_value->tm_sec;
+  vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 0u, 2u), (uint16_t)(tm_value->tm_year + 1900));
+  vm_write_u16_le(MVM_GUEST_PTR(ctx, out + 2u, 2u), (uint16_t)tm_value->tm_mday);
+  MVM_GUEST_BYTE(ctx, out + 4u) = (uint8_t)(tm_value->tm_mon + 1);
+  MVM_GUEST_BYTE(ctx, out + 5u) = (uint8_t)tm_value->tm_hour;
+  MVM_GUEST_BYTE(ctx, out + 6u) = (uint8_t)tm_value->tm_min;
+  MVM_GUEST_BYTE(ctx, out + 7u) = (uint8_t)tm_value->tm_sec;
   MVM_WatchMemoryWrite(ctx, out, 8u, "vGetTimeDateUTC");
   ctx->regs[VM_REG_R0] = 0u;
 
@@ -4521,6 +4779,10 @@ MVM_IMPORT_IMPL(vGetRandom)
   {
     value = ctx->platform.get_random(ctx->platform.user);
   }
+  else if (ctx->drivers.get_random)
+  {
+    value = ctx->drivers.get_random(ctx->drivers.user);
+  }
   else
   {
     ctx->random_state = ctx->random_state * 1103515245u + 12345u;
@@ -4573,6 +4835,11 @@ MVM_IMPORT_IMPL(vFlipScreen)
   }
 
   ++ctx->frame_serial;
+
+  if (ctx->drivers.display_flush && !MVM_RenderFlushFramebuffer(ctx))
+  {
+    MVM_LOG_W(ctx, "display-flush", "Driver framebuffer flush failed\n");
+  }
 
   MVM_LOG_D(ctx,
             "frame-ready",
@@ -4687,12 +4954,12 @@ MVM_IMPORT_IMPL(vSetActiveFont)
 
   if (MVM_RuntimeMemRangeOk(ctx, ctx->active_font, 12u))
   {
-    font_data = vm_read_u32_le(ctx->mem + ctx->active_font);
-    char_table = vm_read_u32_le(ctx->mem + ctx->active_font + 4u);
-    bpp = ctx->mem[ctx->active_font + 8u];
-    width = ctx->mem[ctx->active_font + 9u];
-    height = ctx->mem[ctx->active_font + 10u];
-    palindex = ctx->mem[ctx->active_font + 11u];
+    font_data = vm_read_u32_le(MVM_GUEST_PTR(ctx, ctx->active_font, 4u));
+    char_table = vm_read_u32_le(MVM_GUEST_PTR(ctx, ctx->active_font + 4u, 4u));
+    bpp = MVM_GUEST_BYTE(ctx, ctx->active_font + 8u);
+    width = MVM_GUEST_BYTE(ctx, ctx->active_font + 9u);
+    height = MVM_GUEST_BYTE(ctx, ctx->active_font + 10u);
+    palindex = MVM_GUEST_BYTE(ctx, ctx->active_font + 11u);
   }
 
   MVM_LOG_D(ctx,
@@ -4907,11 +5174,11 @@ MVM_IMPORT_IMPL(vSetPalette)
     count = 256u - start_index;
   }
 
-  if (src < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, src, 1u))
   {
     for (index = 0u; index < count && MVM_RuntimeMemRangeOk(ctx, src + index * 2u, 2u); ++index)
     {
-      ctx->palette_entries[start_index + index] = vm_read_u16_le(ctx->mem + src + index * 2u);
+      ctx->palette_entries[start_index + index] = vm_read_u16_le(MVM_GUEST_PTR(ctx, src + index * 2u, 2u));
     }
   }
 
@@ -5076,12 +5343,12 @@ MVM_IMPORT_IMPL(vDrawFlatPolygon)
     return true;
   }
 
-  x0 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 0u);
-  y0 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 2u);
-  x1 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 4u);
-  y1 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 6u);
-  x2 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 8u);
-  y2 = (int16_t)vm_read_u16_le(ctx->mem + tri_addr + 10u);
+  x0 = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, tri_addr + 0u, 2u));
+  y0 = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, tri_addr + 2u, 2u));
+  x1 = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, tri_addr + 4u, 2u));
+  y1 = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, tri_addr + 6u, 2u));
+  x2 = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, tri_addr + 8u, 2u));
+  y2 = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, tri_addr + 10u, 2u));
 
   command = MVM_lAllocDrawCommand(ctx, MVM_DRAW_TRIANGLE);
   if (command)
@@ -5240,12 +5507,12 @@ MVM_IMPORT_IMPL(vPrint)
   length = 0u;
   preview_length = 0u;
 
-  if (str < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, str, 1u))
   {
-    length = MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str);
+    length = MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, str, 1u), MVM_GuestContiguousSize(ctx, str));
   }
 
-  if (str < ctx->mem_size && length != 0u)
+  if (MVM_RuntimeMemRangeOk(ctx, str, 1u) && length != 0u)
   {
     preview_length = length;
     if (preview_length >= VMGP_DRAW_TEXT_SNAPSHOT_BYTES)
@@ -5257,7 +5524,7 @@ MVM_IMPORT_IMPL(vPrint)
     {
       uint8_t ch;
 
-      ch = ctx->mem[str + preview_index];
+      ch = MVM_GUEST_BYTE(ctx, str + preview_index);
       text_preview[preview_index] = (ch >= 0x20u && ch < 0x7Fu) ? (char)ch : '.';
     }
   }
@@ -5278,7 +5545,7 @@ MVM_IMPORT_IMPL(vPrint)
     command->text_palette[1] = ctx->palette_entries[1];
     command->text_palette[2] = ctx->palette_entries[2];
     command->text_palette[3] = ctx->palette_entries[3];
-    if (str < ctx->mem_size && length != 0u)
+    if (MVM_RuntimeMemRangeOk(ctx, str, 1u) && length != 0u)
     {
       uint32_t copy_length;
 
@@ -5288,7 +5555,7 @@ MVM_IMPORT_IMPL(vPrint)
         copy_length = VMGP_DRAW_TEXT_SNAPSHOT_BYTES - 1u;
       }
 
-      memcpy(command->text, ctx->mem + str, copy_length);
+      memcpy(command->text, MVM_GUEST_CONST_PTR(ctx, str, copy_length), copy_length);
       command->text[copy_length] = 0u;
       command->text_length = (uint16_t)copy_length;
     }
@@ -5327,6 +5594,11 @@ MVM_IMPORT_IMPL(vPrint)
  */
 MVM_IMPORT_IMPL(vGetButtonData)
 {
+  if (ctx->drivers.input_get_buttons)
+  {
+    ctx->button_state = ctx->drivers.input_get_buttons(ctx->drivers.user);
+  }
+
   ctx->regs[VM_REG_R0] = ctx->button_state;
 
   MVM_LOG_D(ctx,
@@ -5355,62 +5627,67 @@ MVM_IMPORT_IMPL(vTestKey)
   key = ctx->regs[VM_REG_P0];
   pressed = 0u;
 
+  if (ctx->drivers.input_get_buttons)
+  {
+    ctx->button_state = ctx->drivers.input_get_buttons(ctx->drivers.user);
+  }
+
   switch (key)
   {
     case '1':
-      pressed = ((ctx->button_state & (MVM_KEY_UP_MASK | MVM_KEY_LEFT_MASK))
-                 == (MVM_KEY_UP_MASK | MVM_KEY_LEFT_MASK)) ? 1u : 0u;
+      pressed = ((ctx->button_state & (MVM_BUTTON_UP_MASK | MVM_BUTTON_LEFT_MASK))
+                 == (MVM_BUTTON_UP_MASK | MVM_BUTTON_LEFT_MASK)) ? 1u : 0u;
       break;
 
     case '2':
     case MVM_SE_JOY_UP_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_UP_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_UP_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '3':
-      pressed = ((ctx->button_state & (MVM_KEY_UP_MASK | MVM_KEY_RIGHT_MASK))
-                 == (MVM_KEY_UP_MASK | MVM_KEY_RIGHT_MASK)) ? 1u : 0u;
+      pressed = ((ctx->button_state & (MVM_BUTTON_UP_MASK | MVM_BUTTON_RIGHT_MASK))
+                 == (MVM_BUTTON_UP_MASK | MVM_BUTTON_RIGHT_MASK)) ? 1u : 0u;
       break;
 
     case '4':
     case MVM_SE_JOY_LEFT_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_LEFT_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_LEFT_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '5':
     case '*':
     case MVM_SE_YES_ASCII:
     case MVM_SE_JOY_FIRE_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_FIRE_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_FIRE_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '#':
     case MVM_SE_NO_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_SELECT_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_SELECT_MASK) != 0u) ? 1u : 0u;
       break;
 
     case MVM_SE_OPTION_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_FIRE2_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_FIRE2_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '6':
     case MVM_SE_JOY_RIGHT_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_RIGHT_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_RIGHT_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '7':
-      pressed = ((ctx->button_state & (MVM_KEY_DOWN_MASK | MVM_KEY_LEFT_MASK))
-                 == (MVM_KEY_DOWN_MASK | MVM_KEY_LEFT_MASK)) ? 1u : 0u;
+      pressed = ((ctx->button_state & (MVM_BUTTON_DOWN_MASK | MVM_BUTTON_LEFT_MASK))
+                 == (MVM_BUTTON_DOWN_MASK | MVM_BUTTON_LEFT_MASK)) ? 1u : 0u;
       break;
 
     case '8':
     case MVM_SE_JOY_DOWN_ASCII:
-      pressed = ((ctx->button_state & MVM_KEY_DOWN_MASK) != 0u) ? 1u : 0u;
+      pressed = ((ctx->button_state & MVM_BUTTON_DOWN_MASK) != 0u) ? 1u : 0u;
       break;
 
     case '9':
-      pressed = ((ctx->button_state & (MVM_KEY_DOWN_MASK | MVM_KEY_RIGHT_MASK))
-                 == (MVM_KEY_DOWN_MASK | MVM_KEY_RIGHT_MASK)) ? 1u : 0u;
+      pressed = ((ctx->button_state & (MVM_BUTTON_DOWN_MASK | MVM_BUTTON_RIGHT_MASK))
+                 == (MVM_BUTTON_DOWN_MASK | MVM_BUTTON_RIGHT_MASK)) ? 1u : 0u;
       break;
 
     case '0':
@@ -5448,24 +5725,69 @@ MVM_IMPORT_IMPL(vMsgBox)
   uint32_t title_addr;
   uint32_t message_len;
   uint32_t title_len;
+  uint32_t messageCopyLen;
+  uint32_t titleCopyLen;
+  char messageText[MVM_SYSTEM_MESSAGE_TEXT_SIZE];
+  char titleText[MVM_SYSTEM_MESSAGE_TEXT_SIZE];
 
   flags = ctx->regs[VM_REG_P0];
   message_addr = ctx->regs[VM_REG_P1];
   title_addr = ctx->regs[VM_REG_P2];
   message_len = 0u;
   title_len = 0u;
+  messageCopyLen = 0U;
+  titleCopyLen = 0U;
+  messageText[0] = '\0';
+  titleText[0] = '\0';
 
-  if (message_addr < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, message_addr, 1u))
   {
-    message_len = MVM_RuntimeStrLen(ctx->mem + message_addr, ctx->mem_size - message_addr);
+    message_len = MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, message_addr, 1u),
+                                   MVM_GuestContiguousSize(ctx, message_addr));
   }
 
-  if (title_addr < ctx->mem_size)
+  if (MVM_RuntimeMemRangeOk(ctx, title_addr, 1u))
   {
-    title_len = MVM_RuntimeStrLen(ctx->mem + title_addr, ctx->mem_size - title_addr);
+    title_len = MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, title_addr, 1u),
+                                 MVM_GuestContiguousSize(ctx, title_addr));
+  }
+
+  messageCopyLen = message_len;
+  if (messageCopyLen >= MVM_SYSTEM_MESSAGE_TEXT_SIZE)
+  {
+    messageCopyLen = MVM_SYSTEM_MESSAGE_TEXT_SIZE - 1U;
+  }
+
+  titleCopyLen = title_len;
+  if (titleCopyLen >= MVM_SYSTEM_MESSAGE_TEXT_SIZE)
+  {
+    titleCopyLen = MVM_SYSTEM_MESSAGE_TEXT_SIZE - 1U;
+  }
+
+  if (messageCopyLen > 0U)
+  {
+    memcpy(messageText, MVM_GUEST_CONST_PTR(ctx, message_addr, messageCopyLen), messageCopyLen);
+    messageText[messageCopyLen] = '\0';
+  }
+
+  if (titleCopyLen > 0U)
+  {
+    memcpy(titleText, MVM_GUEST_CONST_PTR(ctx, title_addr, titleCopyLen), titleCopyLen);
+    titleText[titleCopyLen] = '\0';
   }
 
   ctx->regs[VM_REG_R0] = 1u;
+
+  if (ctx->drivers.system_message)
+  {
+    ctx->regs[VM_REG_R0] = ctx->drivers.system_message(
+      ctx->drivers.user,
+      flags,
+      titleText,
+      messageText);
+  }
+
+  MVM_EmitEvent(ctx, MVM_EVENT_SYSTEM_MESSAGE, message_addr, message_len);
 
   if (MVM_lGuestStringEquals(ctx, message_addr, message_len, "The game has expired") ||
       MVM_lGuestStringEquals(ctx, message_addr, message_len, "Game Expired"))
@@ -5484,11 +5806,13 @@ MVM_IMPORT_IMPL(vMsgBox)
             message_addr,
             message_len,
             (int)message_len,
-            (message_addr < ctx->mem_size) ? (const char *)(ctx->mem + message_addr) : "",
+            MVM_RuntimeMemRangeOk(ctx, message_addr, 1u)
+                ? (const char *)MVM_GUEST_CONST_PTR(ctx, message_addr, 1u) : "",
             title_addr,
             title_len,
             (int)title_len,
-            (title_addr < ctx->mem_size) ? (const char *)(ctx->mem + title_addr) : "",
+            MVM_RuntimeMemRangeOk(ctx, title_addr, 1u)
+                ? (const char *)MVM_GUEST_CONST_PTR(ctx, title_addr, 1u) : "",
             ctx->regs[VM_REG_R0]);
 
   return true;
@@ -5748,10 +6072,10 @@ MVM_IMPORT_IMPL(vSpriteBoxCollision)
     return true;
   }
 
-  box_x = (int16_t)vm_read_u16_le(ctx->mem + box_addr + 0u);
-  box_y = (int16_t)vm_read_u16_le(ctx->mem + box_addr + 2u);
-  box_w = vm_read_u16_le(ctx->mem + box_addr + 4u);
-  box_h = vm_read_u16_le(ctx->mem + box_addr + 6u);
+  box_x = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, box_addr + 0u, 2u));
+  box_y = (int16_t)vm_read_u16_le(MVM_GUEST_PTR(ctx, box_addr + 2u, 2u));
+  box_w = vm_read_u16_le(MVM_GUEST_PTR(ctx, box_addr + 4u, 2u));
+  box_h = vm_read_u16_le(MVM_GUEST_PTR(ctx, box_addr + 6u, 2u));
 
   if (slot_to >= ctx->sprite_slot_count)
   {
@@ -6161,8 +6485,8 @@ MVM_IMPORT_IMPL(vUpdateMap)
 
     if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.header_addr + 5u, 2u))
     {
-      ctx->mem[ctx->map_state.header_addr + 5u] = ctx->map_state.animation_count;
-      ctx->mem[ctx->map_state.header_addr + 6u] = ctx->map_state.animation_active;
+      MVM_GUEST_BYTE(ctx, ctx->map_state.header_addr + 5u) = ctx->map_state.animation_count;
+      MVM_GUEST_BYTE(ctx, ctx->map_state.header_addr + 6u) = ctx->map_state.animation_active;
     }
   }
 
@@ -6177,7 +6501,7 @@ MVM_IMPORT_IMPL(vUpdateMap)
     {
       for (index = 0u; index < sample_count; ++index)
       {
-        sample[index] = ctx->mem[ctx->map_state.map_data_addr + index];
+        sample[index] = MVM_GUEST_BYTE(ctx, ctx->map_state.map_data_addr + index);
       }
     }
     else
@@ -6223,7 +6547,9 @@ MVM_IMPORT_IMPL(vUpdateMap)
     tile_size = 64u;
     if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.map_data_addr, sizeof(map_cells)))
     {
-      memcpy(map_cells, ctx->mem + ctx->map_state.map_data_addr, sizeof(map_cells));
+      memcpy(map_cells,
+             MVM_GUEST_CONST_PTR(ctx, ctx->map_state.map_data_addr, sizeof(map_cells)),
+             sizeof(map_cells));
     }
 
     effect_cells = (uint32_t)ctx->map_state.width * (uint32_t)ctx->map_state.height;
@@ -6231,7 +6557,7 @@ MVM_IMPORT_IMPL(vUpdateMap)
     {
       for (index = 0u; index < effect_cells; ++index)
       {
-        uint8_t tile_id = ctx->mem[ctx->map_state.map_data_addr + index * 2u];
+        uint8_t tile_id = MVM_GUEST_BYTE(ctx, ctx->map_state.map_data_addr + index * 2u);
         if (tile_id != 0u)
         {
           ++effect_nonzero_cells;
@@ -6249,15 +6575,19 @@ MVM_IMPORT_IMPL(vUpdateMap)
 
     if (MVM_RuntimeMemRangeOk(ctx, ctx->map_state.tile_data_addr, tile_size * 2u))
     {
-      memcpy(tile_a, ctx->mem + ctx->map_state.tile_data_addr, sizeof(tile_a));
-      memcpy(tile_b, ctx->mem + ctx->map_state.tile_data_addr + tile_size, sizeof(tile_b));
+      memcpy(tile_a,
+             MVM_GUEST_CONST_PTR(ctx, ctx->map_state.tile_data_addr, sizeof(tile_a)),
+             sizeof(tile_a));
+      memcpy(tile_b,
+             MVM_GUEST_CONST_PTR(ctx, ctx->map_state.tile_data_addr + tile_size, sizeof(tile_b)),
+             sizeof(tile_b));
       for (index = 0u; index < tile_size; ++index)
       {
-        if (ctx->mem[ctx->map_state.tile_data_addr + index] != 0u)
+        if (MVM_GUEST_BYTE(ctx, ctx->map_state.tile_data_addr + index) != 0u)
         {
           ++tile_a_nonzero;
         }
-        if (ctx->mem[ctx->map_state.tile_data_addr + tile_size + index] != 0u)
+        if (MVM_GUEST_BYTE(ctx, ctx->map_state.tile_data_addr + tile_size + index) != 0u)
         {
           ++tile_b_nonzero;
         }
@@ -6760,9 +7090,9 @@ MVM_IMPORT_IMPL(vSwap)
   {
     for (left = 0u, right = size - 1u; left < right; ++left, --right)
     {
-      tmp = ctx->mem[ptr + index * size + left];
-      ctx->mem[ptr + index * size + left] = ctx->mem[ptr + index * size + right];
-      ctx->mem[ptr + index * size + right] = tmp;
+      tmp = MVM_GUEST_BYTE(ctx, ptr + index * size + left);
+      MVM_GUEST_BYTE(ctx, ptr + index * size + left) = MVM_GUEST_BYTE(ctx, ptr + index * size + right);
+      MVM_GUEST_BYTE(ctx, ptr + index * size + right) = tmp;
     }
   }
 
@@ -7164,7 +7494,8 @@ MVM_IMPORT_IMPL(vTextExtent)
   uint32_t height;
 
   str = ctx->regs[VM_REG_P0];
-  length = (str < ctx->mem_size) ? MVM_RuntimeStrLen(ctx->mem + str, ctx->mem_size - str) : 0u;
+  length = MVM_RuntimeMemRangeOk(ctx, str, 1u)
+      ? MVM_RuntimeStrLen(MVM_GUEST_CONST_PTR(ctx, str, 1u), MVM_GuestContiguousSize(ctx, str)) : 0u;
   width = MVM_lSystemTextWidth(ctx, str, false);
   height = (length == 0u) ? 0u : MVM_lSystemFontCharHeight(ctx);
   ctx->regs[VM_REG_R0] = MVM_lPackTextExtent(width, height);
@@ -7196,7 +7527,8 @@ MVM_IMPORT_IMPL(vTextExtentU)
   uint32_t height;
 
   str = ctx->regs[VM_REG_P0];
-  length = (str < ctx->mem_size) ? MVM_lUnicodeStrLen(ctx->mem + str, ctx->mem_size - str) : 0u;
+  length = MVM_RuntimeMemRangeOk(ctx, str, 1u)
+      ? MVM_lUnicodeStrLen(MVM_GUEST_CONST_PTR(ctx, str, 1u), MVM_GuestContiguousSize(ctx, str)) : 0u;
   width = MVM_lSystemTextWidth(ctx, str, true);
   height = (length == 0u) ? 0u : MVM_lSystemFontCharHeight(ctx);
   ctx->regs[VM_REG_R0] = MVM_lPackTextExtent(width, height);
@@ -7289,12 +7621,14 @@ MVM_DEFINE_ZERO_STUB(vWaitVBL)
  * Ownership: Uses guest pointers only during the call.
  * Blocking: Non-blocking.
  * Status: Stub.
- * Stub behavior: Logs the call and returns zero for an accepted certificate.
+ * Stub behavior: Supports the observed boolean pointer-only and status-code sized forms.
  */
 MVM_IMPORT_IMPL(vCheckDataCert)
 {
   uint32_t cert_addr;
+  uint32_t cert_size;
   uint32_t result;
+  bool valid;
 
   if (!ctx)
   {
@@ -7302,7 +7636,12 @@ MVM_IMPORT_IMPL(vCheckDataCert)
   }
 
   cert_addr = ctx->regs[VM_REG_P0];
-  result = (cert_addr < ctx->mem_size) ? 0u : 1u;
+  cert_size = ctx->regs[VM_REG_P2];
+  valid = MVM_RuntimeMemRangeOk(ctx, cert_addr, 1u) &&
+          (cert_size == 0u || MVM_RuntimeMemRangeOk(ctx, cert_addr, cert_size));
+
+  /* Observed SDK ABIs use boolean success for the pointer-only form and zero status for the sized form. */
+  result = (cert_size == 0u) ? (valid ? 1u : 0u) : (valid ? 0u : 1u);
   ctx->regs[VM_REG_R0] = result;
   MVM_EmitEvent(ctx, MVM_EVENT_DATA_CERT_CHECKED, MVM_DATA_CERT_SOURCE_MEMORY, result);
 
@@ -7324,7 +7663,7 @@ MVM_IMPORT_IMPL(vCheckDataCert)
  * Ownership: Uses one VM-owned stream handle only for the duration of the call.
  * Blocking: Non-blocking.
  * Status: Stub.
- * Stub behavior: Logs the call and returns zero for an accepted certificate.
+ * Stub behavior: Logs the call and returns non-zero for an accepted certificate.
  */
 MVM_IMPORT_IMPL(vCheckDataCertFile)
 {
@@ -7337,7 +7676,7 @@ MVM_IMPORT_IMPL(vCheckDataCertFile)
   }
 
   handle = ctx->regs[VM_REG_P0];
-  result = (MVM_lFindStream(ctx, handle) != NULL) ? 0u : 1u;
+  result = (MVM_lFindStream(ctx, handle) != NULL) ? 1u : 0u;
   ctx->regs[VM_REG_R0] = result;
   MVM_EmitEvent(ctx, MVM_EVENT_DATA_CERT_CHECKED, MVM_DATA_CERT_SOURCE_STREAM, result);
 
