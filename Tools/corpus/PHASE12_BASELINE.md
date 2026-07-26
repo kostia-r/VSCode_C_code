@@ -70,7 +70,7 @@ Pre-MCU Phase 12 full regression checkpoint (2026-07-19):
 
 The following are existing defects, not automatic Phase 12 regressions:
 
-- system-font and renderer parity defects listed in `MVM/ROADMAP.md`, including
+- system-font and renderer parity defects listed in `ROADMAP.md`, including
   DeepAbyss, HoneyCave/HoneyCave2, FiveStones, SpaceExplorer, and rally titles;
 - VM timing/cadence and scripted-input progression differences from the
   reference emulator;

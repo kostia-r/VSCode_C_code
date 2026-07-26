@@ -1,7 +1,7 @@
 #include "SdlBackend.h"
 
+#include "Logger.h"
 #include "MidiRenderer.h"
-#include "MVM_Render.h"
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -32,21 +32,11 @@
 #define MVM_POINTER_ALTDOWN            (0x00000080U)
 #define MVM_KEY_FIRE2                  (0x00000100U)
 #define SDL_BACKEND_BUTTON_COUNT       (9U)
-#define SOUND_RESOURCE_TYPE_MASK       (0x000000FFU)
-#define SOUND_TYPE_BEEP                (0x00000000U)
-#define SOUND_TYPE_MIDI                (0x00000002U)
-#define SOUND_TYPE_AMR                 (0x00000003U)
 #define SOUND_FLAG_LOOP                (0x00000100U)
 #define SOUND_FLAG_STREAM              (0x00000200U)
 #define SOUND_FLAG_STOP                (0x00000400U)
 #define DEFAULT_SOUNDFONT_PATH         "Assets/DefaultSfBank.bytes"
 #define RECORDING_FPS                  (30U)
-
-#ifdef DEBUG
-#define SDL_BACKEND_LOG_D(...)         printf(__VA_ARGS__)
-#else
-#define SDL_BACKEND_LOG_D(...)         ((void)0)
-#endif
 
 /*
  * Desktop key mapping aligned with the official Mophun SDK emulator:
@@ -75,10 +65,9 @@ struct SdlBackend
   uint32_t raw_button_state;
   uint32_t pulse_button_state;
   uint32_t synthetic_button_state;
+  uint32_t polled_button_state;
   uint32_t next_repeat_ms[SDL_BACKEND_BUTTON_COUNT];
-  uint32_t last_frame_serial;
-  uint32_t last_clear_serial;
-  uint32_t last_draw_command_count;
+  uint8_t frame_pending;
   FILE *record_frame_file;
   FILE *record_audio_file;
   FILE *record_meta_file;
@@ -87,6 +76,8 @@ struct SdlBackend
   uint32_t record_frame_count;
   uint32_t record_audio_sample_count;
   uint32_t record_audio_bytes;
+  MVM_LogLevel_t log_level;
+  uint32_t log_start_ms;
 #ifdef _WIN32
   char midi_alias[32];
   char midi_path[MAX_PATH];
@@ -107,8 +98,7 @@ static const uint32_t MVM_lSdlButtonMasks[SDL_BACKEND_BUTTON_COUNT] =
   MVM_KEY_FIRE2
 };
 
-static uint32_t sdl_platform_get_ticks_ms(void *user);
-static int sdl_display_flush(void *user, const MVM_Framebuffer_t *framebuffer);
+static void sdl_backend_log(SdlBackend *backend, MVM_LogLevel_t level, const char *format, ...);
 
 static int build_record_path(char *dst, size_t dst_size, const char *dir, const char *name)
 {
@@ -221,7 +211,7 @@ static void record_audio_samples(SdlBackend *backend, const int16_t *samples, ui
     return;
   }
 
-  now_ms = sdl_platform_get_ticks_ms(backend);
+  now_ms = SdlBackend_GetTicks(backend);
   if (now_ms >= backend->record_start_ms)
   {
     record_audio_pad_to_ms(backend, now_ms - backend->record_start_ms);
@@ -243,7 +233,7 @@ static void record_current_frame(SdlBackend *backend)
     return;
   }
 
-  now_ms = sdl_platform_get_ticks_ms(backend);
+  now_ms = SdlBackend_GetTicks(backend);
   if (now_ms < backend->record_start_ms)
   {
     return;
@@ -278,11 +268,27 @@ static void record_current_frame(SdlBackend *backend)
   free(pixels);
 }
 
-static uint32_t sdl_platform_get_ticks_ms(void *user)
+uint32_t SdlBackend_GetTicks(void *context)
 {
-  (void)user;
+  (void)context;
 
   return (uint32_t)SDL_GetTicks();
+}
+
+static void sdl_backend_log(SdlBackend *backend, MVM_LogLevel_t level, const char *format, ...)
+{
+  uint32_t timestamp_ms;
+  va_list arguments;
+
+  if (!backend || !format || backend->log_level == MVM_LOG_LEVEL_OFF || level > backend->log_level)
+  {
+    return;
+  }
+
+  va_start(arguments, format);
+  timestamp_ms = SdlBackend_GetTicks(backend) - backend->log_start_ms;
+  Logger_VPrintf(timestamp_ms, level, "SDL", "platform", format, arguments);
+  va_end(arguments);
 }
 
 #ifdef _WIN32
@@ -529,133 +535,117 @@ static int is_standard_midi_file(const uint8_t *data, uint32_t length, uint16_t 
   return 1;
 }
 
-static void process_backend_sound_requests(MpnVM_t *vm, SdlBackend *backend)
+int SdlBackend_AudioPlay(void *context, const MVM_AudioRequest_t *request)
 {
-  MVM_SoundRequest_t request;
-  uint32_t type;
-  uint8_t *sound_data;
+  SdlBackend *backend;
+  const uint8_t *sound_data;
 
-  while (MVM_PollSoundRequest(vm, &request))
+  backend = (SdlBackend *)context;
+  if (!backend || !request)
   {
-    if ((request.flags & SOUND_FLAG_STOP) != 0u)
+    return -1;
+  }
+
+  if ((request->flags & SOUND_FLAG_STREAM) != 0u)
+  {
+    sdl_backend_log(backend,
+                    MVM_LOG_LEVEL_WARNING,
+                    "vPlayResource stream playback is not implemented yet: length=%u flags=%08X",
+                    request->length,
+                    request->flags);
+    return -1;
+  }
+
+  if (!request->data || request->length == 0u)
+  {
+    return 0;
+  }
+
+  sound_data = (const uint8_t *)request->data;
+
+  if (request->format == MVM_AUDIO_FORMAT_BEEP)
+  {
+    queue_beep_sequence(backend, sound_data, request->length);
+  }
+  else if (request->format == MVM_AUDIO_FORMAT_MIDI)
+  {
+    uint16_t format = 0u;
+    uint16_t tracks = 0u;
+
+    if (is_standard_midi_file(sound_data, request->length, &format, &tracks))
     {
-      stop_backend_midi(backend);
-      if (backend && backend->audio_device != 0u)
+      int16_t *pcm = NULL;
+      uint32_t sample_count = 0u;
+
+      sdl_backend_log(backend,
+                      MVM_LOG_LEVEL_DEBUG,
+                      "vPlayResource MIDI request: length=%u format=%u tracks=%u loop=%u",
+                      request->length,
+                      (uint32_t)format,
+                      (uint32_t)tracks,
+                      (request->flags & SOUND_FLAG_LOOP) != 0u);
+
+      SdlBackend_AudioStop(backend);
+      if (MidiRenderer_RenderMidi(backend->midi_renderer,
+                                  sound_data,
+                                  request->length,
+                                  (request->flags & SOUND_FLAG_LOOP) != 0u,
+                                  &pcm,
+                                  &sample_count))
       {
-        SDL_ClearQueuedAudio(backend->audio_device);
+        (void)SDL_QueueAudio(backend->audio_device, pcm, sample_count * sizeof(*pcm));
+        record_audio_samples(backend, pcm, sample_count);
+        SDL_PauseAudioDevice(backend->audio_device, 0);
+        free(pcm);
       }
-      continue;
-    }
-
-    if ((request.flags & SOUND_FLAG_STREAM) != 0u)
-    {
-      fprintf(stderr,
-              "vPlayResource stream playback is not implemented yet: handle=%08X length=%u flags=%08X\n",
-              request.data,
-              request.length,
-              request.flags);
-      continue;
-    }
-
-    if (request.length == 0u)
-    {
-      continue;
-    }
-
-    sound_data = (uint8_t *)malloc((size_t)request.length);
-    if (!sound_data)
-    {
-      continue;
-    }
-
-    if (!MVM_ReadGuestMemory(vm, request.data, sound_data, (size_t)request.length))
-    {
-      fprintf(stderr,
-              "vPlayResource guest memory read failed: data=%08X length=%u flags=%08X\n",
-              request.data,
-              request.length,
-              request.flags);
-      free(sound_data);
-      continue;
-    }
-
-    type = request.flags & SOUND_RESOURCE_TYPE_MASK;
-    if (type == SOUND_TYPE_BEEP)
-    {
-      queue_beep_sequence(backend, sound_data, request.length);
-    }
-    else if (type == SOUND_TYPE_MIDI)
-    {
-      uint16_t format = 0u;
-      uint16_t tracks = 0u;
-
-      if (is_standard_midi_file(sound_data, request.length, &format, &tracks))
+      else if (!play_backend_midi(backend,
+                                  sound_data,
+                                  request->length,
+                                  (request->flags & SOUND_FLAG_LOOP) != 0u))
       {
-        int16_t *pcm = NULL;
-        uint32_t sample_count = 0u;
-
-        SDL_BACKEND_LOG_D("vPlayResource MIDI request: data=%08X length=%u format=%u tracks=%u loop=%u\n",
-                          request.data,
-                          request.length,
-                          (uint32_t)format,
-                          (uint32_t)tracks,
-                          (request.flags & SOUND_FLAG_LOOP) != 0u);
-
-        stop_backend_midi(backend);
-        if (backend && backend->audio_device != 0u)
-        {
-          SDL_ClearQueuedAudio(backend->audio_device);
-        }
-
-        if (MidiRenderer_RenderMidi(backend->midi_renderer,
-                                    sound_data,
-                                    request.length,
-                                    (request.flags & SOUND_FLAG_LOOP) != 0u,
-                                    &pcm,
-                                    &sample_count))
-        {
-          (void)SDL_QueueAudio(backend->audio_device, pcm, sample_count * sizeof(*pcm));
-          record_audio_samples(backend, pcm, sample_count);
-          SDL_PauseAudioDevice(backend->audio_device, 0);
-          free(pcm);
-        }
-        else if (!play_backend_midi(backend,
-                                    sound_data,
-                                    request.length,
-                                    (request.flags & SOUND_FLAG_LOOP) != 0u))
-        {
-          queue_square_tone(backend, 880u, 70u, 80u);
-        }
+        queue_square_tone(backend, 880u, 70u, 80u);
       }
-      else
-      {
-        fprintf(stderr,
-                "vPlayResource MIDI data is not SMF: data=%08X length=%u flags=%08X\n",
-                request.data,
-                request.length,
-                request.flags);
-        queue_square_tone(backend, 330u, 70u, 48u);
-      }
-    }
-    else if (type == SOUND_TYPE_AMR)
-    {
-      fprintf(stderr,
-              "vPlayResource AMR playback is not implemented yet: data=%08X length=%u flags=%08X\n",
-              request.data,
-              request.length,
-              request.flags);
     }
     else
     {
-      fprintf(stderr,
-              "vPlayResource unsupported sound type: type=%u data=%08X length=%u flags=%08X\n",
-              type,
-              request.data,
-              request.length,
-              request.flags);
+      sdl_backend_log(backend,
+                      MVM_LOG_LEVEL_WARNING,
+                      "vPlayResource MIDI data is not SMF: length=%u flags=%08X",
+                      request->length,
+                      request->flags);
+      queue_square_tone(backend, 330u, 70u, 48u);
     }
+  }
+  else if (request->format == MVM_AUDIO_FORMAT_AMR)
+  {
+    sdl_backend_log(backend,
+                    MVM_LOG_LEVEL_WARNING,
+                    "vPlayResource AMR playback is not implemented yet: length=%u flags=%08X",
+                    request->length,
+                    request->flags);
+  }
+  else
+  {
+    sdl_backend_log(backend,
+                    MVM_LOG_LEVEL_WARNING,
+                    "vPlayResource unsupported sound type: format=%u length=%u flags=%08X",
+                    (uint32_t)request->format,
+                    request->length,
+                    request->flags);
+  }
 
-    free(sound_data);
+  return 0;
+}
+
+void SdlBackend_AudioStop(void *context)
+{
+  SdlBackend *backend;
+
+  backend = (SdlBackend *)context;
+  stop_backend_midi(backend);
+  if (backend && backend->audio_device != 0u)
+  {
+    SDL_ClearQueuedAudio(backend->audio_device);
   }
 }
 
@@ -669,7 +659,7 @@ static void update_backend_raw_button_mask(SdlBackend *backend, uint32_t mask, i
     return;
   }
 
-  now_ms = sdl_platform_get_ticks_ms(backend);
+  now_ms = SdlBackend_GetTicks(backend);
   for (i = 0u; i < SDL_BACKEND_BUTTON_COUNT; ++i)
   {
     if ((mask & MVM_lSdlButtonMasks[i]) == 0u)
@@ -792,7 +782,7 @@ static void refresh_backend_button_pulses(SdlBackend *backend)
     return;
   }
 
-  now_ms = sdl_platform_get_ticks_ms(backend);
+  now_ms = SdlBackend_GetTicks(backend);
   for (i = 0u; i < SDL_BACKEND_BUTTON_COUNT; ++i)
   {
     if ((backend->raw_button_state & MVM_lSdlButtonMasks[i]) == 0u)
@@ -815,7 +805,7 @@ static void refresh_backend_button_pulses(SdlBackend *backend)
   }
 }
 
-SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
+SdlBackend *SdlBackend_Create(const MVM_DeviceProfile_t *profile)
 {
   SdlBackend *backend;
   uint32_t width;
@@ -827,7 +817,6 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
     return NULL;
   }
 
-  backend->last_clear_serial = 0xFFFFFFFFu;
   width = 320u;
   height = 240u;
   if (profile)
@@ -948,16 +937,15 @@ SdlBackend *SdlBackend_Create(const MpnDevProfile_t *profile)
   return backend;
 }
 
-void SdlBackend_ConfigureDrivers(MVM_Config_t *config, SdlBackend *backend)
+void SdlBackend_SetLogLevel(SdlBackend *backend, MVM_LogLevel_t level)
 {
-  if (!config || !backend)
+  if (!backend)
   {
     return;
   }
 
-  config->drivers.user = backend;
-  config->drivers.display_flush = sdl_display_flush;
-  config->drivers.get_ticks_ms = sdl_platform_get_ticks_ms;
+  backend->log_level = level;
+  backend->log_start_ms = SdlBackend_GetTicks(backend);
 }
 
 int SdlBackend_StartRecording(SdlBackend *backend, const char *record_dir)
@@ -1012,7 +1000,7 @@ int SdlBackend_StartRecording(SdlBackend *backend, const char *record_dir)
     }
   }
 
-  backend->record_start_ms = sdl_platform_get_ticks_ms(backend);
+  backend->record_start_ms = SdlBackend_GetTicks(backend);
   backend->record_next_frame_ms = 0u;
   backend->record_frame_count = 0u;
   backend->record_audio_sample_count = 0u;
@@ -1119,16 +1107,6 @@ void SdlBackend_Destroy(SdlBackend *backend)
   free(backend);
 }
 
-void SdlBackend_AttachVmTiming(MpnVM_t *vm, SdlBackend *backend)
-{
-  if (!vm || !backend)
-  {
-    return;
-  }
-
-  (void)MVM_SetTickProvider(vm, backend, sdl_platform_get_ticks_ms);
-}
-
 void SdlBackend_SetSyntheticButtons(SdlBackend *backend, uint32_t button_mask)
 {
   if (!backend)
@@ -1139,21 +1117,15 @@ void SdlBackend_SetSyntheticButtons(SdlBackend *backend, uint32_t button_mask)
   backend->synthetic_button_state = button_mask;
 }
 
-void SdlBackend_SyncInputToVm(MpnVM_t *vm, SdlBackend *backend)
+uint32_t SdlBackend_InputGetButtons(void *context)
 {
-  if (!vm || !backend)
-  {
-    return;
-  }
+  const SdlBackend *backend;
 
-  (void)MVM_SetButtonState(vm,
-                           backend->raw_button_state |
-                           backend->pulse_button_state |
-                           backend->synthetic_button_state);
-  backend->pulse_button_state = 0u;
+  backend = (const SdlBackend *)context;
+  return backend ? backend->polled_button_state : 0U;
 }
 
-int SdlBackend_PumpEvents(MpnVM_t *vm, SdlBackend *backend)
+int SdlBackend_PumpEvents(MVM_Instance_t *vm, SdlBackend *backend)
 {
   SDL_Event event;
   int quit_requested;
@@ -1178,15 +1150,16 @@ int SdlBackend_PumpEvents(MpnVM_t *vm, SdlBackend *backend)
   }
 
   refresh_backend_button_pulses(backend);
-  SdlBackend_SyncInputToVm(vm, backend);
-  process_backend_sound_requests(vm, backend);
+  backend->polled_button_state = backend->raw_button_state |
+                                 backend->pulse_button_state |
+                                 backend->synthetic_button_state;
+  backend->pulse_button_state = 0U;
 
   return quit_requested;
 }
 
-void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
+void SdlBackend_Present(MVM_Instance_t *vm, SdlBackend *backend)
 {
-  MVM_RenderFrameInfo_t frame_info;
   int frame_changed;
 
   if (!backend || !backend->renderer || !backend->framebuffer || !backend->displaybuffer || !vm)
@@ -1194,19 +1167,7 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     return;
   }
 
-  process_backend_sound_requests(vm, backend);
-
-  if (!MVM_RenderGetFrameInfo(vm, &frame_info))
-  {
-    return;
-  }
-
-  frame_changed = (frame_info.frame_serial != backend->last_frame_serial);
-
-  if (frame_info.frame_serial != backend->last_frame_serial)
-  {
-    backend->last_frame_serial = frame_info.frame_serial;
-  }
+  frame_changed = backend->frame_pending;
 
   if (frame_changed)
   {
@@ -1226,16 +1187,18 @@ void SdlBackend_Present(MpnVM_t *vm, SdlBackend *backend)
     SDL_RenderClear(backend->renderer);
     SDL_RenderCopy(backend->renderer, backend->displaybuffer, NULL, NULL);
     SDL_RenderPresent(backend->renderer);
+    backend->frame_pending = 0U;
   }
 }
 
-static int sdl_display_flush(void *user, const MVM_Framebuffer_t *framebuffer)
+int SdlBackend_DisplayFlush(void *context, const MVM_Framebuffer_t *framebuffer)
 {
   SdlBackend *backend;
   SDL_Rect dirtyRect;
   const uint8_t *pixels;
+  int result;
 
-  backend = (SdlBackend *)user;
+  backend = (SdlBackend *)context;
   if (!backend || !backend->framebuffer || !framebuffer || !framebuffer->pixels ||
       framebuffer->pixel_format != MVM_PIXEL_FORMAT_RGB565 ||
       framebuffer->width != backend->width || framebuffer->height != backend->height)
@@ -1245,29 +1208,37 @@ static int sdl_display_flush(void *user, const MVM_Framebuffer_t *framebuffer)
 
   if (framebuffer->dirty_rect.width == 0u || framebuffer->dirty_rect.height == 0u)
   {
-    return SDL_UpdateTexture(backend->framebuffer,
-                             NULL,
-                             framebuffer->pixels,
-                             (int)framebuffer->stride_bytes);
+    result = SDL_UpdateTexture(backend->framebuffer,
+                               NULL,
+                               framebuffer->pixels,
+                               (int)framebuffer->stride_bytes);
+  }
+  else
+  {
+    dirtyRect.x = (int)framebuffer->dirty_rect.x;
+    dirtyRect.y = (int)framebuffer->dirty_rect.y;
+    dirtyRect.w = (int)framebuffer->dirty_rect.width;
+    dirtyRect.h = (int)framebuffer->dirty_rect.height;
+    pixels = (const uint8_t *)framebuffer->pixels +
+             (size_t)dirtyRect.y * framebuffer->stride_bytes +
+             (size_t)dirtyRect.x * sizeof(uint16_t);
+    result = SDL_UpdateTexture(backend->framebuffer,
+                               &dirtyRect,
+                               pixels,
+                               (int)framebuffer->stride_bytes);
   }
 
-  dirtyRect.x = (int)framebuffer->dirty_rect.x;
-  dirtyRect.y = (int)framebuffer->dirty_rect.y;
-  dirtyRect.w = (int)framebuffer->dirty_rect.width;
-  dirtyRect.h = (int)framebuffer->dirty_rect.height;
-  pixels = (const uint8_t *)framebuffer->pixels +
-           (size_t)dirtyRect.y * framebuffer->stride_bytes +
-           (size_t)dirtyRect.x * sizeof(uint16_t);
+  if (result == 0)
+  {
+    backend->frame_pending = 1U;
+  }
 
-  return SDL_UpdateTexture(backend->framebuffer,
-                           &dirtyRect,
-                           pixels,
-                           (int)framebuffer->stride_bytes);
+  return result;
 }
 
 uint32_t SdlBackend_GetTicksMs(SdlBackend *backend)
 {
-  return sdl_platform_get_ticks_ms(backend);
+  return SdlBackend_GetTicks(backend);
 }
 
 void SdlBackend_Delay(uint32_t delay_ms)

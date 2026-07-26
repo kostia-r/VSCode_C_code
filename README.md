@@ -10,9 +10,8 @@ The current desktop runner supports the Sony Ericsson T310 and T610 profiles.
 
 ## Start here
 
-- Component architecture and integration: [`MVM/README.md`](MVM/README.md)
-- Current roadmap and known defects: [`MVM/ROADMAP.md`](MVM/ROADMAP.md)
-- Component coding rules: [`MVM/STYLE_GUIDE.md`](MVM/STYLE_GUIDE.md)
+- Component architecture and integration: [`OpenMophun/README.md`](OpenMophun/README.md)
+- Current roadmap and known defects: [`ROADMAP.md`](ROADMAP.md)
 - Corpus runner and scripted input: [`Tools/corpus/README.md`](Tools/corpus/README.md)
 - Persistent agent/workspace context: [`AGENTS.md`](AGENTS.md)
 - Surrounding SDK and reference inventory:
@@ -45,3 +44,28 @@ corpus-run.bat -Manifest Tools\corpus\smoke-manifest.json -OutRoot Runs\Smoke
 
 `Build/` and `Runs/` are generated artifacts. The core VM does not depend on
 SDL or Windows; those dependencies belong to the bundled desktop host.
+
+## STM32F407VET6 resource estimate
+
+The current OpenMophun library was compiled with Arm GNU Toolchain 15.3.1 for
+Cortex-M4 Thumb using `-Os`, function/data sections, stack-usage reporting, and
+`-Werror`.
+
+| Resource | Measurement |
+| --- | ---: |
+| Library code and constants | 48,857 bytes |
+| Library initialized data | 0 bytes |
+| Library object BSS | 32 bytes |
+| Opaque VM instance | 6,740 bytes |
+| Largest static function frame | 592 bytes |
+| Estimated T310 working RAM | 55.2-105.6 KiB |
+| Estimated T610 working RAM | 98.5-123.6 KiB |
+
+The measured library fits the STM32F407VET6's 512 KiB Flash and 192 KiB
+SRAM/CCM budget. The worst projected game leaves approximately 68 KiB for the
+BSP, stacks, filesystem state, and device buffers.
+
+The final firmware must account for memory-bank placement: DMA-visible buffers
+cannot reside in CCM, while the opaque VM instance and CPU-only state can.
+Linker-map validation, interrupt-stack measurements, and real BSP integration
+are reserved for the hardware bring-up phase.

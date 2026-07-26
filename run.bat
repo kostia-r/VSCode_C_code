@@ -4,8 +4,8 @@ setlocal
 pushd "%~dp0"
 
 set "SDL2_BIN=%CD%\SDL2-2.32.6\x86_64-w64-mingw32\bin"
-rem set "DEFAULT_PROFILE=SE_T310"
-set "DEFAULT_PROFILE=SE_T610"
+set "DEFAULT_PROFILE=SE_T310"
+rem set "DEFAULT_PROFILE=SE_T610"
 set "DEFAULT_FIXED_DATE_TIME=2003-11-04T12:00:00"
 set "DEFAULT_MAX_STEPS=100000000"
 set "DEFAULT_MAX_LOGGED_CALLS=0"
@@ -19,7 +19,7 @@ if not exist "%CD%\Build" (
 
 for %%I in ("%CD%") do set "APP_NAME=%%~nxI"
 set "EXE=%CD%\%APP_NAME%.exe"
-rem set "DEFAULT_MPN=%CD%\mpn\T310\DeepAbyss_v.1.4_T310_decrypted.mpn"
+set "DEFAULT_MPN=%CD%\mpn\T310\DeepAbyss_v.1.4_T310_decrypted.mpn"
 rem set "DEFAULT_MPN=%CD%\mpn\T310\DeepAbyss_v.1.1_T310_decrypted.mpn"
 rem set "DEFAULT_MPN=%CD%\mpn\T610\DeepAbyss_v.1.4_T610_decrypted.mpn"
 rem set "DEFAULT_MPN=%CD%\mpn\T610\VRally_T610_decrypted.mpn"
@@ -34,7 +34,8 @@ rem set "DEFAULT_MPN=%CD%\mpn\T310\HoneyCave_T310_decrypted.mpn"
 
 rem set "DEFAULT_MPN=%CD%\mpn\T610\CMRally4_T610_decrypted.mpn"
 rem set "DEFAULT_MPN=%CD%\mpn\T610\SpaceExplorer_T610_decrypted.mpn"
-set "DEFAULT_MPN=%CD%\mpn\T610\jbubble_T610_decrypted.mpn"
+rem set "DEFAULT_MPN=%CD%\mpn\T610\jbubble_T610_decrypted.mpn"
+rem set "DEFAULT_MPN=%CD%\mpn\T610\IcebloxPlus610_T610_decrypted.mpn"
 
 if not exist "%EXE%" (
     echo Executable not found: %EXE%

@@ -1,17 +1,40 @@
+/**********************************************************************************************************************
+ * FILE DESCRIPTION
+ * --------------------------------------------------------------------------------------------------------------------
+ * Project:      OpenMophun
+ * Component:    Desktop example
+ * File:         main.c
+ * Description:  Bare-metal-style MVM integration using desktop host services.
+ *********************************************************************************************************************/
+
+/**********************************************************************************************************************
+ *  INCLUDES
+ *********************************************************************************************************************/
+
 #include "MVM.h"
-#include "MVM_Cfg.h"
-#include "MVM_Device.h"
+#include "FileApi.h"
 #include "InputScript.h"
+#include "Logger.h"
 #include "SdlBackend.h"
-#include "VmRunner.h"
 
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/**********************************************************************************************************************
+ *  LOCAL DEFINES
+ *********************************************************************************************************************/
+
 #define MAX_STEPS_DEFAULT              (100000000U)
 #define MAX_LOGGED_CALLS_DEFAULT       (0U)
+#define DESKTOP_RUNTIME_POOL_SIZE      (1024U * 1024U)
+#define VM_STEPS_PER_HOST_ITERATION    (5000U)
+#define HOST_LOOP_DELAY_MS             (1U)
+
+/**********************************************************************************************************************
+ *  LOCAL TYPES
+ *********************************************************************************************************************/
 
 /**
  * @brief Describes parsed command-line options for the VM runner.
@@ -29,87 +52,162 @@ typedef struct AppOptions
 } AppOptions;
 
 /**
- * @brief Describes one file-backed image source.
+ * @brief Owns every resource used by one desktop VM instance.
  */
-typedef struct FileImageSource
+typedef struct AppContext
 {
-  FILE *file;
-  size_t size;
-} FileImageSource;
+  MVM_InitConfig_t config;
+  MVM_Instance_t *vm;
+  void *vm_storage;
+  void *runtime_pool;
+  SdlBackend *platform;
+  InputScript *input_script;
+} AppContext;
 
-/**
- * @brief Returns the selected built-in device profile or the default one.
- */
-static const MpnDevProfile_t *resolve_device_profile(const char *profile_name)
+/**********************************************************************************************************************
+ *  LOCAL FUNCTION PROTOTYPES
+ *********************************************************************************************************************/
+
+static void print_usage(const char *program_name);
+static int is_numeric_arg(const char *value);
+static int parse_fixed_date_time(const char *value,
+                                 uint16_t *year,
+                                 uint8_t *month,
+                                 uint8_t *day,
+                                 uint8_t *hour,
+                                 uint8_t *minute,
+                                 uint8_t *second);
+static int parse_options(int argc, char **argv, AppOptions *options);
+static void print_stop_summary(MVM_Instance_t *vm);
+static void deinit_application(AppContext *app);
+static int init_application(AppContext *app, const AppOptions *options);
+
+/**********************************************************************************************************************
+ *  LOCAL CONSTANTS
+ *********************************************************************************************************************/
+
+static const MVM_DeviceProfile_t MVM_lProfiles[] =
 {
-  if (profile_name)
   {
-    return MVM_FindDevProfileByName(profile_name);
-  }
-
-  if (MVM_GetDevProfileCount() == 0u)
+    .name = "SE_T310",
+    .screen_width = 101U,
+    .screen_height = 80U,
+    .color_mode = 0x0008U,
+    .sound_flags = 0x0099U,
+    .system_flags = 0x0025U,
+    .key_layout = 0x0001U,
+    .frame_interval_ms = 16U,
+    .device_id = (((uint32_t)1U << 16) | 3U),
+    .supported_caps = MVM_DEVICE_CAP_VIDEO |
+                      MVM_DEVICE_CAP_INPUT |
+                      MVM_DEVICE_CAP_SOUND |
+                      MVM_DEVICE_CAP_COMM |
+                      MVM_DEVICE_CAP_SYSTEM
+  },
   {
-    return NULL;
+    .name = "SE_T610",
+    .screen_width = 128U,
+    .screen_height = 160U,
+    .color_mode = 0x0008U,
+    .sound_flags = 0x0099U,
+    .system_flags = 0x0025U,
+    .key_layout = 0x0001U,
+    .frame_interval_ms = 16U,
+    .device_id = (((uint32_t)2U << 16) | 3U),
+    .supported_caps = MVM_DEVICE_CAP_VIDEO |
+                      MVM_DEVICE_CAP_INPUT |
+                      MVM_DEVICE_CAP_SOUND |
+                      MVM_DEVICE_CAP_COMM |
+                      MVM_DEVICE_CAP_SYSTEM
   }
+};
 
-  return MVM_GetDevProfile(0u);
-}
+/**********************************************************************************************************************
+ *  GLOBAL FUNCTIONS
+ *********************************************************************************************************************/
 
-/**
- * @brief Opens one image file for source-backed access.
- */
-static int open_image_source(const char *path, FileImageSource *provider)
+int main(int argc, char **argv)
 {
-  long size;
+  AppContext app;
+  AppOptions options;
+  MVM_RetCode_t run_status;
+  uint32_t start_ms;
+  uint32_t elapsed_ms;
+  uint32_t remaining_steps;
+  uint32_t step_budget;
+  uint32_t executed_steps;
+  int exit_code;
 
-  provider->file = fopen(path, "rb+");
-  if (!provider->file)
+  /* Reject an invalid command line before acquiring application resources. */
+  if (!parse_options(argc, argv, &options))
   {
-    provider->file = fopen(path, "rb");
+    return 1;
   }
 
-  if (!provider->file)
+  /* Initialize the desktop services and one isolated VM instance. */
+  if (!init_application(&app, &options))
   {
-    fprintf(stderr, "Failed to open: %s\n", path);
-
-    return 0;
+    deinit_application(&app);
+    return 1;
   }
 
-  if (fseek(provider->file, 0, SEEK_END) != 0)
-  {
-    fclose(provider->file);
-    provider->file = NULL;
+  MVM_DumpVmgpSummary(app.vm);
+  MVM_DumpVmgpImports(app.vm, 64U);
+  SdlBackend_Present(app.vm, app.platform);
 
-    return 0;
+  start_ms = SdlBackend_GetTicksMs(app.platform);
+  remaining_steps = options.max_steps;
+
+  /* Execute one bounded VM batch per parent-loop iteration. */
+  while ((MVM_GetState(app.vm) == MVM_STATE_READY || MVM_GetState(app.vm) == MVM_STATE_RUNNING) &&
+         remaining_steps != 0U)
+  {
+    elapsed_ms = SdlBackend_GetTicksMs(app.platform) - start_ms;
+
+    /* Apply scripted keyboard input before the next VM batch. */
+    if (app.input_script)
+    {
+      SdlBackend_SetSyntheticButtons(app.platform,
+                                     InputScript_GetButtonMask(app.input_script, elapsed_ms));
+    }
+
+    /* Stop when the desktop window requests shutdown. */
+    if (SdlBackend_PumpEvents(app.vm, app.platform))
+    {
+      break;
+    }
+
+    step_budget = remaining_steps < VM_STEPS_PER_HOST_ITERATION
+                    ? remaining_steps
+                    : VM_STEPS_PER_HOST_ITERATION;
+    run_status = MVM_RunFrame(app.vm, step_budget, &executed_steps);
+    remaining_steps -= executed_steps;
+    SdlBackend_Present(app.vm, app.platform);
+
+    elapsed_ms = SdlBackend_GetTicksMs(app.platform) - start_ms;
+
+    /* Stop on an execution failure, no progress, or a configured parent limit. */
+    if (run_status != MVM_OK ||
+        executed_steps == 0U ||
+        (options.max_logged_calls != 0U && MVM_GetLoggedCalls(app.vm) >= options.max_logged_calls) ||
+        (options.duration_ms != 0U && elapsed_ms >= options.duration_ms))
+    {
+      break;
+    }
+
+    SdlBackend_Delay(HOST_LOOP_DELAY_MS);
   }
 
-  size = ftell(provider->file);
-  if (size < 0)
-  {
-    fclose(provider->file);
-    provider->file = NULL;
+  print_stop_summary(app.vm);
+  exit_code = MVM_GetState(app.vm) == MVM_STATE_ERROR ? 2 : 0;
+  deinit_application(&app);
 
-    return 0;
-  }
+  return exit_code;
+} /* End of main */
 
-  rewind(provider->file);
-  provider->size = (size_t)size;
-
-  return 1;
-}
-
-/**
- * @brief Closes one file-backed image source.
- */
-static void close_image_source(FileImageSource *provider)
-{
-  if (provider && provider->file)
-  {
-    fclose(provider->file);
-    provider->file = NULL;
-    provider->size = 0u;
-  }
-}
+/**********************************************************************************************************************
+ *  LOCAL FUNCTIONS
+ *********************************************************************************************************************/
 
 /**
  * @brief Prints the command-line usage string.
@@ -124,44 +222,23 @@ static void print_usage(const char *program_name)
 }
 
 /**
- * @brief Prints the names of all configured device profiles.
- */
-static void print_available_profiles(void)
-{
-  uint32_t i;
-  uint32_t profile_count;
-  const MpnDevProfile_t *profile;
-
-  fprintf(stderr, "Available profiles:");
-
-  profile_count = MVM_GetDevProfileCount();
-  for (i = 0u; i < profile_count; ++i)
-  {
-    profile = MVM_GetDevProfile(i);
-    if (profile && profile->name)
-    {
-      fprintf(stderr, " %s", profile->name);
-    }
-  }
-
-  fprintf(stderr, "\n");
-}
-
-/**
  * @brief Checks whether one argument contains only decimal digits.
  */
 static int is_numeric_arg(const char *value)
 {
   const unsigned char *p;
 
+  /* Reject null and empty values. */
   if (!value || !*value)
   {
     return 0;
   }
 
   p = (const unsigned char *)value;
+  /* Validate every character before converting the argument. */
   while (*p != '\0')
   {
+    /* Reject the first non-decimal character. */
     if (!isdigit(*p))
     {
       return 0;
@@ -190,11 +267,13 @@ static int parse_fixed_date_time(const char *value,
   unsigned parsed_minute;
   unsigned parsed_second;
 
+  /* Require every destination used by the parser. */
   if (!value || !year || !month || !day || !hour || !minute || !second)
   {
     return 0;
   }
 
+  /* Parse the complete ISO-like date/time form. */
   if (sscanf(value,
              "%u-%u-%uT%u:%u:%u",
              &parsed_year,
@@ -207,6 +286,7 @@ static int parse_fixed_date_time(const char *value,
     return 0;
   }
 
+  /* Reject fields that cannot fit the public fixed-date types. */
   if (parsed_year > 65535u || parsed_month > 255u || parsed_day > 255u ||
       parsed_hour > 255u || parsed_minute > 255u || parsed_second > 255u)
   {
@@ -231,6 +311,7 @@ static int parse_options(int argc, char **argv, AppOptions *options)
   int arg_index;
   int numeric_count;
 
+  /* Require the decrypted image path. */
   if (argc < 2)
   {
     print_usage(argv[0]);
@@ -249,13 +330,16 @@ static int parse_options(int argc, char **argv, AppOptions *options)
 
   arg_index = 2;
   numeric_count = 0;
+  /* Parse each optional or positional runner argument once. */
   while (arg_index < argc)
   {
     const char *arg;
 
     arg = argv[arg_index];
+    /* Parse the optional wall-clock run limit. */
     if (strcmp(arg, "--duration-ms") == 0)
     {
+      /* Require a decimal value after the option. */
       if (++arg_index >= argc || !is_numeric_arg(argv[arg_index]))
       {
         print_usage(argv[0]);
@@ -263,8 +347,10 @@ static int parse_options(int argc, char **argv, AppOptions *options)
       }
       options->duration_ms = (uint32_t)strtoul(argv[arg_index], NULL, 0);
     }
+    /* Parse the optional scripted keyboard input. */
     else if (strcmp(arg, "--input-script") == 0)
     {
+      /* Require a path after the option. */
       if (++arg_index >= argc)
       {
         print_usage(argv[0]);
@@ -272,8 +358,10 @@ static int parse_options(int argc, char **argv, AppOptions *options)
       }
       options->input_script_path = argv[arg_index];
     }
+    /* Parse the optional frame recording directory. */
     else if (strcmp(arg, "--record-dir") == 0)
     {
+      /* Require a path after the option. */
       if (++arg_index >= argc)
       {
         print_usage(argv[0]);
@@ -281,8 +369,10 @@ static int parse_options(int argc, char **argv, AppOptions *options)
       }
       options->record_dir = argv[arg_index];
     }
+    /* Parse the deterministic certificate date/time. */
     else if (strcmp(arg, "--fixed-date-time") == 0)
     {
+      /* Require a date/time string after the option. */
       if (++arg_index >= argc)
       {
         print_usage(argv[0]);
@@ -290,28 +380,34 @@ static int parse_options(int argc, char **argv, AppOptions *options)
       }
       options->fixed_date_time = argv[arg_index];
     }
+    /* Reject unsupported named options. */
     else if (arg[0] == '-' && arg[1] == '-')
     {
       fprintf(stderr, "Unknown option: %s\n", arg);
       print_usage(argv[0]);
       return 0;
     }
+    /* Assign the remaining positional arguments in their documented order. */
     else
     {
+      /* Treat the first non-numeric positional value as the profile name. */
       if (!options->profile_name && numeric_count == 0 && !is_numeric_arg(arg))
       {
         options->profile_name = arg;
       }
+      /* Treat the first numeric positional value as the step limit. */
       else if (numeric_count == 0 && is_numeric_arg(arg))
       {
         options->max_steps = (uint32_t)strtoul(arg, NULL, 0);
         ++numeric_count;
       }
+      /* Treat the second numeric positional value as the log-call limit. */
       else if (numeric_count == 1 && is_numeric_arg(arg))
       {
         options->max_logged_calls = (uint32_t)strtoul(arg, NULL, 0);
         ++numeric_count;
       }
+      /* Reject ambiguous or extra positional values. */
       else
       {
         print_usage(argv[0]);
@@ -325,49 +421,9 @@ static int parse_options(int argc, char **argv, AppOptions *options)
 }
 
 /**
- * @brief Selects the active device profile for the current run.
- */
-static int validate_device_profile(const char *profile_name)
-{
-  if (!profile_name)
-  {
-    return 1;
-  }
-
-  if (!MVM_FindDevProfileByName(profile_name))
-  {
-    fprintf(stderr, "Unknown device profile: %s\n", profile_name);
-    print_available_profiles();
-
-    return 0;
-  }
-
-  return 1;
-}
-
-/**
- * @brief Creates a VM view over caller-provided storage.
- */
-static MpnVM_t *create_vm(void *storage)
-{
-  size_t storage_size;
-  MpnVM_t *vm;
-
-  storage_size = MVM_GetStorageSize();
-  vm = MVM_GetVmFromStorage(storage, storage_size);
-
-  return vm;
-}
-
-static uint32_t update_scripted_input(void *user, uint32_t elapsed_ms)
-{
-  return InputScript_GetButtonMask((InputScript *)user, elapsed_ms);
-}
-
-/**
  * @brief Prints the final VM execution summary.
  */
-static void print_stop_summary(MpnVM_t *vm)
+static void print_stop_summary(MVM_Instance_t *vm)
 {
   MVM_State_t state;
   MVM_Err_t error;
@@ -382,6 +438,7 @@ static void print_stop_summary(MpnVM_t *vm)
           MVM_GetLoggedCalls(vm),
           (unsigned)state,
           (unsigned)error);
+  /* Print allocator diagnostics when the VM exposes them. */
   if (MVM_GetHeapStats(vm, &heap_stats) == MVM_OK)
   {
     fprintf(stdout,
@@ -405,178 +462,184 @@ static void print_stop_summary(MpnVM_t *vm)
   }
 }
 
-int main(int argc, char **argv)
+/**
+ * @brief Releases every resource owned by one desktop application instance.
+ */
+static void deinit_application(AppContext *app)
 {
-  AppOptions options;
-  FileImageSource file_provider;
-  MpnImageSource_t image_source;
-  void *vm_storage;
-  MpnVM_t *vm;
-  SdlBackend *backend;
-  InputScript *input_script;
-  VmRunnerOptions runner_options;
+  /* Allow cleanup after a partially completed initialization. */
+  if (!app)
+  {
+    return;
+  }
+
+  /* Deinitialize the VM before releasing its parent-owned memory. */
+  if (app->vm)
+  {
+    MVM_Deinit(app->vm);
+    app->vm = NULL;
+  }
+
+  free(app->runtime_pool);
+  free(app->vm_storage);
+  app->runtime_pool = NULL;
+  app->vm_storage = NULL;
+
+  SdlBackend_StopRecording(app->platform);
+  InputScript_Destroy(app->input_script);
+  SdlBackend_Destroy(app->platform);
+  app->input_script = NULL;
+  app->platform = NULL;
+}
+
+/**
+ * @brief Creates the desktop platform and one configured VM instance.
+ */
+static int init_application(AppContext *app, const AppOptions *options)
+{
   MVM_MemReqs_t memory_requirements;
-  MVM_Config_t integration_config;
-  const MpnDevProfile_t *profile;
+  const MVM_DeviceProfile_t *profile;
   MVM_RetCode_t retVal;
-  int exit_code;
   uint16_t fixed_year;
   uint8_t fixed_month;
   uint8_t fixed_day;
   uint8_t fixed_hour;
   uint8_t fixed_minute;
   uint8_t fixed_second;
+  uint32_t profile_index;
 
-  file_provider = (FileImageSource){0};
-  image_source = (MpnImageSource_t){0};
-  vm_storage = NULL;
-  vm = NULL;
-  backend = NULL;
-  input_script = NULL;
-  runner_options = (VmRunnerOptions){0};
+  /* Reject invalid integration arguments. */
+  if (!app || !options)
+  {
+    return 0;
+  }
+
+  *app = (AppContext){0};
   memory_requirements = (MVM_MemReqs_t){0};
-  integration_config = MVM_Config;
+
   profile = NULL;
-  retVal = MVM_OK;
-  exit_code = 1;
 
-  if (!parse_options(argc, argv, &options))
+  /* Select the requested profile, or use the first profile by default. */
+  for (profile_index = 0U;
+       profile_index < (uint32_t)(sizeof(MVM_lProfiles) / sizeof(MVM_lProfiles[0]));
+       ++profile_index)
   {
-    return exit_code;
-  }
-
-  /* Validate the requested device profile name before init so the example can
-   * print a friendly list of built-in profiles.
-   */
-  if (!validate_device_profile(options.profile_name))
-  {
-    return exit_code;
-  }
-
-  profile = resolve_device_profile(options.profile_name);
-  if (!profile)
-  {
-    fprintf(stderr, "No built-in device profile is available.\n");
-
-    return exit_code;
-  }
-
-  backend = SdlBackend_Create(profile);
-  if (!backend)
-  {
-    return exit_code;
-  }
-  integration_config.device_profile = profile;
-  SdlBackend_ConfigureDrivers(&integration_config, backend);
-
-  if (options.input_script_path)
-  {
-    input_script = InputScript_Load(options.input_script_path);
-    if (!input_script || InputScript_GetLastError(input_script)[0] != '\0')
+    if (!options->profile_name || strcmp(MVM_lProfiles[profile_index].name, options->profile_name) == 0)
     {
-      fprintf(stderr,
-              "Could not load input script: %s (%s)\n",
-              options.input_script_path,
-              InputScript_GetLastError(input_script));
-      InputScript_Destroy(input_script);
-      SdlBackend_Destroy(backend);
-
-      return exit_code;
+      profile = &MVM_lProfiles[profile_index];
+      break;
     }
   }
 
-  if (options.record_dir && !SdlBackend_StartRecording(backend, options.record_dir))
+  /* Report the configured choices when the requested profile is unknown. */
+  if (!profile)
   {
-    fprintf(stderr, "Could not start recording in: %s\n", options.record_dir);
-    InputScript_Destroy(input_script);
-    SdlBackend_Destroy(backend);
+    fprintf(stderr, "Unknown device profile: %s\nAvailable profiles:", options->profile_name);
 
-    return exit_code;
+    /* Print every parent-owned profile name to help correct the command line. */
+    for (profile_index = 0U;
+         profile_index < (uint32_t)(sizeof(MVM_lProfiles) / sizeof(MVM_lProfiles[0]));
+         ++profile_index)
+    {
+      fprintf(stderr, " %s", MVM_lProfiles[profile_index].name);
+    }
+
+    fprintf(stderr, "\n");
+    return 0;
   }
 
-  /* This sample integration opens the VMGP image through a file-backed image
-   * source descriptor. The actual read callbacks are compiled into Config/,
-   * so the runner only chooses which image instance to execute.
-   */
-  if (!open_image_source(options.image_path, &file_provider))
+  /* Create desktop I/O services for the selected device geometry. */
+  app->platform = SdlBackend_Create(profile);
+  /* Stop when the desktop backend cannot be created. */
+  if (!app->platform)
   {
-    fprintf(stderr, "Could not load file.\n");
-    SdlBackend_StopRecording(backend);
-    InputScript_Destroy(input_script);
-    SdlBackend_Destroy(backend);
-
-    return exit_code;
+    return 0;
   }
 
-  image_source.user = file_provider.file;
-  image_source.image_size = file_provider.size;
-  image_source.path = options.image_path;
-
-  /* The host owns raw VM storage and asks the library to construct a VM
-   * instance inside that storage block.
-   */
-  vm_storage = malloc(MVM_GetStorageSize());
-  vm = create_vm(vm_storage);
-  if (!vm)
+  /* Load scripted keyboard input only when requested. */
+  if (options->input_script_path)
   {
-    fprintf(stderr, "Could not allocate VM storage.\n");
-    close_image_source(&file_provider);
-    SdlBackend_StopRecording(backend);
-    InputScript_Destroy(input_script);
-    SdlBackend_Destroy(backend);
-    free(vm_storage);
-
-    return exit_code;
+    app->input_script = InputScript_Load(options->input_script_path);
+    /* Reject missing or malformed input scripts. */
+    if (!app->input_script || InputScript_GetLastError(app->input_script)[0] != '\0')
+    {
+      fprintf(stderr,
+              "Could not load input script: %s (%s)\n",
+              options->input_script_path,
+              InputScript_GetLastError(app->input_script));
+      return 0;
+    }
   }
 
-  /* Query image-driven runtime memory needs before init so the integration can
-   * validate its configured runtime pool capacity.
+  /* Start frame recording only when a destination was requested. */
+  if (options->record_dir && !SdlBackend_StartRecording(app->platform, options->record_dir))
+  {
+    fprintf(stderr, "Could not start recording in: %s\n", options->record_dir);
+    return 0;
+  }
+
+  /*
+   * This is the complete integration descriptor. The parent owns the profile,
+   * image path, filesystem API, platform callbacks, and both memory regions.
    */
-  retVal = MVM_QueryMemReqsFromSourceWithConfig(&image_source, &integration_config, &memory_requirements);
+  app->config.profile = *profile;
+  app->config.image_path = options->image_path;
+  app->config.file_api = &FileApi;
+  app->config.log_level = MVM_LOG_LEVEL_INFO;
+  app->config.services.context = app->platform;
+  app->config.services.display_flush = SdlBackend_DisplayFlush;
+  app->config.services.input_get_buttons = SdlBackend_InputGetButtons;
+  app->config.services.audio_play = SdlBackend_AudioPlay;
+  app->config.services.audio_stop = SdlBackend_AudioStop;
+  app->config.services.get_ticks_ms = SdlBackend_GetTicks;
+  app->config.services.get_random = NULL;
+  app->config.services.log = Logger_Log;
+  app->config.services.event = NULL;
+  app->config.services.system_message = NULL;
+  SdlBackend_SetLogLevel(app->platform, app->config.log_level);
+
+  retVal = MVM_QueryMemory(&app->config, &memory_requirements);
+  /* Validate the descriptor before allocating the runtime memory. */
   if (MVM_OK != retVal)
   {
     fprintf(stderr, "Could not query VM memory requirements. ret=%u\n", (unsigned)retVal);
-    MVM_Free(vm);
-    free(vm_storage);
-    close_image_source(&file_provider);
-    SdlBackend_StopRecording(backend);
-    InputScript_Destroy(input_script);
-    SdlBackend_Destroy(backend);
-
-    return exit_code;
+    return 0;
   }
 
-  /* Initialize the VM through the source-based public API. The host only
-   * provides VM storage, the image source, and the optional device profile.
-   */
-  retVal = MVM_InitFromSourceWithConfig(vm, &image_source, options.profile_name, &integration_config);
+  app->vm_storage = malloc(MVM_GetInstanceStorageSize());
+  app->runtime_pool = malloc(DESKTOP_RUNTIME_POOL_SIZE);
+  app->config.runtime_pool = app->runtime_pool;
+  app->config.runtime_pool_size = DESKTOP_RUNTIME_POOL_SIZE;
+  /* Require both parent-owned memory regions. */
+  if (!app->vm_storage || !app->runtime_pool)
+  {
+    fprintf(stderr, "Could not allocate VM instance memory.\n");
+    return 0;
+  }
+
+  retVal = MVM_Init(app->vm_storage, MVM_GetInstanceStorageSize(), &app->config, &app->vm);
+  /* Stop when the library cannot initialize inside the supplied memory. */
   if (MVM_OK != retVal)
   {
     fprintf(stderr,
-            "Failed to initialize VMGP context. ret=%u required_pool=%llu error=%u\n",
+            "Failed to initialize VMGP context. ret=%u required_pool=%llu\n",
             (unsigned)retVal,
-            (unsigned long long)memory_requirements.runtime_pool_bytes,
-            (unsigned)MVM_GetLastError(vm));
-    MVM_Free(vm);
-    free(vm_storage);
-    close_image_source(&file_provider);
-    SdlBackend_StopRecording(backend);
-    InputScript_Destroy(input_script);
-    SdlBackend_Destroy(backend);
-
-    return exit_code;
+            (unsigned long long)memory_requirements.runtime_pool_bytes);
+    return 0;
   }
 
-  if (options.fixed_date_time)
+  /* Apply deterministic time only when requested by the parent. */
+  if (options->fixed_date_time)
   {
-    if (!parse_fixed_date_time(options.fixed_date_time,
+    /* Parse and register the complete fixed date/time atomically. */
+    if (!parse_fixed_date_time(options->fixed_date_time,
                                &fixed_year,
                                &fixed_month,
                                &fixed_day,
                                &fixed_hour,
                                &fixed_minute,
                                &fixed_second) ||
-        MVM_SetFixedDateTime(vm,
+        MVM_SetFixedDateTime(app->vm,
                              fixed_year,
                              fixed_month,
                              fixed_day,
@@ -584,36 +647,14 @@ int main(int argc, char **argv)
                              fixed_minute,
                              fixed_second) != MVM_OK)
     {
-      fprintf(stderr, "Invalid fixed date/time: %s\n", options.fixed_date_time);
-      MVM_Free(vm);
-      free(vm_storage);
-      close_image_source(&file_provider);
-      SdlBackend_StopRecording(backend);
-      InputScript_Destroy(input_script);
-      SdlBackend_Destroy(backend);
-
-      return exit_code;
+      fprintf(stderr, "Invalid fixed date/time: %s\n", options->fixed_date_time);
+      return 0;
     }
   }
 
-  /* Drive the VM through the non-blocking step API until one of the local
-   * runner limits is reached.
-   */
-  runner_options.max_steps = options.max_steps;
-  runner_options.max_logged_calls = options.max_logged_calls;
-  runner_options.duration_ms = options.duration_ms;
-  runner_options.input = input_script ? update_scripted_input : NULL;
-  runner_options.input_user = input_script;
-  VmRunner_Run(vm, backend, &runner_options);
-  print_stop_summary(vm);
-
-  exit_code = (MVM_GetState(vm) == MVM_STATE_ERROR) ? 2 : 0;
-  MVM_Free(vm);
-  free(vm_storage);
-  close_image_source(&file_provider);
-  SdlBackend_StopRecording(backend);
-  InputScript_Destroy(input_script);
-  SdlBackend_Destroy(backend);
-
-  return exit_code;
+  return 1;
 }
+
+/**********************************************************************************************************************
+ *  END OF FILE: main.c
+ *********************************************************************************************************************/

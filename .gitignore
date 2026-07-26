@@ -7,6 +7,7 @@ Release/
 *.exe
 *.o
 *.obj
+*.a
 
 # Debug symbols and crash dumps
 *.pdb
