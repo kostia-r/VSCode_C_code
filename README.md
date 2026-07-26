@@ -17,6 +17,18 @@ The current desktop runner supports the Sony Ericsson T310 and T610 profiles.
 - Surrounding SDK and reference inventory:
   [`.agents/EXTERNAL_TOOLCHAINS.md`](.agents/EXTERNAL_TOOLCHAINS.md)
 
+OpenMophun is tracked as a Git submodule. Clone this repository with:
+
+```bat
+git clone --recurse-submodules <repository-url>
+```
+
+For an existing clone, initialize or update the library with:
+
+```bat
+git submodule update --init --recursive
+```
+
 ## Desktop build
 
 The current wrapper targets Windows with MinGW GCC/GNU Make and the bundled

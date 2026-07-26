@@ -1,0 +1,3 @@
+[submodule "OpenMophun"]
+	path = OpenMophun
+	url = https://github.com/kostia-r/OpenMophun.git

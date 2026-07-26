@@ -13,7 +13,7 @@ Completed implementation history belongs in Git, not in this document.
 - Target STM32F407VET6 for the first real embedded bring-up.
 
 Original `.mpn` decryption is separate research. Real STM32 BSP integration is
-reserved for Phase 14.
+reserved for Phase 13.
 
 ## Current Architecture
 
@@ -72,68 +72,23 @@ The desktop application in `Src/` is the current reference integration.
 | 9. Desktop host | Complete | SDL/file/audio/input adapters outside the library |
 | 10. Persistence model | Partial | Named files work; exact persistent-resource policy remains |
 | 11. Corpus infrastructure | Complete | T310/T610 manifests, recordings, classifications |
-| 12. External integration | Functionally complete | Only standalone-repository/submodule mechanics remain |
-| 13. Decryption research | Planned | Original encrypted image support |
-| 14. Minimal MCU port | Planned | Real STM32F407VET6 BSP and hardware execution |
+| 12. External integration | Complete | Standalone OpenMophun repository integrated as a submodule |
+| 13. Minimal MCU port | Planned | Real STM32F407VET6 BSP and hardware execution |
+| 14. Decryption research | Planned | Original encrypted image support |
 | 15. Optimization/review | Planned | Performance and final portability review |
 
-## Phase 12: Functional Closure
+## Phase 12: External Integration — Complete
 
-The API, local packaging, callback model, documentation, desktop integration,
-Cortex-M4 cross-build, focused gameplay checks, and complete corpus regression
-are accepted.
+Phase 12 established the public API, parent-owned memory model, explicit
+platform callbacks, standalone/static-library builds, bare-metal-style desktop
+integration, and multi-instance-safe configuration.
 
-Latest complete checkpoint after runtime logging, explicit platform
-registration, and frame-cadence API cleanup:
+OpenMophun is maintained at `https://github.com/kostia-r/OpenMophun.git` and is
+tracked here as the `OpenMophun` submodule. Source-included desktop,
+`libOpenMophun.a`, static desktop, Cortex-M4 `-Werror`, and complete T310/T610
+regression gates pass from the submodule.
 
-- `Runs/Phase12PostLoggingFullT310/20260727_002307` — 21/21;
-- `Runs/Phase12PostLoggingFullT610/20260727_002307` — 13/13;
-- zero process failures and timeouts;
-- zero VM errors, OOB faults, invalid opcodes, and missing syscalls;
-- zero allocation failures and tracker overflows;
-- all 34 runs produced logs, recordings, audio, frames, and videos;
-- maximum observed heap high-water: 87,508 bytes T310 and 45,128 bytes T610;
-- terminal VM state and error match
-  `Runs/Phase12FinalFullT310/20260726_190949` and
-  `Runs/Phase12FinalFullT610/20260726_190949` for all 34 runs.
-
-Wall-clock-bounded instruction counts remain diagnostic and may change with
-host cadence or logging overhead. Terminal state, structured failures, memory
-outcomes, and generated artifacts are the regression gates.
-
-Compared with `Runs/Segmented96T310/20260719_195347` and
-`Runs/Segmented96T610/20260719_195347`, three games reached guest
-`vTerminateVMGP` within the time window instead of remaining active:
-
-- Bouncy demo T310;
-- HoneyCave2 T310;
-- HoneyCave2 T610.
-
-All three are normal `state=4,error=0` exits with process code zero. They are
-treated as timing/cadence coverage differences, not VM failures. No
-classification change is required.
-
-Manual Phase 12 acceptance already covered Prehistorik Man, Alien Scum, Deep
-Abyss, VRally2, snowboardx, Iceblox, and the known certificate-sensitive paths.
-Existing visual/timing/certificate differences remain explicit backlog items
-and are not regressions introduced by the integration work.
-
-## Phase 12: Remaining Closure Work
-
-Repository mechanics are deliberately the last Phase 12 implementation step:
-
-- move `OpenMophun/` into the already-created standalone OpenMophun repository;
-- reconnect it here as a Git submodule;
-- require zero library-local patches from the parent repository;
-- rebuild source-included and `libOpenMophun.a` variants;
-- repeat Cortex-M4 compilation with `-Werror`;
-- repeat focused smoke and complete T310/T610 regression gates.
-
-The functional implementation is frozen. Phase 12 closes administratively when
-the same source state is reintegrated as a submodule and all build/regression
-gates remain clean.
-
-## Accepted Phase 12 Decisions
+Accepted architecture:
 
 - Public headers are limited to `MVM.h` and `MVM_Types.h`.
 - All private `.c` and `.h` files are flat under `OpenMophun/src`.
@@ -155,26 +110,56 @@ gates remain clean.
 - The 96 KiB physical guest heap with segmented high-memory backing is accepted
   for the current corpus.
 - Real linker scripts, FatFS/BSP wiring, DMA placement, and execution on the
-  STM32F407VET6 belong to Phase 14.
+  STM32F407VET6 belong to Phase 13.
 
-## Current Resource Baseline
+## Phase 13: STM32F407VET6 Bring-up
 
-Arm GNU Toolchain 15.3.1, Cortex-M4 Thumb, `-Os`, section splitting, and
-`-Werror`:
+- Integrate the existing BSP and linker script.
+- Implement external-card filesystem callbacks.
+- Place DMA-visible framebuffer/buffers in SRAM1/SRAM2.
+- Place suitable CPU-only state in CCM.
+- Run the bounded loop from bare metal or an RTOS task.
+- Measure final Flash, runtime pool, stack high-water, interrupt margin, and CPU
+  time from the linker map and hardware.
+- Run at least one real game through input, display, storage, and normal exit.
 
-| Resource | Measurement |
-| --- | ---: |
-| Library code and constants | 48,857 bytes |
-| Initialized data | 0 bytes |
-| Object BSS | 32 bytes |
-| Opaque VM instance | 6,740 bytes |
-| Largest static function frame | 592 bytes |
-| Estimated T310 working RAM | 55.2–105.6 KiB |
-| Estimated T610 working RAM | 98.5–123.6 KiB |
+## Phase 14: Decryption Research
 
-This fits the STM32F407VET6 total 512 KiB Flash and 192 KiB SRAM/CCM budget.
-Final SRAM-bank, DMA-buffer, BSP, filesystem, interrupt-stack, and linker-map
-validation remains a Phase 14 requirement.
+- Compare encrypted and decrypted image pairs.
+- Document relevant headers, transformations, and validation.
+- Keep decryption separate from VM execution correctness.
+- Add an input stage only after the format is understood and legally suitable.
+
+## Phase 15: Optimization and Final Review
+
+- Profile opcode, import, renderer, and memory mapping hot paths.
+- Consider jump-table or indexed dispatch where measurement justifies it.
+- Remove release-inactive diagnostics through compile-time policy.
+- Review integer overflow, alignment, endian handling, bounds checks, and
+  callback contracts.
+- Re-run complete regression gates after every behavior-affecting optimization.
+
+### Final provenance, licensing, and acknowledgements audit
+
+Perform this only at the end of the project, before public release:
+
+- freeze the audited OpenMophun, MoRePhun, and nofun revisions;
+- inventory the official documentation and community references used during
+  development, together with their licenses and copyright notices;
+- run exact, normalized, and token-based source similarity checks;
+- manually review high-risk VMGP, PIP, decompression, import, renderer,
+  certificate, allocator, font, and constant-table matches;
+- classify each material match as specification-derived, common idiom,
+  independently derived, licensed adaptation, or unresolved;
+- remove, independently reimplement, or license and attribute any material
+  adaptation as required;
+- record the procedure, findings, decisions, and remaining uncertainty in a
+  code-provenance audit report;
+- only after the audit, revise README wording about implementation origin, add
+  acknowledgements for verified reference projects and authors, and add any
+  required license or NOTICE material;
+- do not claim strict clean-room development or absence of copied code unless
+  the completed audit supports that statement.
 
 ## Open Defect Backlog
 
@@ -252,51 +237,21 @@ Add focused automated tests for:
 - memory query and instance alignment;
 - callback validation and multi-instance isolation.
 
-## Phase 13: Decryption Research
+## Current Resource Baseline
 
-- Compare encrypted and decrypted image pairs.
-- Document relevant headers, transformations, and validation.
-- Keep decryption separate from VM execution correctness.
-- Add an input stage only after the format is understood and legally suitable.
+Arm GNU Toolchain 15.3.1, Cortex-M4 Thumb, `-Os`, section splitting, and
+`-Werror`:
 
-## Phase 14: STM32F407VET6 Bring-up
+| Resource | Measurement |
+| --- | ---: |
+| Library code and constants | 48,857 bytes |
+| Initialized data | 0 bytes |
+| Object BSS | 32 bytes |
+| Opaque VM instance | 6,740 bytes |
+| Largest static function frame | 592 bytes |
+| Estimated T310 working RAM | 55.2–105.6 KiB |
+| Estimated T610 working RAM | 98.5–123.6 KiB |
 
-- Integrate the existing BSP and linker script.
-- Implement external-card filesystem callbacks.
-- Place DMA-visible framebuffer/buffers in SRAM1/SRAM2.
-- Place suitable CPU-only state in CCM.
-- Run the bounded loop from bare metal or an RTOS task.
-- Measure final Flash, runtime pool, stack high-water, interrupt margin, and CPU
-  time from the linker map and hardware.
-- Run at least one real game through input, display, storage, and normal exit.
-
-## Phase 15: Optimization and Final Review
-
-- Profile opcode, import, renderer, and memory mapping hot paths.
-- Consider jump-table or indexed dispatch where measurement justifies it.
-- Remove release-inactive diagnostics through compile-time policy.
-- Review integer overflow, alignment, endian handling, bounds checks, and
-  callback contracts.
-- Re-run complete regression gates after every behavior-affecting optimization.
-
-### Final provenance, licensing, and acknowledgements audit
-
-Perform this only at the end of the project, before public release:
-
-- freeze the audited OpenMophun, MoRePhun, and nofun revisions;
-- inventory the official documentation and community references used during
-  development, together with their licenses and copyright notices;
-- run exact, normalized, and token-based source similarity checks;
-- manually review high-risk VMGP, PIP, decompression, import, renderer,
-  certificate, allocator, font, and constant-table matches;
-- classify each material match as specification-derived, common idiom,
-  independently derived, licensed adaptation, or unresolved;
-- remove, independently reimplement, or license and attribute any material
-  adaptation as required;
-- record the procedure, findings, decisions, and remaining uncertainty in a
-  code-provenance audit report;
-- only after the audit, revise README wording about implementation origin, add
-  acknowledgements for verified reference projects and authors, and add any
-  required license or NOTICE material;
-- do not claim strict clean-room development or absence of copied code unless
-  the completed audit supports that statement.
+This fits the STM32F407VET6 total 512 KiB Flash and 192 KiB SRAM/CCM budget.
+Final SRAM-bank, DMA-buffer, BSP, filesystem, interrupt-stack, and linker-map
+validation remains a Phase 13 requirement.
