@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /**********************************************************************************************************************
  *  LOCAL DEFINES
@@ -78,6 +79,7 @@ static int parse_fixed_date_time(const char *value,
                                  uint8_t *minute,
                                  uint8_t *second);
 static int parse_options(int argc, char **argv, AppOptions *options);
+static int get_date_time(void *context, MVM_TimeKind_t kind, MVM_DateTime_t *date_time);
 static void print_stop_summary(MVM_Instance_t *vm);
 static void deinit_application(AppContext *app);
 static int init_application(AppContext *app, const AppOptions *options);
@@ -465,6 +467,34 @@ static void print_stop_summary(MVM_Instance_t *vm)
 /**
  * @brief Releases every resource owned by one desktop application instance.
  */
+static int get_date_time(void *context, MVM_TimeKind_t kind, MVM_DateTime_t *date_time)
+{
+  time_t now;
+  struct tm *calendar;
+
+  (void)context;
+  if (!date_time)
+  {
+    return 0;
+  }
+
+  now = time(NULL);
+  calendar = kind == MVM_TIME_UTC ? gmtime(&now) : localtime(&now);
+  if (!calendar)
+  {
+    return 0;
+  }
+
+  date_time->year = (uint16_t)(calendar->tm_year + 1900);
+  date_time->month = (uint8_t)(calendar->tm_mon + 1);
+  date_time->day = (uint8_t)calendar->tm_mday;
+  date_time->hour = (uint8_t)calendar->tm_hour;
+  date_time->minute = (uint8_t)calendar->tm_min;
+  date_time->second = (uint8_t)calendar->tm_sec;
+  date_time->weekday = (uint8_t)calendar->tm_wday;
+  return 1;
+} /* End of get_date_time */
+
 static void deinit_application(AppContext *app)
 {
   /* Allow cleanup after a partially completed initialization. */
@@ -592,6 +622,7 @@ static int init_application(AppContext *app, const AppOptions *options)
   app->config.services.audio_play = SdlBackend_AudioPlay;
   app->config.services.audio_stop = SdlBackend_AudioStop;
   app->config.services.get_ticks_ms = SdlBackend_GetTicks;
+  app->config.services.get_date_time = get_date_time;
   app->config.services.get_random = NULL;
   app->config.services.log = Logger_Log;
   app->config.services.event = NULL;
