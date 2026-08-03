@@ -29,7 +29,6 @@
 
 #define MAX_STEPS_DEFAULT              (100000000U)
 #define MAX_LOGGED_CALLS_DEFAULT       (0U)
-#define DESKTOP_RUNTIME_POOL_SIZE      (1024U * 1024U)
 #define VM_STEPS_PER_HOST_ITERATION    (5000U)
 #define HOST_LOOP_DELAY_MS             (1U)
 
@@ -60,7 +59,9 @@ typedef struct AppContext
   MVM_InitConfig_t config;
   MVM_Instance_t *vm;
   void *vm_storage;
-  void *runtime_pool;
+  void *auxiliary_pool;
+  void *guest_memory_pool;
+  void *code_cache;
   SdlBackend *platform;
   InputScript *input_script;
 } AppContext;
@@ -510,9 +511,13 @@ static void deinit_application(AppContext *app)
     app->vm = NULL;
   }
 
-  free(app->runtime_pool);
+  free(app->auxiliary_pool);
+  free(app->guest_memory_pool);
+  free(app->code_cache);
   free(app->vm_storage);
-  app->runtime_pool = NULL;
+  app->auxiliary_pool = NULL;
+  app->guest_memory_pool = NULL;
+  app->code_cache = NULL;
   app->vm_storage = NULL;
 
   SdlBackend_StopRecording(app->platform);
@@ -638,11 +643,20 @@ static int init_application(AppContext *app, const AppOptions *options)
   }
 
   app->vm_storage = malloc(MVM_GetInstanceStorageSize());
-  app->runtime_pool = malloc(DESKTOP_RUNTIME_POOL_SIZE);
-  app->config.runtime_pool = app->runtime_pool;
-  app->config.runtime_pool_size = DESKTOP_RUNTIME_POOL_SIZE;
-  /* Require both parent-owned memory regions. */
-  if (!app->vm_storage || !app->runtime_pool)
+  app->auxiliary_pool = malloc(memory_requirements.auxiliary_pool_bytes);
+  app->guest_memory_pool = malloc(memory_requirements.guest_memory_bytes);
+  app->code_cache = memory_requirements.code_cache_bytes != 0U
+                        ? malloc(memory_requirements.code_cache_bytes)
+                        : NULL;
+  app->config.runtime_pool = app->auxiliary_pool;
+  app->config.runtime_pool_size = memory_requirements.auxiliary_pool_bytes;
+  app->config.guest_memory_pool = app->guest_memory_pool;
+  app->config.guest_memory_pool_size = memory_requirements.guest_memory_bytes;
+  app->config.code_cache = app->code_cache;
+  app->config.code_cache_size = memory_requirements.code_cache_bytes;
+  /* Require every parent-owned memory region used by this integration. */
+  if (!app->vm_storage || !app->auxiliary_pool || !app->guest_memory_pool ||
+      (memory_requirements.code_cache_bytes != 0U && !app->code_cache))
   {
     fprintf(stderr, "Could not allocate VM instance memory.\n");
     return 0;
@@ -653,9 +667,11 @@ static int init_application(AppContext *app, const AppOptions *options)
   if (MVM_OK != retVal)
   {
     fprintf(stderr,
-            "Failed to initialize VMGP context. ret=%u required_pool=%llu\n",
+            "Failed to initialize VMGP context. ret=%u auxiliary=%llu guest=%llu code=%llu\n",
             (unsigned)retVal,
-            (unsigned long long)memory_requirements.runtime_pool_bytes);
+            (unsigned long long)memory_requirements.auxiliary_pool_bytes,
+            (unsigned long long)memory_requirements.guest_memory_bytes,
+            (unsigned long long)memory_requirements.code_cache_bytes);
     return 0;
   }
 
