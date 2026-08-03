@@ -73,7 +73,7 @@ The desktop application in `Src/` is the current reference integration.
 | 10. Persistence model | Partial | Named files work; exact persistent-resource policy remains |
 | 11. Corpus infrastructure | Complete | T310/T610 manifests, recordings, classifications |
 | 12. External integration | Complete | Standalone OpenMophun repository integrated as a submodule |
-| 13. Minimal MCU port | Planned | Real STM32F407VET6 BSP and hardware execution |
+| 13. Minimal MCU port | Ongoing | External STM32F407VET6 PoC executes DeepAbyss T310 on hardware |
 | 14. Decryption research | Planned | Original encrypted image support |
 | 15. Optimization/review | Planned | Performance and final portability review |
 
@@ -113,6 +113,14 @@ Accepted architecture:
   STM32F407VET6 belong to Phase 13.
 
 ## Phase 13: STM32F407VET6 Bring-up
+
+An external PoC now initializes the VM from SD, drives an SPI display,
+joystick, and I2S audio, and executes DeepAbyss T310 on real hardware. The
+library exposes an optional parent-owned full code cache so MCU integrations
+can remove filesystem access from instruction fetch while leaving resources
+source-backed. Hardware testing confirms a significant improvement: DeepAbyss
+T310 no longer stutters during gameplay. Quantitative DWT/frame-time/audio
+measurements and the remaining T610 memory shortfall are still open.
 
 - Integrate the existing BSP and linker script.
 - Implement external-card filesystem callbacks.
